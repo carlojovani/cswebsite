@@ -4,17 +4,18 @@
 <style>
     .home-hero {
         margin-bottom: 1.5rem;
+        text-align: center;
     }
 
     .home-feed {
-        margin-left: 10%;
+        margin-left: 0;
         margin-right: auto;
-        width: 30%;
-        background: #fff;
-        border: 1px solid #e5e7eb;
+        width: min(420px, 100%);
+        background: var(--surface);
+        border: 1px solid var(--border);
         border-radius: 16px;
         padding: 1.5rem;
-        box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+        box-shadow: var(--shadow-md);
         min-height: calc(100vh - 260px);
     }
 
@@ -30,10 +31,10 @@
     }
 
     .home-feed-card {
-        border: 1px solid #e5e7eb;
+        border: 1px solid var(--border);
         border-radius: 12px;
         padding: 1rem;
-        background: #f8fafc;
+        background: var(--surface-2);
     }
 
     .home-feed-card h3 {
@@ -42,17 +43,16 @@
 
     .home-feed-card p {
         margin: 0;
-        color: #475569;
+        color: var(--muted);
     }
 
     .home-feed-empty {
-        color: #64748b;
+        color: var(--muted);
         font-style: italic;
     }
 
     @media (max-width: 1024px) {
         .home-feed {
-            margin-left: 5%;
             width: 90%;
         }
     }

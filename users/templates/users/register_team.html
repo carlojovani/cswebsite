@@ -6,7 +6,7 @@
 <div class="registration-container">
     <div class="registration-card">
         <div class="registration-header">
-            <h1>👥 Регистрация команды</h1>
+            <h1>Регистрация команды</h1>
             <p>Шаг 2 из 3: Основная информация команды</p>
         </div>
 
@@ -74,10 +74,9 @@
             </div>
 
             <div class="team-info">
-                <h3>✅ Что дает регистрация команды?</h3>
+                <h3>Что дает регистрация команды?</h3>
                 <div class="team-benefits">
                     <div class="benefit-item">
-                        <div class="benefit-icon">👤</div>
                         <div class="benefit-content">
                             <h4>Поиск игроков</h4>
                             <p>Ищите игроков по уровню, позициям и статистике</p>
@@ -85,7 +84,6 @@
                     </div>
                     
                     <div class="benefit-item">
-                        <div class="benefit-icon">📊</div>
                         <div class="benefit-content">
                             <h4>Просмотр статистики</h4>
                             <p>Смотрите подробную статистику игроков с Faceit</p>
@@ -93,7 +91,6 @@
                     </div>
                     
                     <div class="benefit-item">
-                        <div class="benefit-icon">💬</div>
                         <div class="benefit-content">
                             <h4>Приглашения</h4>
                             <p>Отправляйте приглашения понравившимся игрокам</p>
@@ -101,7 +98,6 @@
                     </div>
                     
                     <div class="benefit-item">
-                        <div class="benefit-icon">🏆</div>
                         <div class="benefit-content">
                             <h4>Участие в турнирах</h4>
                             <p>Регистрируйте команду для участия в турнирах</p>
@@ -113,10 +109,10 @@
             <div class="form-actions">
                 <div class="action-buttons">
                     <a href="{% url 'register_step1' %}" class="btn btn-outline">
-                        ← Назад
+                        Назад
                     </a>
                     <button type="submit" class="btn btn-primary">
-                        Далее: Описание команды →
+                        Далее: Описание команды
                     </button>
                 </div>
             </div>
@@ -132,17 +128,18 @@
     }
 
     .registration-card {
-        background: white;
+        background: var(--surface);
         border-radius: 12px;
-        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+        box-shadow: var(--shadow-md);
         overflow: hidden;
     }
 
     .registration-header {
-        background: linear-gradient(135deg, #7209b7 0%, #3a0ca3 100%);
-        color: white;
+        background: var(--surface-2);
+        color: var(--text);
         padding: 2.5rem 2rem;
         text-align: center;
+        border-bottom: 1px solid var(--border);
     }
 
     .registration-header h1 {
@@ -163,7 +160,7 @@
     .form-section {
         margin-bottom: 2.5rem;
         padding-bottom: 2.5rem;
-        border-bottom: 1px solid #e9ecef;
+        border-bottom: 1px solid var(--border);
     }
 
     .form-section:last-of-type {
@@ -171,7 +168,7 @@
     }
 
     .form-section h3 {
-        color: #333;
+        color: var(--text);
         margin-bottom: 1.5rem;
         font-size: 1.3rem;
         position: relative;
@@ -185,7 +182,7 @@
         top: 0.3rem;
         width: 0.5rem;
         height: 1.5rem;
-        background: #7209b7;
+        background: var(--primary);
         border-radius: 2px;
     }
 
@@ -197,7 +194,7 @@
         display: block;
         margin-bottom: 0.5rem;
         font-weight: 500;
-        color: #333;
+        color: var(--text);
     }
 
     .form-group input[type="text"],
@@ -205,25 +202,25 @@
     .form-group input[type="password"] {
         width: 100%;
         padding: 0.875rem 1rem;
-        border: 2px solid #e9ecef;
+        border: 1px solid var(--border);
         border-radius: 8px;
         font-size: 1rem;
         transition: all 0.3s ease;
-        background: #f8f9fa;
+        background: var(--surface-2);
     }
 
     .form-group input:focus {
         outline: none;
-        border-color: #7209b7;
-        background: white;
-        box-shadow: 0 0 0 3px rgba(114, 9, 183, 0.1);
+        border-color: var(--primary);
+        background: var(--surface);
+        box-shadow: var(--ring);
     }
 
     .form-text {
         display: block;
         margin-top: 0.5rem;
         font-size: 0.85rem;
-        color: #6c757d;
+        color: var(--muted);
     }
 
     .form-row {
@@ -233,7 +230,7 @@
     }
 
     .password-requirements {
-        background: #f8f9fa;
+        background: var(--surface-2);
         border-radius: 8px;
         padding: 1.5rem;
         margin-top: 1rem;
@@ -241,7 +238,7 @@
 
     .password-requirements p {
         margin: 0 0 0.5rem 0;
-        color: #333;
+        color: var(--text);
     }
 
     .password-requirements ul {
@@ -252,7 +249,7 @@
 
     .password-requirements li {
         padding: 0.25rem 0;
-        color: #6c757d;
+        color: var(--muted);
         font-size: 0.9rem;
         position: relative;
         padding-left: 1.5rem;
@@ -262,19 +259,19 @@
         content: '•';
         position: absolute;
         left: 0.5rem;
-        color: #7209b7;
+        color: var(--primary);
     }
 
     .team-info {
-        background: #f0f4ff;
+        background: var(--surface-2);
         border-radius: 8px;
         padding: 1.5rem;
         margin: 2rem 0;
-        border-left: 4px solid #7209b7;
+        border-left: 4px solid var(--primary);
     }
 
     .team-info h3 {
-        color: #2c5282;
+        color: var(--text);
         margin-bottom: 1.5rem;
         font-size: 1.2rem;
     }
@@ -291,28 +288,15 @@
         gap: 1rem;
     }
 
-    .benefit-icon {
-        width: 40px;
-        height: 40px;
-        border-radius: 50%;
-        background: #7209b7;
-        color: white;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.2rem;
-        flex-shrink: 0;
-    }
-
     .benefit-content h4 {
         margin: 0 0 0.25rem 0;
-        color: #333;
+        color: var(--text);
         font-size: 1rem;
     }
 
     .benefit-content p {
         margin: 0;
-        color: #666;
+        color: var(--muted);
         font-size: 0.85rem;
         line-height: 1.4;
     }
@@ -326,9 +310,9 @@
     }
 
     .alert-error {
-        background-color: #f8d7da;
-        border-color: #dc3545;
-        color: #721c24;
+        background-color: rgba(239, 68, 68, 0.12);
+        border-color: #ef4444;
+        color: #991b1b;
     }
 
     .form-actions {
@@ -356,7 +340,7 @@
     }
 
     .btn-primary {
-        background: linear-gradient(135deg, #7209b7 0%, #3a0ca3 100%);
+        background: var(--grad-primary);
         color: white;
         padding: 1rem 2rem;
         font-size: 1.1rem;
@@ -364,17 +348,17 @@
 
     .btn-primary:hover {
         transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(114, 9, 183, 0.3);
+        box-shadow: var(--shadow-sm);
     }
 
     .btn-outline {
         background: transparent;
-        color: #7209b7;
-        border: 2px solid #7209b7;
+        color: var(--primary);
+        border: 1px solid var(--primary);
     }
 
     .btn-outline:hover {
-        background: #7209b7;
+        background: var(--primary);
         color: white;
     }
 
@@ -445,7 +429,7 @@
             
             const toggleButton = document.createElement('button');
             toggleButton.type = 'button';
-            toggleButton.innerHTML = '👁️';
+            toggleButton.textContent = 'Показать';
             toggleButton.style.position = 'absolute';
             toggleButton.style.right = '10px';
             toggleButton.style.top = '50%';
@@ -453,7 +437,7 @@
             toggleButton.style.background = 'none';
             toggleButton.style.border = 'none';
             toggleButton.style.cursor = 'pointer';
-            toggleButton.style.fontSize = '1.2rem';
+            toggleButton.style.fontSize = '0.85rem';
             
             input.parentNode.insertBefore(wrapper, input);
             wrapper.appendChild(input);
@@ -462,10 +446,10 @@
             toggleButton.addEventListener('click', function() {
                 if (input.type === 'password') {
                     input.type = 'text';
-                    this.innerHTML = '👁️‍🗨️';
+                    this.textContent = 'Скрыть';
                 } else {
                     input.type = 'password';
-                    this.innerHTML = '👁️';
+                    this.textContent = 'Показать';
                 }
             });
         });

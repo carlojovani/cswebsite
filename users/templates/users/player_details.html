@@ -9,7 +9,7 @@
             {% if player_profile.avatar %}
                 <img src="{{ player_profile.avatar }}" alt="{{ profile_user.username }}" class="avatar-img">
             {% else %}
-                <div class="avatar-placeholder">👤</div>
+                <div class="avatar-placeholder">Нет фото</div>
             {% endif %}
         </div>
         <div class="player-info">
@@ -72,17 +72,17 @@
                 <div class="detail-item">
                     <strong>Могу быть IGL:</strong>
                     {% if player_profile.is_igl %}
-                        <span class="status-active">✅ Да</span>
+                        <span class="status-active">Да</span>
                     {% else %}
-                        <span class="status-inactive">⛔ Нет</span>
+                        <span class="status-inactive">Нет</span>
                     {% endif %}
                 </div>
                 <div class="detail-item">
                     <strong>Могу играть на AWP:</strong>
                     {% if player_profile.can_awp %}
-                        <span class="status-active">✅ Да</span>
+                        <span class="status-active">Да</span>
                     {% else %}
-                        <span class="status-inactive">⛔ Нет</span>
+                        <span class="status-inactive">Нет</span>
                     {% endif %}
                 </div>
                 <div class="detail-item">
@@ -145,7 +145,7 @@
     </div>
 
     <div class="player-actions">
-        <a href="{% url 'search_player' %}" class="btn btn-outline">← Назад к поиску</a>
+        <a href="{% url 'search_player' %}" class="btn btn-outline">Назад к поиску</a>
     </div>
 </div>
 

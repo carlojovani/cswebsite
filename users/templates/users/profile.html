@@ -13,11 +13,7 @@
                 <img src="{{ player_profile.avatar }}" alt="{{ profile_user.username }}" class="avatar-img">
             {% else %}
                 <div class="avatar-placeholder">
-                    {% if profile_user.user_type == 'player' %}
-                        👤
-                    {% else %}
-                        👥
-                    {% endif %}
+                    Нет фото
                 </div>
             {% endif %}
         </div>
@@ -36,7 +32,7 @@
                 {% endif %}
 
                 {% if profile_user.user_type == 'player' and player_profile and player_profile.is_verified %}
-                    <span class="badge badge-verified">✓ Проверен</span>
+                    <span class="badge badge-verified">Проверен</span>
                 {% endif %}
             </div>
 
@@ -65,12 +61,12 @@
         <div class="profile-actions">
             {% if profile_user.user_type == 'player' %}
                 <a href="{% url 'update_faceit_data' %}" class="btn btn-update">
-                    🔄 Обновить с Faceit
+                    Обновить с Faceit
                 </a>
             {% else %}
                 <!-- ИСПРАВЛЕННАЯ СТРОКА: заменил edit_team_profile на edit_profile -->
                 <a href="{% url 'edit_profile' %}" class="btn btn-edit">
-                    ✏️ Редактировать профиль
+                    Редактировать профиль
                 </a>
             {% endif %}
         </div>
@@ -128,7 +124,7 @@
                         {% if player_profile.country %}
                         <div class="detail-item">
                             <strong>Страна:</strong>
-                            <span class="flag">🇷🇺</span> {{ player_profile.country|upper }}
+                            {{ player_profile.country|upper }}
                         </div>
                         {% endif %}
 
@@ -166,17 +162,17 @@
                         <div class="detail-item">
                             <strong>Могу быть IGL:</strong>
                             {% if player_profile.is_igl %}
-                                <span class="status-active">✅ Да</span>
+                                <span class="status-active">Да</span>
                             {% else %}
-                                <span class="status-inactive">⛔ Нет</span>
+                                <span class="status-inactive">Нет</span>
                             {% endif %}
                         </div>
                         <div class="detail-item">
                             <strong>Могу играть на AWP:</strong>
                             {% if player_profile.can_awp %}
-                                <span class="status-active">✅ Да</span>
+                                <span class="status-active">Да</span>
                             {% else %}
-                                <span class="status-inactive">⛔ Нет</span>
+                                <span class="status-inactive">Нет</span>
                             {% endif %}
                         </div>
                         <div class="detail-item">
@@ -254,27 +250,27 @@
                                 <div class="requirement-item">
                                     <strong>Ищем IGL:</strong>
                                     {% if team_profile.looking_for_igl %}
-                                        <span class="status-active">✅ Да</span>
+                                        <span class="status-active">Да</span>
                                     {% else %}
-                                        <span class="status-inactive">⛔ Нет</span>
+                                        <span class="status-inactive">Нет</span>
                                     {% endif %}
                                 </div>
                                 
                                 <div class="requirement-item">
                                     <strong>Ищем AWP-иста:</strong>
                                     {% if team_profile.looking_for_awper %}
-                                        <span class="status-active">✅ Да</span>
+                                        <span class="status-active">Да</span>
                                     {% else %}
-                                        <span class="status-inactive">⛔ Нет</span>
+                                        <span class="status-inactive">Нет</span>
                                     {% endif %}
                                 </div>
 
                                 <div class="requirement-item">
                                     <strong>Статус:</strong>
                                     {% if team_profile.is_active %}
-                                        <span class="status-active">✅ Активна</span>
+                                        <span class="status-active">Активна</span>
                                     {% else %}
-                                        <span class="status-inactive">⛔ Неактивна</span>
+                                        <span class="status-inactive">Неактивна</span>
                                     {% endif %}
                                 </div>
 
@@ -291,7 +287,7 @@
                 {% if request.user == team_profile.user %}
                 <div class="team-actions">
                     <a href="{% url 'edit_profile' %}" class="btn btn-edit">
-                        ✏️ Редактировать профиль команды
+                        Редактировать профиль команды
                     </a>
                 </div>
                 {% endif %}

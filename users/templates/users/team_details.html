@@ -5,7 +5,7 @@
 {% block content %}
 <div class="team-details">
     <div class="team-header">
-        <h1>👥 {{ team_profile.team_name }}</h1>
+        <h1>{{ team_profile.team_name }}</h1>
         <p>Подробная информация о команде</p>
     </div>
 
@@ -25,27 +25,27 @@
                 <div class="requirement-item">
                     <strong>Ищем IGL:</strong>
                     {% if team_profile.looking_for_igl %}
-                        <span class="status-active">✅ Да</span>
+                        <span class="status-active">Да</span>
                     {% else %}
-                        <span class="status-inactive">⛔ Нет</span>
+                        <span class="status-inactive">Нет</span>
                     {% endif %}
                 </div>
 
                 <div class="requirement-item">
                     <strong>Ищем AWP-иста:</strong>
                     {% if team_profile.looking_for_awper %}
-                        <span class="status-active">✅ Да</span>
+                        <span class="status-active">Да</span>
                     {% else %}
-                        <span class="status-inactive">⛔ Нет</span>
+                        <span class="status-inactive">Нет</span>
                     {% endif %}
                 </div>
 
                 <div class="requirement-item">
                     <strong>Статус:</strong>
                     {% if team_profile.is_active %}
-                        <span class="status-active">✅ Активна</span>
+                        <span class="status-active">Активна</span>
                     {% else %}
-                        <span class="status-inactive">⛔ Неактивна</span>
+                        <span class="status-inactive">Неактивна</span>
                     {% endif %}
                 </div>
 
@@ -58,7 +58,7 @@
     </div>
 
     <div class="team-actions">
-        <a href="{% url 'search_team' %}" class="btn btn-outline">← Назад к поиску</a>
+        <a href="{% url 'search_team' %}" class="btn btn-outline">Назад к поиску</a>
     </div>
 </div>
 

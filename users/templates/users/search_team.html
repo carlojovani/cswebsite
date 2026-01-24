@@ -7,7 +7,7 @@
 {% block content %}
 <div class="search-container">
     <div class="search-header">
-        <h1>👥 Поиск команд</h1>
+        <h1>Поиск команд</h1>
         <p>Найдите команду, которая ищет таких игроков как вы</p>
     </div>
 
@@ -22,7 +22,6 @@
                         <input type="checkbox" name="igl" id="filter-igl"
                                {% if filters.igl == 'true' %}checked{% endif %}>
                         <label for="filter-igl">
-                            <span class="filter-icon">🎯</span>
                             <span class="filter-text">IGL</span>
                         </label>
                     </div>
@@ -30,7 +29,6 @@
                         <input type="checkbox" name="awper" id="filter-awper"
                                {% if filters.awper == 'true' %}checked{% endif %}>
                         <label for="filter-awper">
-                            <span class="filter-icon">🎯</span>
                             <span class="filter-text">AWP-ист</span>
                         </label>
                     </div>
@@ -39,10 +37,10 @@
 
             <div class="filter-actions">
                 <button type="submit" class="btn btn-primary">
-                    🔍 Применить фильтры
+                    Применить фильтры
                 </button>
                 <a href="{% url 'search_team' %}" class="btn btn-outline">
-                    ❌ Сбросить
+                    Сбросить
                 </a>
             </div>
         </form>
@@ -58,7 +56,7 @@
             <div class="team-card">
                 <div class="team-header">
                     <div class="team-avatar">
-                        <div class="avatar-placeholder">👥</div>
+                        <div class="avatar-placeholder">Нет фото</div>
                     </div>
                     <div class="team-info">
                         <h3>{{ team.team_name }}</h3>
@@ -88,7 +86,7 @@
 
                 <div class="team-footer">
                     <div class="team-meta">
-                        <span class="meta-item">📅 {{ team.created_date|date:"d.m.Y" }}</span>
+                        <span class="meta-item">{{ team.created_date|date:"d.m.Y" }}</span>
                     </div>
                     <div class="team-actions">
                         <a href="{% url 'team_details' team.id %}" class="btn btn-small">
@@ -111,7 +109,7 @@
         <div class="pagination">
             {% if teams.has_previous %}
                 <a href="?page={{ teams.previous_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
-                   class="page-link">← Назад</a>
+                   class="page-link">Назад</a>
             {% endif %}
 
             {% for i in teams.paginator.page_range %}
@@ -125,14 +123,13 @@
 
             {% if teams.has_next %}
                 <a href="?page={{ teams.next_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
-                   class="page-link">Вперед →</a>
+                   class="page-link">Вперед</a>
             {% endif %}
         </div>
         {% endif %}
 
         {% else %}
         <div class="no-results">
-            <div class="no-results-icon">😕</div>
             <h3>Команды не найдены</h3>
             <p>Попробуйте изменить параметры фильтров</p>
             <a href="{% url 'search_team' %}" class="btn btn-primary">
@@ -146,7 +143,8 @@
 <style>
     .search-container {
         max-width: 1200px;
-        margin: 0 auto;
+        margin-left: 0;
+        margin-right: auto;
         padding: 2rem 1rem;
     }
 
@@ -154,9 +152,11 @@
         text-align: center;
         margin-bottom: 3rem;
         padding: 2rem;
-        background: linear-gradient(135deg, #7209b7 0%, #3a0ca3 100%);
+        background: var(--surface-2);
         border-radius: 12px;
-        color: white;
+        color: var(--text);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow-sm);
     }
 
     .search-header h1 {
@@ -170,16 +170,16 @@
     }
 
     .search-filters {
-        background: white;
+        background: var(--surface);
         border-radius: 12px;
         padding: 2rem;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        box-shadow: var(--shadow-sm);
         margin-bottom: 2rem;
-        border: 2px solid #7209b7;
+        border: 1px solid var(--border);
     }
 
     .search-filters h2 {
-        color: #333;
+        color: var(--text);
         margin-bottom: 1.5rem;
         font-size: 1.4rem;
     }
@@ -192,7 +192,7 @@
         display: block;
         margin-bottom: 0.75rem;
         font-weight: 500;
-        color: #555;
+        color: var(--text);
         font-size: 1.1rem;
     }
 
@@ -216,9 +216,9 @@
         align-items: center;
         gap: 0.75rem;
         padding: 1rem;
-        background: #f8f9fa;
+        background: var(--surface-2);
         border-radius: 8px;
-        border: 2px solid #e9ecef;
+        border: 1px solid var(--border);
         cursor: pointer;
         transition: all 0.3s ease;
         margin: 0;
@@ -226,17 +226,13 @@
     }
 
     .filter-checkbox input[type="checkbox"]:checked + label {
-        background: #7209b7;
-        border-color: #7209b7;
+        background: var(--primary);
+        border-color: var(--primary);
         color: white;
     }
 
     .filter-checkbox label:hover {
-        border-color: #7209b7;
-    }
-
-    .filter-icon {
-        font-size: 1.2rem;
+        border-color: var(--primary);
     }
 
     .filter-text {
@@ -264,23 +260,23 @@
     }
 
     .btn-primary {
-        background: linear-gradient(135deg, #7209b7 0%, #3a0ca3 100%);
+        background: var(--grad-primary);
         color: white;
     }
 
     .btn-primary:hover {
         transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(114, 9, 183, 0.3);
+        box-shadow: var(--shadow-sm);
     }
 
     .btn-outline {
         background: transparent;
-        color: #7209b7;
-        border: 2px solid #7209b7;
+        color: var(--primary);
+        border: 1px solid var(--primary);
     }
 
     .btn-outline:hover {
-        background: #7209b7;
+        background: var(--primary);
         color: white;
     }
 
@@ -290,14 +286,14 @@
     }
 
     .search-results {
-        background: white;
+        background: var(--surface);
         border-radius: 12px;
         padding: 2rem;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        box-shadow: var(--shadow-sm);
     }
 
     .search-results h2 {
-        color: #333;
+        color: var(--text);
         margin-bottom: 2rem;
         font-size: 1.4rem;
     }
@@ -309,17 +305,17 @@
     }
 
     .team-card {
-        background: #f8f9fa;
+        background: var(--surface-2);
         border-radius: 8px;
         padding: 1.5rem;
-        border: 2px solid #e9ecef;
+        border: 1px solid var(--border);
         transition: all 0.3s ease;
     }
 
     .team-card:hover {
-        border-color: #7209b7;
+        border-color: var(--primary);
         transform: translateY(-5px);
-        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+        box-shadow: var(--shadow-md);
     }
 
     .team-header {
@@ -333,17 +329,19 @@
         width: 60px;
         height: 60px;
         border-radius: 50%;
-        background: white;
+        background: var(--surface);
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 1.8rem;
-        border: 2px solid #7209b7;
+        font-size: 0.7rem;
+        text-align: center;
+        padding: 0.4rem;
+        border: 2px solid var(--primary);
     }
 
     .team-info h3 {
         margin: 0 0 0.5rem 0;
-        color: #333;
+        color: var(--text);
         font-size: 1.3rem;
     }
 
@@ -361,34 +359,34 @@
     }
 
     .badge-igl {
-        background: #4361ee;
+        background: var(--primary);
         color: white;
     }
 
     .badge-awper {
-        background: #06d6a0;
+        background: var(--accent);
         color: white;
     }
 
     .badge-active {
-        background: #4cc9f0;
+        background: var(--primary);
         color: white;
     }
 
     .badge-inactive {
-        background: #adb5bd;
+        background: var(--muted);
         color: white;
     }
 
     .team-description {
-        color: #555;
+        color: var(--muted);
         line-height: 1.6;
         margin-bottom: 1.5rem;
         font-size: 0.95rem;
     }
 
     .no-description {
-        color: #6c757d;
+        color: var(--muted);
         font-style: italic;
     }
 
@@ -396,13 +394,13 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-        border-top: 1px solid #e9ecef;
+        border-top: 1px solid var(--border);
         padding-top: 1rem;
     }
 
     .team-meta {
         font-size: 0.9rem;
-        color: #6c757d;
+        color: var(--muted);
     }
 
     .meta-item {
@@ -423,28 +421,28 @@
         gap: 0.5rem;
         margin-top: 3rem;
         padding-top: 2rem;
-        border-top: 1px solid #e9ecef;
+        border-top: 1px solid var(--border);
     }
 
     .page-link {
         padding: 0.5rem 1rem;
-        background: white;
-        border: 1px solid #e9ecef;
+        background: var(--surface);
+        border: 1px solid var(--border);
         border-radius: 4px;
-        color: #7209b7;
+        color: var(--primary);
         text-decoration: none;
         transition: all 0.3s ease;
     }
 
     .page-link:hover {
-        background: #7209b7;
+        background: var(--primary);
         color: white;
-        border-color: #7209b7;
+        border-color: var(--primary);
     }
 
     .page-current {
         padding: 0.5rem 1rem;
-        background: #7209b7;
+        background: var(--primary);
         color: white;
         border-radius: 4px;
         font-weight: 500;
@@ -455,18 +453,13 @@
         padding: 4rem 2rem;
     }
 
-    .no-results-icon {
-        font-size: 4rem;
-        margin-bottom: 1rem;
-    }
-
     .no-results h3 {
-        color: #333;
+        color: var(--text);
         margin-bottom: 0.5rem;
     }
 
     .no-results p {
-        color: #6c757d;
+        color: var(--muted);
         margin-bottom: 1.5rem;
     }
 
@@ -526,16 +519,20 @@
     document.addEventListener('DOMContentLoaded', function() {
         // Подсветка выбранных фильтров
         const filterCheckboxes = document.querySelectorAll('.filter-checkbox input[type="checkbox"]');
+        const rootStyles = getComputedStyle(document.documentElement);
+        const primaryColor = rootStyles.getPropertyValue('--primary').trim();
+        const surface2Color = rootStyles.getPropertyValue('--surface-2').trim();
+        const borderColor = rootStyles.getPropertyValue('--border').trim();
         filterCheckboxes.forEach(checkbox => {
             const updateFilter = () => {
                 const label = checkbox.nextElementSibling;
                 if (checkbox.checked) {
-                    label.style.background = '#7209b7';
-                    label.style.borderColor = '#7209b7';
+                    label.style.background = primaryColor || '#7209b7';
+                    label.style.borderColor = primaryColor || '#7209b7';
                     label.style.color = 'white';
                 } else {
-                    label.style.background = '#f8f9fa';
-                    label.style.borderColor = '#e9ecef';
+                    label.style.background = surface2Color || '#f8f9fa';
+                    label.style.borderColor = borderColor || '#e9ecef';
                     label.style.color = 'inherit';
                 }
             };
