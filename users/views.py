@@ -21,7 +21,26 @@ from .faceit import check_faceit_nickname, fetch_faceit_profile_details
 # ---------------------------
 def home(request):
     """Главная страница"""
-    return render(request, 'users/home.html')
+    context = {}
+
+    if request.user.is_authenticated:
+        if request.user.user_type == 'player':
+            context['feed_title'] = 'Команды, которые ищут игроков'
+            context['feed_items'] = (
+                TeamProfile.objects.select_related('user')
+                .filter(is_active=True)
+                .order_by('-id')[:5]
+            )
+            context['feed_kind'] = 'team'
+        else:
+            context['feed_title'] = 'Игроки, которые готовы присоединиться'
+            context['feed_items'] = (
+                PlayerProfile.objects.select_related('user')
+                .order_by('-id')[:5]
+            )
+            context['feed_kind'] = 'player'
+
+    return render(request, 'users/home.html', context)
 
 
 # ---------------------------
