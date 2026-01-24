@@ -93,7 +93,6 @@ class PlayerDetailsForm(forms.ModelForm):
     """Форма деталей игрока (второй шаг)"""
     # CT позиции для каждой карты
     MIRAGE_CT_CHOICES = [
-        ('', '-- Выберите позицию --'),
         ('mirage_ct_b_anchor', 'Опорник Б'),
         ('mirage_ct_short', 'Шорт'),
         ('mirage_ct_window', 'Окно'),
@@ -102,7 +101,6 @@ class PlayerDetailsForm(forms.ModelForm):
     ]
 
     DUST2_CT_CHOICES = [
-        ('', '-- Выберите позицию --'),
         ('dust2_ct_long', 'Лонг'),
         ('dust2_ct_mid', 'Мид'),
         ('dust2_ct_short', 'Шорт'),
@@ -111,7 +109,6 @@ class PlayerDetailsForm(forms.ModelForm):
     ]
 
     ANUBIS_CT_CHOICES = [
-        ('', '-- Выберите позицию --'),
         ('anubis_ct_b_anchor', 'Опорник Б'),
         ('anubis_ct_con', 'Кон'),
         ('anubis_ct_mid', 'Мид'),
@@ -120,7 +117,6 @@ class PlayerDetailsForm(forms.ModelForm):
     ]
 
     NUKE_CT_CHOICES = [
-        ('', '-- Выберите позицию --'),
         ('nuke_ct_outside', 'Улица'),
         ('nuke_ct_main', 'Мейн'),
         ('nuke_ct_a_anchor', 'Опорник А'),
@@ -129,7 +125,6 @@ class PlayerDetailsForm(forms.ModelForm):
     ]
 
     ANCIENT_CT_CHOICES = [
-        ('', '-- Выберите позицию --'),
         ('ancient_ct_b_anchor', 'Опорник Б'),
         ('ancient_ct_cave', 'Кейв'),
         ('ancient_ct_mid', 'Мид'),
@@ -138,7 +133,6 @@ class PlayerDetailsForm(forms.ModelForm):
     ]
 
     INFERNO_CT_CHOICES = [
-        ('', '-- Выберите позицию --'),
         ('inferno_ct_b_anchor', 'Опорник Б'),
         ('inferno_ct_rotate', 'Ротейт'),
         ('inferno_ct_long', 'Лонг'),
@@ -147,7 +141,6 @@ class PlayerDetailsForm(forms.ModelForm):
     ]
 
     OVERPASS_CT_CHOICES = [
-        ('', '-- Выберите позицию --'),
         ('overpass_ct_b_anchor', 'Опорник Б'),
         ('overpass_ct_rotate', 'Ротейт'),
         ('overpass_ct_mid', 'Мид'),
@@ -163,53 +156,53 @@ class PlayerDetailsForm(forms.ModelForm):
     ]
 
     # Поля формы
-    mirage_ct_position = forms.ChoiceField(
+    mirage_ct_position = forms.MultipleChoiceField(
         choices=MIRAGE_CT_CHOICES,
         required=False,
         label='Mirage (CT)',
-        widget=forms.Select(attrs={'class': 'form-control'})
+        widget=forms.CheckboxSelectMultiple(attrs={'class': 'map-options'})
     )
 
-    dust2_ct_position = forms.ChoiceField(
+    dust2_ct_position = forms.MultipleChoiceField(
         choices=DUST2_CT_CHOICES,
         required=False,
         label='Dust 2 (CT)',
-        widget=forms.Select(attrs={'class': 'form-control'})
+        widget=forms.CheckboxSelectMultiple(attrs={'class': 'map-options'})
     )
 
-    anubis_ct_position = forms.ChoiceField(
+    anubis_ct_position = forms.MultipleChoiceField(
         choices=ANUBIS_CT_CHOICES,
         required=False,
         label='Anubis (CT)',
-        widget=forms.Select(attrs={'class': 'form-control'})
+        widget=forms.CheckboxSelectMultiple(attrs={'class': 'map-options'})
     )
 
-    nuke_ct_position = forms.ChoiceField(
+    nuke_ct_position = forms.MultipleChoiceField(
         choices=NUKE_CT_CHOICES,
         required=False,
         label='Nuke (CT)',
-        widget=forms.Select(attrs={'class': 'form-control'})
+        widget=forms.CheckboxSelectMultiple(attrs={'class': 'map-options'})
     )
 
-    ancient_ct_position = forms.ChoiceField(
+    ancient_ct_position = forms.MultipleChoiceField(
         choices=ANCIENT_CT_CHOICES,
         required=False,
         label='Ancient (CT)',
-        widget=forms.Select(attrs={'class': 'form-control'})
+        widget=forms.CheckboxSelectMultiple(attrs={'class': 'map-options'})
     )
 
-    inferno_ct_position = forms.ChoiceField(
+    inferno_ct_position = forms.MultipleChoiceField(
         choices=INFERNO_CT_CHOICES,
         required=False,
         label='Inferno (CT)',
-        widget=forms.Select(attrs={'class': 'form-control'})
+        widget=forms.CheckboxSelectMultiple(attrs={'class': 'map-options'})
     )
 
-    overpass_ct_position = forms.ChoiceField(
+    overpass_ct_position = forms.MultipleChoiceField(
         choices=OVERPASS_CT_CHOICES,
         required=False,
         label='Overpass (CT)',
-        widget=forms.Select(attrs={'class': 'form-control'})
+        widget=forms.CheckboxSelectMultiple(attrs={'class': 'map-options'})
     )
 
     t_role = forms.ChoiceField(
@@ -248,6 +241,44 @@ class PlayerDetailsForm(forms.ModelForm):
             'nuke_ct_position', 'ancient_ct_position', 'inferno_ct_position',
             'overpass_ct_position', 't_role', 'is_igl', 'can_awp', 'description'
         ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        ct_fields = [
+            'mirage_ct_position',
+            'dust2_ct_position',
+            'anubis_ct_position',
+            'nuke_ct_position',
+            'ancient_ct_position',
+            'inferno_ct_position',
+            'overpass_ct_position',
+        ]
+        for field_name in ct_fields:
+            stored_value = getattr(self.instance, field_name, '')
+            if stored_value:
+                self.fields[field_name].initial = [value for value in stored_value.split(',') if value]
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        ct_fields = [
+            'mirage_ct_position',
+            'dust2_ct_position',
+            'anubis_ct_position',
+            'nuke_ct_position',
+            'ancient_ct_position',
+            'inferno_ct_position',
+            'overpass_ct_position',
+        ]
+        for field_name in ct_fields:
+            values = self.cleaned_data.get(field_name, [])
+            if isinstance(values, (list, tuple)):
+                setattr(instance, field_name, ','.join(values))
+            else:
+                setattr(instance, field_name, values or '')
+
+        if commit:
+            instance.save()
+        return instance
 
 
 class TeamRegistrationForm(UserCreationForm):

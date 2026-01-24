@@ -16,7 +16,7 @@
             <!-- CT позиции -->
             <div class="form-section">
                 <h3>CT позиции на картах</h3>
-                <p class="section-description">Выберите вашу основную позицию на стороне контр-террористов для каждой карты:</p>
+                <p class="section-description">Отметьте несколько позиций на стороне контр-террористов для каждой карты:</p>
                 
                 <div class="maps-grid">
                     <!-- Mirage -->
@@ -287,20 +287,38 @@
         font-size: 1.1rem;
     }
 
-    .map-field select {
-        width: 100%;
-        padding: 0.75rem;
-        border: 2px solid #e9ecef;
-        border-radius: 6px;
-        font-size: 0.95rem;
-        background: white;
-        transition: all 0.3s ease;
+    .map-field ul {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: grid;
+        gap: 0.5rem;
     }
 
-    .map-field select:focus {
-        outline: none;
+    .map-field li {
+        margin: 0;
+    }
+
+    .map-field label {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 0.75rem;
+        border-radius: 6px;
+        border: 1px solid #e9ecef;
+        background: #fff;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        font-size: 0.9rem;
+    }
+
+    .map-field input[type="checkbox"] {
+        accent-color: #4361ee;
+    }
+
+    .map-field label:hover {
         border-color: #4361ee;
-        box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.1);
+        background: #f0f4ff;
     }
 
     .role-selection {
@@ -582,11 +600,11 @@
         const form = document.querySelector('.registration-form');
         form.addEventListener('submit', function(e) {
             // Проверяем, что выбрана хотя бы одна CT позиция
-            const ctSelects = document.querySelectorAll('.map-field select');
+            const ctCheckboxes = document.querySelectorAll('.map-field input[type="checkbox"]');
             let hasCtPosition = false;
             
-            ctSelects.forEach(select => {
-                if (select.value) {
+            ctCheckboxes.forEach(checkbox => {
+                if (checkbox.checked) {
                     hasCtPosition = true;
                 }
             });
@@ -607,34 +625,6 @@
             }
             
             return true;
-        });
-        
-        // Автоподсказки для карт (можно расширить)
-        const mapData = {
-            'mirage': {
-                positions: {
-                    'mirage_ct_b_anchor': 'Основной игрок на B, держит туннель и окно',
-                    'mirage_ct_short': 'Игрок на шорте, контролирует мид и коннект',
-                    'mirage_ct_window': 'Снайпер на окне, видит мид и палас',
-                    'mirage_ct_con': 'Игрок на коннекте, помогает и на A и на B',
-                    'mirage_ct_a_anchor': 'Основной игрок на A, держит рамп и палас'
-                }
-            }
-            // Можно добавить для других карт
-        };
-        
-        // Добавляем подсказки при наведении на селекты
-        const mapSelects = document.querySelectorAll('.map-field select');
-        mapSelects.forEach(select => {
-            select.addEventListener('change', function() {
-                const mapName = this.closest('.map-card').querySelector('h4').textContent.toLowerCase();
-                const positionValue = this.value;
-                
-                if (mapData[mapName] && mapData[mapName].positions[positionValue]) {
-                    // Можно показать tooltip или изменить стиль
-                    this.title = mapData[mapName].positions[positionValue];
-                }
-            });
         });
     });
 </script>

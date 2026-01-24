@@ -328,6 +328,8 @@ def search_player(request):
 
     players = PlayerProfile.objects.select_related('user').all()
 
+    position_filters = []
+
     # Фильтры
     filters = {}
 
@@ -347,6 +349,22 @@ def search_player(request):
         except ValueError:
             pass
 
+    # ELO
+    min_elo = request.GET.get('min_elo')
+    max_elo = request.GET.get('max_elo')
+
+    if min_elo:
+        try:
+            filters['elo__gte'] = int(min_elo)
+        except ValueError:
+            pass
+
+    if max_elo:
+        try:
+            filters['elo__lte'] = int(max_elo)
+        except ValueError:
+            pass
+
     # IGL
     need_igl = request.GET.get('igl')
     if need_igl == 'true':
@@ -356,6 +374,22 @@ def search_player(request):
     need_awp = request.GET.get('awp')
     if need_awp == 'true':
         filters['can_awp'] = True
+
+    # Позиции на картах
+    map_labels = dict(PlayerProfile.MAP_CHOICES)
+    for map_name, choices in PlayerProfile.CT_POSITION_CHOICES.items():
+        selected = request.GET.getlist(f'{map_name}_positions')
+        if selected:
+            map_query = Q()
+            for position in selected:
+                map_query |= Q(**{f'{map_name}_ct_position__contains': position})
+            players = players.filter(map_query)
+        position_filters.append({
+            'map_name': map_name,
+            'label': map_labels.get(map_name, map_name.title()),
+            'choices': choices,
+            'selected': selected,
+        })
 
     # Страна
     country = request.GET.get('country')
@@ -373,9 +407,12 @@ def search_player(request):
 
     context = {
         'players': players,
+        'position_filters': position_filters,
         'filters': {
             'min_level': min_level,
             'max_level': max_level,
+            'min_elo': min_elo,
+            'max_elo': max_elo,
             'igl': need_igl,
             'awp': need_awp,
             'country': country,

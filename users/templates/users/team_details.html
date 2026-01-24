@@ -1,0 +1,157 @@
+{% extends 'users/base.html' %}
+
+{% block title %}Команда {{ team_profile.team_name }} - CS Platform{% endblock %}
+
+{% block content %}
+<div class="team-details">
+    <div class="team-header">
+        <h1>👥 {{ team_profile.team_name }}</h1>
+        <p>Подробная информация о команде</p>
+    </div>
+
+    <div class="team-card">
+        {% if team_profile.description %}
+        <div class="team-section">
+            <h2>Описание</h2>
+            <div class="team-description">
+                {{ team_profile.description|linebreaks }}
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="team-section">
+            <h2>Требования к игрокам</h2>
+            <div class="requirements-grid">
+                <div class="requirement-item">
+                    <strong>Ищем IGL:</strong>
+                    {% if team_profile.looking_for_igl %}
+                        <span class="status-active">✅ Да</span>
+                    {% else %}
+                        <span class="status-inactive">⛔ Нет</span>
+                    {% endif %}
+                </div>
+
+                <div class="requirement-item">
+                    <strong>Ищем AWP-иста:</strong>
+                    {% if team_profile.looking_for_awper %}
+                        <span class="status-active">✅ Да</span>
+                    {% else %}
+                        <span class="status-inactive">⛔ Нет</span>
+                    {% endif %}
+                </div>
+
+                <div class="requirement-item">
+                    <strong>Статус:</strong>
+                    {% if team_profile.is_active %}
+                        <span class="status-active">✅ Активна</span>
+                    {% else %}
+                        <span class="status-inactive">⛔ Неактивна</span>
+                    {% endif %}
+                </div>
+
+                <div class="requirement-item">
+                    <strong>Создана:</strong>
+                    {{ team_profile.created_date|date:"d.m.Y" }}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="team-actions">
+        <a href="{% url 'search_team' %}" class="btn btn-outline">← Назад к поиску</a>
+    </div>
+</div>
+
+<style>
+    .team-details {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 2rem 1rem;
+    }
+
+    .team-header {
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+
+    .team-header h1 {
+        margin-bottom: 0.5rem;
+        font-size: 2.2rem;
+        color: #2d2d2d;
+    }
+
+    .team-header p {
+        margin: 0;
+        color: #6c757d;
+    }
+
+    .team-card {
+        background: #fff;
+        border-radius: 12px;
+        padding: 2rem;
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.08);
+    }
+
+    .team-section + .team-section {
+        margin-top: 2rem;
+        padding-top: 2rem;
+        border-top: 1px solid #e9ecef;
+    }
+
+    .team-section h2 {
+        margin: 0 0 1rem;
+        font-size: 1.4rem;
+        color: #3a0ca3;
+    }
+
+    .team-description {
+        color: #4a4a4a;
+        line-height: 1.6;
+    }
+
+    .requirements-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 1rem;
+    }
+
+    .requirement-item {
+        background: #f8f9fa;
+        border-radius: 8px;
+        padding: 0.75rem 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .status-active {
+        color: #28a745;
+    }
+
+    .status-inactive {
+        color: #dc3545;
+    }
+
+    .team-actions {
+        margin-top: 1.5rem;
+        text-align: center;
+    }
+
+    .btn-outline {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.75rem 1.5rem;
+        border-radius: 8px;
+        border: 2px solid #4361ee;
+        color: #4361ee;
+        text-decoration: none;
+        transition: all 0.2s ease;
+    }
+
+    .btn-outline:hover {
+        background: #4361ee;
+        color: #fff;
+    }
+</style>
+{% endblock %}
