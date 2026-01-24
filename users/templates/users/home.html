@@ -88,9 +88,20 @@
                                     {{ item.description|default:"Описание команды пока не заполнено."|truncatechars:160 }}
                                 </p>
                             {% else %}
-                                <h3>{{ item.user.username }}</h3>
+                                <h3>
+                                    {% if item.user.faceit_nickname %}
+                                        {{ item.user.faceit_nickname }}
+                                    {% else %}
+                                        {{ item.user.username }}
+                                    {% endif %}
+                                </h3>
                                 <p class="home-feed-description">
-                                    {{ item.description|default:"Описание игрока пока не заполнено."|truncatechars:160 }}
+                                    {% if item.description %}
+                                        {{ item.description|truncatechars:160 }}
+                                    {% else %}
+                                        Профиль: уровень {{ item.level|default:"-" }}, ELO {{ item.elo|default:"-" }},
+                                        роль {{ item.get_t_role_display }}, позиции {{ item.get_positions_summary }}.
+                                    {% endif %}
                                 </p>
                             {% endif %}
                         </div>
