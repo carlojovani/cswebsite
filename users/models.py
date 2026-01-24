@@ -152,13 +152,22 @@ class PlayerProfile(models.Model):
     def __str__(self):
         return f'PlayerProfile: {self.user.username}'
 
+    @staticmethod
+    def _split_positions(value):
+        if not value:
+            return []
+        if isinstance(value, (list, tuple)):
+            return list(value)
+        return [item for item in value.split(',') if item]
+
     def get_ct_position_display(self, map_name):
         """Получить отображаемое название позиции для карты"""
         positions = self.CT_POSITION_CHOICES.get(map_name, [])
-        for position_code, position_name in positions:
-            if position_code == getattr(self, f'{map_name}_ct_position', ''):
-                return position_name
-        return 'Не указано'
+        position_lookup = dict(positions)
+        stored_value = getattr(self, f'{map_name}_ct_position', '')
+        selected_positions = self._split_positions(stored_value)
+        labels = [position_lookup.get(position, position) for position in selected_positions]
+        return ', '.join(labels) if labels else 'Не указано'
 
     def get_mirage_ct_position_display(self):
         return self.get_ct_position_display('mirage')
