@@ -2,9 +2,17 @@
 {% extends 'users/base.html' %}
 {% block extra_css %}
 <style>
+    .home-layout {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1.5rem;
+    }
+
     .home-hero {
         margin-bottom: 1.5rem;
         text-align: center;
+        width: 100%;
     }
 
     .home-feed {
@@ -41,7 +49,8 @@
         margin-bottom: 0.35rem;
     }
 
-    .home-feed-card p {
+    .home-feed-card p,
+    .home-feed-description {
         margin: 0;
         color: var(--muted);
     }
@@ -60,36 +69,42 @@
 {% endblock %}
 
 {% block content %}
-<div class="home-hero">
-    <h1>Добро пожаловать на Esportsfinder!</h1>
-    <p>Платформа для поиска игроков и команд в CS:GO</p>
-</div>
+<div class="home-layout">
+    <div class="home-hero">
+        <h1>Добро пожаловать на Esportsfinder!</h1>
+        <p>Платформа для поиска игроков и команд в CS:GO</p>
+    </div>
 
-{% if user.is_authenticated %}
-    <section class="home-feed">
-        <h2>{{ feed_title }}</h2>
-        {% if feed_items %}
-            <div class="home-feed-list">
-                {% for item in feed_items %}
-                    <div class="home-feed-card">
-                        {% if feed_kind == 'team' %}
-                            <h3>{{ item.team_name }}</h3>
-                            <p>{{ item.description|default:"Описание команды пока не заполнено."|truncatechars:160 }}</p>
-                        {% else %}
-                            <h3>{{ item.user.username }}</h3>
-                            <p>{{ item.description|default:"Описание игрока пока не заполнено."|truncatechars:160 }}</p>
-                        {% endif %}
-                    </div>
-                {% endfor %}
-            </div>
-        {% else %}
-            <p class="home-feed-empty">Пока нет данных для отображения.</p>
-        {% endif %}
-    </section>
-{% else %}
-    <section class="home-feed">
-        <h2>Начните пользоваться платформой</h2>
-        <p class="home-feed-empty">Войдите или зарегистрируйтесь, чтобы увидеть рекомендации.</p>
-    </section>
-{% endif %}
+    {% if user.is_authenticated %}
+        <section class="home-feed">
+            <h2>{{ feed_title }}</h2>
+            {% if feed_items %}
+                <div class="home-feed-list">
+                    {% for item in feed_items %}
+                        <div class="home-feed-card">
+                            {% if feed_kind == 'team' %}
+                                <h3>{{ item.team_name }}</h3>
+                                <p class="home-feed-description">
+                                    {{ item.description|default:"Описание команды пока не заполнено."|truncatechars:160 }}
+                                </p>
+                            {% else %}
+                                <h3>{{ item.user.username }}</h3>
+                                <p class="home-feed-description">
+                                    {{ item.description|default:"Описание игрока пока не заполнено."|truncatechars:160 }}
+                                </p>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="home-feed-empty">Пока нет данных для отображения.</p>
+            {% endif %}
+        </section>
+    {% else %}
+        <section class="home-feed">
+            <h2>Начните пользоваться платформой</h2>
+            <p class="home-feed-empty">Войдите или зарегистрируйтесь, чтобы увидеть рекомендации.</p>
+        </section>
+    {% endif %}
+</div>
 {% endblock %}
