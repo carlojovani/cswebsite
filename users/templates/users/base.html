@@ -162,6 +162,23 @@
             font-size: 0.95rem;
         }
 
+        .user-profile-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            color: var(--muted);
+            font-weight: 600;
+            padding: 0.35rem 0.6rem;
+            border-radius: 999px;
+            transition: color .15s ease, background-color .15s ease;
+        }
+
+        .user-profile-link:hover {
+            color: var(--primary);
+            text-decoration: none;
+            background: rgba(56, 189, 248, 0.12);
+        }
+
         /* Cards */
         .card{
             background: var(--surface);
@@ -364,7 +381,6 @@
                             <li><a href="{% url 'search_player' %}">👤 Поиск игроков</a></li>
                         {% endif %}
 
-                        <li><a href="{% url 'profile' user.id %}">Профиль</a></li>
                     {% else %}
                         <!-- Для неавторизованных только главная -->
                     {% endif %}
@@ -373,14 +389,14 @@
 
             <div class="auth-links">
                 {% if user.is_authenticated %}
-                    <span style="margin-right: 1rem;">
+                    <a href="{% url 'profile' user.id %}" class="user-profile-link">
                         {% if user.user_type == 'player' %}
                             👤
                         {% else %}
                             👥
                         {% endif %}
                         {{ user.username }}
-                    </span>
+                    </a>
                     <a href="{% url 'logout' %}" class="btn btn-outline">Выйти</a>
                 {% else %}
                     <a href="{% url 'login' %}" class="btn btn-outline">Войти</a>

@@ -201,7 +201,13 @@
                     </div>
 
                     <div class="player-level">
-                        <span class="level-badge">Уровень {{ player.level|default:"-" }}</span>
+                        <span class="level-badge" title="Faceit level {{ player.level|default:'-' }}">
+                            <svg class="faceit-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <rect width="24" height="24" rx="5" fill="#ff5500"></rect>
+                                <path d="M7 7h10v3H10v2h6v3H10v4H7V7z" fill="#fff"></path>
+                            </svg>
+                            <span class="level-value">{{ player.level|default:"-" }}</span>
+                        </span>
                     </div>
                 </div>
 
@@ -616,6 +622,20 @@
         border-radius: 20px;
         font-weight: bold;
         font-size: 0.9rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .faceit-icon {
+        width: 22px;
+        height: 22px;
+        display: inline-block;
+        flex-shrink: 0;
+    }
+
+    .level-value {
+        line-height: 1;
     }
 
     .player-stats {
