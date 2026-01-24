@@ -5,7 +5,7 @@
 {% block content %}
 <div class="edit-profile-container">
     <div class="edit-profile-header">
-        <h1>✏️ Редактирование профиля игрока</h1>
+        <h1>Редактирование профиля игрока</h1>
         <p>Обновите информацию о себе</p>
     </div>
 
@@ -20,10 +20,9 @@
             <div class="maps-grid">
                 <!-- Mirage -->
                 <div class="map-card">
-                    <div class="map-header">
-                        <div class="map-icon">🏜️</div>
-                        <h4>Mirage</h4>
-                    </div>
+                        <div class="map-header">
+                            <h4>Mirage</h4>
+                        </div>
                     <div class="map-field">
                         {{ form.mirage_ct_position }}
                     </div>
@@ -31,10 +30,9 @@
                 
                 <!-- Dust 2 -->
                 <div class="map-card">
-                    <div class="map-header">
-                        <div class="map-icon">🏜️</div>
-                        <h4>Dust 2</h4>
-                    </div>
+                        <div class="map-header">
+                            <h4>Dust 2</h4>
+                        </div>
                     <div class="map-field">
                         {{ form.dust2_ct_position }}
                     </div>
@@ -42,10 +40,9 @@
                 
                 <!-- Anubis -->
                 <div class="map-card">
-                    <div class="map-header">
-                        <div class="map-icon">🐫</div>
-                        <h4>Anubis</h4>
-                    </div>
+                        <div class="map-header">
+                            <h4>Anubis</h4>
+                        </div>
                     <div class="map-field">
                         {{ form.anubis_ct_position }}
                     </div>
@@ -53,10 +50,9 @@
                 
                 <!-- Nuke -->
                 <div class="map-card">
-                    <div class="map-header">
-                        <div class="map-icon">🏭</div>
-                        <h4>Nuke</h4>
-                    </div>
+                        <div class="map-header">
+                            <h4>Nuke</h4>
+                        </div>
                     <div class="map-field">
                         {{ form.nuke_ct_position }}
                     </div>
@@ -64,10 +60,9 @@
                 
                 <!-- Ancient -->
                 <div class="map-card">
-                    <div class="map-header">
-                        <div class="map-icon">🏺</div>
-                        <h4>Ancient</h4>
-                    </div>
+                        <div class="map-header">
+                            <h4>Ancient</h4>
+                        </div>
                     <div class="map-field">
                         {{ form.ancient_ct_position }}
                     </div>
@@ -75,10 +70,9 @@
                 
                 <!-- Inferno -->
                 <div class="map-card">
-                    <div class="map-header">
-                        <div class="map-icon">🔥</div>
-                        <h4>Inferno</h4>
-                    </div>
+                        <div class="map-header">
+                            <h4>Inferno</h4>
+                        </div>
                     <div class="map-field">
                         {{ form.inferno_ct_position }}
                     </div>
@@ -86,10 +80,9 @@
                 
                 <!-- Overpass -->
                 <div class="map-card">
-                    <div class="map-header">
-                        <div class="map-icon">🌉</div>
-                        <h4>Overpass</h4>
-                    </div>
+                        <div class="map-header">
+                            <h4>Overpass</h4>
+                        </div>
                     <div class="map-field">
                         {{ form.overpass_ct_position }}
                     </div>
@@ -121,9 +114,8 @@
                 <div class="ability-card">
                     <div class="ability-checkbox">
                         {{ form.is_igl }}
-                        <label for="{{ form.is_igl.id_for_label }}">
-                            <div class="ability-icon">🎯</div>
-                            <div class="ability-content">
+                            <label for="{{ form.is_igl.id_for_label }}">
+                                <div class="ability-content">
                                 <h4>IGL (In-Game Leader)</h4>
                                 <p>Могу быть капитаном, отдавать команды, разрабатывать тактики</p>
                             </div>
@@ -134,9 +126,8 @@
                 <div class="ability-card">
                     <div class="ability-checkbox">
                         {{ form.can_awp }}
-                        <label for="{{ form.can_awp.id_for_label }}">
-                            <div class="ability-icon">🎯</div>
-                            <div class="ability-content">
+                            <label for="{{ form.can_awp.id_for_label }}">
+                                <div class="ability-content">
                                 <h4>AWP-ист</h4>
                                 <p>Могу эффективно играть на снайперской винтовке AWP</p>
                             </div>
@@ -164,15 +155,15 @@
         <div class="form-actions">
             <div class="action-buttons">
                 <button type="submit" class="btn btn-primary">
-                    💾 Сохранить изменения
+                    Сохранить изменения
                 </button>
                 
                 <a href="{% url 'profile' user.id %}" class="btn btn-outline">
-                    ← Назад в профиль
+                    Назад в профиль
                 </a>
                 
                 <a href="{% url 'update_faceit_data' %}" class="btn btn-secondary">
-                    🔄 Обновить данные с Faceit
+                    Обновить данные с Faceit
                 </a>
             </div>
         </div>

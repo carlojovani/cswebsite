@@ -82,7 +82,7 @@
             <!-- Кнопки -->
             <div class="form-actions">
                 <button type="submit" class="btn btn-primary btn-lg">
-                    🔑 Войти
+                    Войти
                 </button>
 
                 <div class="auth-links">
@@ -97,12 +97,10 @@
 
             <div class="social-auth">
                 <a href="#" class="btn-social btn-steam">
-                    <span class="social-icon">🎮</span>
                     <span class="social-text">Steam</span>
                 </a>
 
                 <a href="#" class="btn-social btn-faceit">
-                    <span class="social-icon">👑</span>
                     <span class="social-text">Faceit</span>
                 </a>
             </div>
@@ -118,17 +116,18 @@
     }
 
     .auth-card {
-        background: white;
+        background: var(--surface);
         border-radius: 12px;
-        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+        box-shadow: var(--shadow-md);
         overflow: hidden;
     }
 
     .auth-header {
-        background: linear-gradient(135deg, #4361ee 0%, #3a0ca3 100%);
-        color: white;
+        background: var(--surface-2);
+        color: var(--text);
         padding: 2.5rem 2rem;
         text-align: center;
+        border-bottom: 1px solid var(--border);
     }
 
     .auth-header h1 {
@@ -155,21 +154,21 @@
     }
 
     .alert-error {
-        background-color: #f8d7da;
-        border-color: #dc3545;
-        color: #721c24;
+        background-color: rgba(239, 68, 68, 0.12);
+        border-color: #ef4444;
+        color: #991b1b;
     }
 
     .alert-warning {
-        background-color: #fff3cd;
-        border-color: #ffc107;
-        color: #856404;
+        background-color: rgba(245, 158, 11, 0.15);
+        border-color: #f59e0b;
+        color: #92400e;
     }
 
     .alert-info {
-        background-color: #d1ecf1;
-        border-color: #17a2b8;
-        color: #0c5460;
+        background-color: rgba(14, 165, 233, 0.15);
+        border-color: #0ea5e9;
+        color: #0c4a6e;
     }
 
     .form-group {
@@ -180,24 +179,24 @@
         display: block;
         margin-bottom: 0.5rem;
         font-weight: 500;
-        color: #333;
+        color: var(--text);
     }
 
     .form-control {
         width: 100%;
         padding: 0.875rem 1rem;
-        border: 2px solid #e9ecef;
+        border: 1px solid var(--border);
         border-radius: 8px;
         font-size: 1rem;
         transition: all 0.3s ease;
-        background: #f8f9fa;
+        background: var(--surface-2);
     }
 
     .form-control:focus {
         outline: none;
-        border-color: #4361ee;
-        background: white;
-        box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.1);
+        border-color: var(--primary);
+        background: var(--surface);
+        box-shadow: var(--ring);
     }
 
     .password-toggle {
@@ -216,7 +215,7 @@
     .password-toggle label {
         margin: 0;
         font-weight: normal;
-        color: #666;
+        color: var(--muted);
         cursor: pointer;
         user-select: none;
     }
@@ -242,13 +241,13 @@
     .form-check label {
         margin: 0;
         font-size: 0.95rem;
-        color: #666;
+        color: var(--muted);
         cursor: pointer;
         user-select: none;
     }
 
     .forgot-password a {
-        color: #4361ee;
+        color: var(--primary);
         text-decoration: none;
         font-size: 0.95rem;
     }
@@ -277,7 +276,7 @@
     }
 
     .btn-primary {
-        background: linear-gradient(135deg, #4361ee 0%, #3a0ca3 100%);
+        background: var(--grad-primary);
         color: white;
         padding: 1rem 3rem;
         font-size: 1.1rem;
@@ -285,7 +284,7 @@
 
     .btn-primary:hover {
         transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(67, 97, 238, 0.3);
+        box-shadow: var(--shadow-sm);
     }
 
     .auth-links {
@@ -294,12 +293,12 @@
     }
 
     .auth-links p {
-        color: #6c757d;
+        color: var(--muted);
         margin: 0;
     }
 
     .auth-links a {
-        color: #4361ee;
+        color: var(--primary);
         text-decoration: none;
         font-weight: 500;
     }
@@ -312,7 +311,7 @@
         display: flex;
         align-items: center;
         margin: 2rem 0;
-        color: #6c757d;
+        color: var(--muted);
         font-size: 0.9rem;
     }
 
@@ -321,7 +320,7 @@
         content: '';
         flex: 1;
         height: 1px;
-        background: #e9ecef;
+        background: var(--border);
     }
 
     .auth-divider span {
@@ -345,35 +344,21 @@
         text-decoration: none;
         font-weight: 500;
         transition: all 0.3s ease;
-        border: 2px solid;
+        border: 1px solid var(--border);
     }
 
-    .btn-steam {
-        background: white;
-        border-color: #171a21;
-        color: #171a21;
-    }
-
-    .btn-steam:hover {
-        background: #171a21;
-        color: white;
-        transform: translateY(-2px);
-    }
-
+    .btn-steam,
     .btn-faceit {
-        background: white;
-        border-color: #ff5500;
-        color: #ff5500;
+        background: var(--surface);
+        border-color: var(--primary);
+        color: var(--primary);
     }
 
+    .btn-steam:hover,
     .btn-faceit:hover {
-        background: #ff5500;
+        background: var(--primary);
         color: white;
         transform: translateY(-2px);
-    }
-
-    .social-icon {
-        font-size: 1.2rem;
     }
 
     .social-text {

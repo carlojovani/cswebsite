@@ -6,7 +6,7 @@
 <div class="registration-container">
     <div class="registration-card">
         <div class="registration-header">
-            <h1>👤 Регистрация игрока</h1>
+            <h1>Регистрация игрока</h1>
             <p>Шаг 2 из 3: Основная информация</p>
         </div>
 
@@ -46,10 +46,10 @@
                     <label for="{{ form.faceit_nickname.id_for_label }}">Faceit никнейм *</label>
                     {{ form.faceit_nickname }}
                     <div class="faceit-help">
-                        <p>✅ Никнейм должен существовать на Faceit</p>
-                        <p>✅ У вас должна быть хотя бы одна сыгранная игра в CS2</p>
-                        <p>✅ Никнейм должен быть написан правильно</p>
-                        <p>📊 Данные будут автоматически загружены с Faceit</p>
+                        <p>Никнейм должен существовать на Faceit</p>
+                        <p>У вас должна быть хотя бы одна сыгранная игра в CS2</p>
+                        <p>Никнейм должен быть написан правильно</p>
+                        <p>Данные будут автоматически загружены с Faceit</p>
                     </div>
                 </div>
             </div>
@@ -82,10 +82,10 @@
             <div class="form-actions">
                 <div class="action-buttons">
                     <a href="{% url 'register_step1' %}" class="btn btn-outline">
-                        ← Назад
+                        Назад
                     </a>
                     <button type="submit" class="btn btn-primary">
-                        Далее: Игровые характеристики →
+                        Далее: Игровые характеристики
                     </button>
                 </div>
             </div>
@@ -101,17 +101,18 @@
     }
 
     .registration-card {
-        background: white;
+        background: var(--surface);
         border-radius: 12px;
-        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+        box-shadow: var(--shadow-md);
         overflow: hidden;
     }
 
     .registration-header {
-        background: linear-gradient(135deg, #4361ee 0%, #3a0ca3 100%);
-        color: white;
+        background: var(--surface-2);
+        color: var(--text);
         padding: 2.5rem 2rem;
         text-align: center;
+        border-bottom: 1px solid var(--border);
     }
 
     .registration-header h1 {
@@ -132,7 +133,7 @@
     .form-section {
         margin-bottom: 2.5rem;
         padding-bottom: 2.5rem;
-        border-bottom: 1px solid #e9ecef;
+        border-bottom: 1px solid var(--border);
     }
 
     .form-section:last-of-type {
@@ -141,7 +142,7 @@
     }
 
     .form-section h3 {
-        color: #333;
+        color: var(--text);
         margin-bottom: 1.5rem;
         font-size: 1.3rem;
         position: relative;
@@ -155,7 +156,7 @@
         top: 0.3rem;
         width: 0.5rem;
         height: 1.5rem;
-        background: #4361ee;
+        background: var(--primary);
         border-radius: 2px;
     }
 
@@ -167,7 +168,7 @@
         display: block;
         margin-bottom: 0.5rem;
         font-weight: 500;
-        color: #333;
+        color: var(--text);
     }
 
     .form-group input[type="text"],
@@ -175,38 +176,38 @@
     .form-group input[type="password"] {
         width: 100%;
         padding: 0.875rem 1rem;
-        border: 2px solid #e9ecef;
+        border: 1px solid var(--border);
         border-radius: 8px;
         font-size: 1rem;
         transition: all 0.3s ease;
-        background: #f8f9fa;
+        background: var(--surface-2);
     }
 
     .form-group input:focus {
         outline: none;
-        border-color: #4361ee;
-        background: white;
-        box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.1);
+        border-color: var(--primary);
+        background: var(--surface);
+        box-shadow: var(--ring);
     }
 
     .form-text {
         display: block;
         margin-top: 0.5rem;
         font-size: 0.85rem;
-        color: #6c757d;
+        color: var(--muted);
     }
 
     .faceit-help {
-        background: #e7f1ff;
+        background: var(--surface-2);
         border-radius: 8px;
         padding: 1rem;
         margin-top: 0.5rem;
-        border-left: 4px solid #4361ee;
+        border-left: 4px solid var(--primary);
     }
 
     .faceit-help p {
         margin: 0.25rem 0;
-        color: #2c5282;
+        color: var(--muted);
         font-size: 0.85rem;
         display: flex;
         align-items: center;
@@ -224,7 +225,7 @@
     }
 
     .password-requirements {
-        background: #f8f9fa;
+        background: var(--surface-2);
         border-radius: 8px;
         padding: 1.5rem;
         margin-top: 1rem;
@@ -232,7 +233,7 @@
 
     .password-requirements p {
         margin: 0 0 0.5rem 0;
-        color: #333;
+        color: var(--text);
     }
 
     .password-requirements ul {
@@ -243,7 +244,7 @@
 
     .password-requirements li {
         padding: 0.25rem 0;
-        color: #6c757d;
+        color: var(--muted);
         font-size: 0.9rem;
         position: relative;
         padding-left: 1.5rem;
@@ -253,7 +254,7 @@
         content: '•';
         position: absolute;
         left: 0.5rem;
-        color: #4361ee;
+        color: var(--primary);
     }
 
     .alert {
@@ -265,9 +266,9 @@
     }
 
     .alert-error {
-        background-color: #f8d7da;
-        border-color: #dc3545;
-        color: #721c24;
+        background-color: rgba(239, 68, 68, 0.12);
+        border-color: #ef4444;
+        color: #991b1b;
     }
 
     .form-actions {
@@ -295,7 +296,7 @@
     }
 
     .btn-primary {
-        background: linear-gradient(135deg, #4361ee 0%, #3a0ca3 100%);
+        background: var(--grad-primary);
         color: white;
         padding: 1rem 2rem;
         font-size: 1.1rem;
@@ -303,17 +304,17 @@
 
     .btn-primary:hover {
         transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(67, 97, 238, 0.3);
+        box-shadow: var(--shadow-sm);
     }
 
     .btn-outline {
         background: transparent;
-        color: #4361ee;
-        border: 2px solid #4361ee;
+        color: var(--primary);
+        border: 1px solid var(--primary);
     }
 
     .btn-outline:hover {
-        background: #4361ee;
+        background: var(--primary);
         color: white;
     }
 
@@ -382,7 +383,7 @@
             
             const toggleButton = document.createElement('button');
             toggleButton.type = 'button';
-            toggleButton.innerHTML = '👁️';
+            toggleButton.textContent = 'Показать';
             toggleButton.style.position = 'absolute';
             toggleButton.style.right = '10px';
             toggleButton.style.top = '50%';
@@ -390,7 +391,7 @@
             toggleButton.style.background = 'none';
             toggleButton.style.border = 'none';
             toggleButton.style.cursor = 'pointer';
-            toggleButton.style.fontSize = '1.2rem';
+            toggleButton.style.fontSize = '0.85rem';
             
             input.parentNode.insertBefore(wrapper, input);
             wrapper.appendChild(input);
@@ -399,10 +400,10 @@
             toggleButton.addEventListener('click', function() {
                 if (input.type === 'password') {
                     input.type = 'text';
-                    this.innerHTML = '👁️‍🗨️';
+                    this.textContent = 'Скрыть';
                 } else {
                     input.type = 'password';
-                    this.innerHTML = '👁️';
+                    this.textContent = 'Показать';
                 }
             });
         });

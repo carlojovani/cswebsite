@@ -5,7 +5,7 @@
 {% block content %}
 <div class="edit-profile-container">
     <div class="edit-profile-header">
-        <h1>✏️ Редактирование профиля команды</h1>
+        <h1>Редактирование профиля команды</h1>
         <p>Обновите информацию о вашей команде</p>
     </div>
 
@@ -34,9 +34,8 @@
                 <div class="looking-for-card">
                     <div class="looking-for-checkbox">
                         {{ form.looking_for_igl }}
-                        <label for="{{ form.looking_for_igl.id_for_label }}">
-                            <div class="looking-for-icon">🎯</div>
-                            <div class="looking-for-content">
+                            <label for="{{ form.looking_for_igl.id_for_label }}">
+                                <div class="looking-for-content">
                                 <h4>IGL (In-Game Leader)</h4>
                                 <p>Ищем капитана для разработки тактик и руководства командой</p>
                             </div>
@@ -47,9 +46,8 @@
                 <div class="looking-for-card">
                     <div class="looking-for-checkbox">
                         {{ form.looking_for_awper }}
-                        <label for="{{ form.looking_for_awper.id_for_label }}">
-                            <div class="looking-for-icon">🎯</div>
-                            <div class="looking-for-content">
+                            <label for="{{ form.looking_for_awper.id_for_label }}">
+                                <div class="looking-for-content">
                                 <h4>AWP-ист</h4>
                                 <p>Ищем снайпера для контроля ключевых позиций</p>
                             </div>
@@ -79,12 +77,12 @@
         <!-- Кнопки -->
         <div class="form-actions">
             <div class="action-buttons">
-                <button type="submit" class="btn btn-primary">
-                    💾 Сохранить изменения
-                </button>
+                    <button type="submit" class="btn btn-primary">
+                        Сохранить изменения
+                    </button>
 
                 <a href="{% url 'profile' user.id %}" class="btn btn-outline">
-                    ← Назад в профиль
+                    Назад в профиль
                 </a>
             </div>
         </div>

@@ -6,7 +6,7 @@
 <div class="registration-container">
     <div class="registration-card">
         <div class="registration-header">
-            <h1>🎮 Игровые характеристики</h1>
+            <h1>Игровые характеристики</h1>
             <p>Шаг 3 из 3: Укажите ваши позиции и роли</p>
         </div>
 
@@ -22,7 +22,6 @@
                     <!-- Mirage -->
                     <div class="map-card">
                         <div class="map-header">
-                            <div class="map-icon">🏜️</div>
                             <h4>Mirage</h4>
                         </div>
                         <div class="map-field">
@@ -33,7 +32,6 @@
                     <!-- Dust 2 -->
                     <div class="map-card">
                         <div class="map-header">
-                            <div class="map-icon">🏜️</div>
                             <h4>Dust 2</h4>
                         </div>
                         <div class="map-field">
@@ -44,7 +42,6 @@
                     <!-- Anubis -->
                     <div class="map-card">
                         <div class="map-header">
-                            <div class="map-icon">🐫</div>
                             <h4>Anubis</h4>
                         </div>
                         <div class="map-field">
@@ -55,7 +52,6 @@
                     <!-- Nuke -->
                     <div class="map-card">
                         <div class="map-header">
-                            <div class="map-icon">🏭</div>
                             <h4>Nuke</h4>
                         </div>
                         <div class="map-field">
@@ -66,7 +62,6 @@
                     <!-- Ancient -->
                     <div class="map-card">
                         <div class="map-header">
-                            <div class="map-icon">🏺</div>
                             <h4>Ancient</h4>
                         </div>
                         <div class="map-field">
@@ -77,7 +72,6 @@
                     <!-- Inferno -->
                     <div class="map-card">
                         <div class="map-header">
-                            <div class="map-icon">🔥</div>
                             <h4>Inferno</h4>
                         </div>
                         <div class="map-field">
@@ -88,7 +82,6 @@
                     <!-- Overpass -->
                     <div class="map-card">
                         <div class="map-header">
-                            <div class="map-icon">🌉</div>
                             <h4>Overpass</h4>
                         </div>
                         <div class="map-field">
@@ -124,7 +117,6 @@
                         <div class="ability-checkbox">
                             {{ form.is_igl }}
                             <label for="{{ form.is_igl.id_for_label }}">
-                                <div class="ability-icon">🎯</div>
                                 <div class="ability-content">
                                     <h4>IGL (In-Game Leader)</h4>
                                     <p>Могу быть капитаном, отдавать команды, разрабатывать тактики</p>
@@ -137,7 +129,6 @@
                         <div class="ability-checkbox">
                             {{ form.can_awp }}
                             <label for="{{ form.can_awp.id_for_label }}">
-                                <div class="ability-icon">🎯</div>
                                 <div class="ability-content">
                                     <h4>AWP-ист</h4>
                                     <p>Могу эффективно играть на снайперской винтовке AWP</p>
@@ -166,10 +157,10 @@
             <div class="form-actions">
                 <div class="action-buttons">
                     <a href="{% url 'register_step2' %}" class="btn btn-outline">
-                        ← Назад
+                        Назад
                     </a>
                     <button type="submit" class="btn btn-primary">
-                        🚀 Завершить регистрацию
+                        Завершить регистрацию
                     </button>
                 </div>
             </div>
@@ -185,17 +176,18 @@
     }
 
     .registration-card {
-        background: white;
+        background: var(--surface);
         border-radius: 12px;
-        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+        box-shadow: var(--shadow-md);
         overflow: hidden;
     }
 
     .registration-header {
-        background: linear-gradient(135deg, #4361ee 0%, #3a0ca3 100%);
-        color: white;
+        background: var(--surface-2);
+        color: var(--text);
         padding: 2.5rem 2rem;
         text-align: center;
+        border-bottom: 1px solid var(--border);
     }
 
     .registration-header h1 {
@@ -216,7 +208,7 @@
     .form-section {
         margin-bottom: 3rem;
         padding-bottom: 3rem;
-        border-bottom: 1px solid #e9ecef;
+        border-bottom: 1px solid var(--border);
     }
 
     .form-section:last-of-type {
@@ -225,7 +217,7 @@
     }
 
     .form-section h3 {
-        color: #333;
+        color: var(--text);
         margin-bottom: 1rem;
         font-size: 1.4rem;
         position: relative;
@@ -239,12 +231,12 @@
         top: 0.3rem;
         width: 0.5rem;
         height: 1.5rem;
-        background: #4361ee;
+        background: var(--primary);
         border-radius: 2px;
     }
 
     .section-description {
-        color: #6c757d;
+        color: var(--muted);
         margin-bottom: 1.5rem;
         font-size: 0.95rem;
         line-height: 1.5;
@@ -257,17 +249,17 @@
     }
 
     .map-card {
-        background: #f8f9fa;
+        background: var(--surface-2);
         border-radius: 8px;
         padding: 1.5rem;
-        border: 2px solid #e9ecef;
+        border: 1px solid var(--border);
         transition: all 0.3s ease;
     }
 
     .map-card:hover {
-        border-color: #4361ee;
+        border-color: var(--primary);
         transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        box-shadow: var(--shadow-sm);
     }
 
     .map-header {
@@ -277,13 +269,9 @@
         margin-bottom: 1rem;
     }
 
-    .map-icon {
-        font-size: 1.5rem;
-    }
-
     .map-header h4 {
         margin: 0;
-        color: #333;
+        color: var(--text);
         font-size: 1.1rem;
     }
 
@@ -305,20 +293,20 @@
         gap: 0.5rem;
         padding: 0.5rem 0.75rem;
         border-radius: 6px;
-        border: 1px solid #e9ecef;
-        background: #fff;
+        border: 1px solid var(--border);
+        background: var(--surface);
         cursor: pointer;
         transition: all 0.2s ease;
         font-size: 0.9rem;
     }
 
     .map-field input[type="checkbox"] {
-        accent-color: #4361ee;
+        accent-color: var(--primary);
     }
 
     .map-field label:hover {
-        border-color: #4361ee;
-        background: #f0f4ff;
+        border-color: var(--primary);
+        background: var(--surface-2);
     }
 
     .role-selection {
@@ -328,19 +316,19 @@
     .role-selection select {
         width: 100%;
         padding: 0.875rem 1rem;
-        border: 2px solid #e9ecef;
+        border: 1px solid var(--border);
         border-radius: 8px;
         font-size: 1rem;
-        background: #f8f9fa;
+        background: var(--surface-2);
         transition: all 0.3s ease;
         margin-bottom: 0.5rem;
     }
 
     .role-selection select:focus {
         outline: none;
-        border-color: #4361ee;
-        background: white;
-        box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.1);
+        border-color: var(--primary);
+        background: var(--surface);
+        box-shadow: var(--ring);
     }
 
     .special-abilities {
@@ -350,15 +338,15 @@
     }
 
     .ability-card {
-        background: #f8f9fa;
+        background: var(--surface-2);
         border-radius: 8px;
         padding: 1.5rem;
-        border: 2px solid #e9ecef;
+        border: 1px solid var(--border);
         transition: all 0.3s ease;
     }
 
     .ability-card:hover {
-        border-color: #4361ee;
+        border-color: var(--primary);
         transform: translateY(-2px);
     }
 
@@ -374,37 +362,15 @@
         margin: 0;
     }
 
-    .ability-checkbox input[type="checkbox"]:checked + label .ability-icon {
-        background: #4361ee;
-        color: white;
-    }
-
-    .ability-checkbox input[type="checkbox"]:checked + label .ability-card {
-        border-color: #4361ee;
-    }
-
-    .ability-icon {
-        width: 50px;
-        height: 50px;
-        border-radius: 50%;
-        background: #e9ecef;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.5rem;
-        flex-shrink: 0;
-        transition: all 0.3s ease;
-    }
-
     .ability-content h4 {
         margin: 0 0 0.5rem 0;
-        color: #333;
+        color: var(--text);
         font-size: 1.1rem;
     }
 
     .ability-content p {
         margin: 0;
-        color: #6c757d;
+        color: var(--muted);
         font-size: 0.9rem;
         line-height: 1.4;
     }
@@ -417,40 +383,40 @@
         display: block;
         margin-bottom: 0.5rem;
         font-weight: 500;
-        color: #333;
+        color: var(--text);
     }
 
     textarea.form-control {
         width: 100%;
         padding: 0.875rem 1rem;
-        border: 2px solid #e9ecef;
+        border: 1px solid var(--border);
         border-radius: 8px;
         font-size: 1rem;
         min-height: 120px;
         resize: vertical;
-        background: #f8f9fa;
+        background: var(--surface-2);
         transition: all 0.3s ease;
     }
 
     textarea.form-control:focus {
         outline: none;
-        border-color: #4361ee;
-        background: white;
-        box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.1);
+        border-color: var(--primary);
+        background: var(--surface);
+        box-shadow: var(--ring);
     }
 
     .form-text {
         display: block;
         margin-top: 0.5rem;
         font-size: 0.85rem;
-        color: #6c757d;
+        color: var(--muted);
         line-height: 1.4;
     }
 
     .char-count {
         text-align: right;
         font-size: 0.85rem;
-        color: #6c757d;
+        color: var(--muted);
         margin-top: 0.25rem;
     }
 
@@ -479,7 +445,7 @@
     }
 
     .btn-primary {
-        background: linear-gradient(135deg, #4361ee 0%, #3a0ca3 100%);
+        background: var(--grad-primary);
         color: white;
         padding: 1rem 2rem;
         font-size: 1.1rem;
@@ -487,17 +453,17 @@
 
     .btn-primary:hover {
         transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(67, 97, 238, 0.3);
+        box-shadow: var(--shadow-sm);
     }
 
     .btn-outline {
         background: transparent;
-        color: #4361ee;
-        border: 2px solid #4361ee;
+        color: var(--primary);
+        border: 1px solid var(--primary);
     }
 
     .btn-outline:hover {
-        background: #4361ee;
+        background: var(--primary);
         color: white;
     }
 
@@ -551,22 +517,23 @@
     document.addEventListener('DOMContentLoaded', function() {
         // Подсветка выбранных чекбоксов
         const abilityCheckboxes = document.querySelectorAll('.ability-checkbox input[type="checkbox"]');
+        const rootStyles = getComputedStyle(document.documentElement);
+        const primaryColor = rootStyles.getPropertyValue('--primary').trim();
+        const surfaceColor = rootStyles.getPropertyValue('--surface').trim();
+        const surface2Color = rootStyles.getPropertyValue('--surface-2').trim();
+        const borderColor = rootStyles.getPropertyValue('--border').trim();
+        const mutedColor = rootStyles.getPropertyValue('--muted').trim();
         abilityCheckboxes.forEach(checkbox => {
             const updateCheckbox = () => {
                 const label = checkbox.nextElementSibling;
                 const abilityCard = label.closest('.ability-card');
-                const abilityIcon = label.querySelector('.ability-icon');
                 
                 if (checkbox.checked) {
-                    abilityCard.style.borderColor = '#4361ee';
-                    abilityCard.style.backgroundColor = '#f0f4ff';
-                    abilityIcon.style.background = '#4361ee';
-                    abilityIcon.style.color = 'white';
+                    abilityCard.style.borderColor = primaryColor || '#4361ee';
+                    abilityCard.style.backgroundColor = surfaceColor || '#f0f4ff';
                 } else {
-                    abilityCard.style.borderColor = '#e9ecef';
-                    abilityCard.style.backgroundColor = '#f8f9fa';
-                    abilityIcon.style.background = '#e9ecef';
-                    abilityIcon.style.color = 'inherit';
+                    abilityCard.style.borderColor = borderColor || '#e9ecef';
+                    abilityCard.style.backgroundColor = surface2Color || '#f8f9fa';
                 }
             };
             
@@ -584,11 +551,11 @@
                 charCount.textContent = `${count} символов`;
                 
                 if (count > 1000) {
-                    charCount.style.color = '#dc3545';
+                    charCount.style.color = '#ef4444';
                 } else if (count > 500) {
-                    charCount.style.color = '#ffc107';
+                    charCount.style.color = '#f59e0b';
                 } else {
-                    charCount.style.color = '#6c757d';
+                    charCount.style.color = mutedColor || '#6c757d';
                 }
             };
             
