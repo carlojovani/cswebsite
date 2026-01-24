@@ -1,0 +1,311 @@
+{% extends 'users/base.html' %}
+
+{% block title %}Выбор типа регистрации - CS Platform{% endblock %}
+
+{% block content %}
+<div class="registration-container">
+    <div class="registration-card">
+        <div class="registration-header">
+            <h1>🎮 Регистрация на CS Platform</h1>
+            <p>Выберите тип аккаунта для регистрации</p>
+        </div>
+
+        <form method="post" class="registration-form">
+            {% csrf_token %}
+            
+            <div class="account-type-selection">
+                <div class="type-options">
+                    <div class="type-option">
+                        <input type="radio" 
+                               name="user_type" 
+                               value="player" 
+                               id="type_player" 
+                               {% if form.user_type.value == 'player' or not form.user_type.value %}checked{% endif %}>
+                        <label for="type_player" class="type-label">
+                            <div class="type-icon">👤</div>
+                            <div class="type-content">
+                                <h3>Игрок</h3>
+                                <p>Ищу команду для участия в турнирах</p>
+                                <ul class="type-features">
+                                    <li>✅ Загрузка статистики с Faceit</li>
+                                    <li>✅ Указание позиций на картах</li>
+                                    <li>✅ Поиск подходящих команд</li>
+                                    <li>✅ Отклики от команд</li>
+                                </ul>
+                            </div>
+                        </label>
+                    </div>
+                    
+                    <div class="type-option">
+                        <input type="radio" 
+                               name="user_type" 
+                               value="team" 
+                               id="type_team"
+                               {% if form.user_type.value == 'team' %}checked{% endif %}>
+                        <label for="type_team" class="type-label">
+                            <div class="type-icon">👥</div>
+                            <div class="type-content">
+                                <h3>Команда</h3>
+                                <p>Ищу игроков для своей команды</p>
+                                <ul class="type-features">
+                                    <li>✅ Создание профиля команды</li>
+                                    <li>✅ Поиск игроков по фильтрам</li>
+                                    <li>✅ Просмотр статистики игроков</li>
+                                    <li>✅ Отправка приглашений</li>
+                                </ul>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+                
+                {% if form.user_type.errors %}
+                <div class="error-message">
+                    {% for error in form.user_type.errors %}
+                        {{ error }}
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="registration-actions">
+                <button type="submit" class="btn btn-primary btn-lg">
+                    🚀 Продолжить
+                </button>
+                
+                <div class="auth-links">
+                    <p>Уже есть аккаунт? <a href="{% url 'login' %}">Войти</a></p>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+    .registration-container {
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 2rem 1rem;
+    }
+
+    .registration-card {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+        overflow: hidden;
+    }
+
+    .registration-header {
+        background: linear-gradient(135deg, #4361ee 0%, #3a0ca3 100%);
+        color: white;
+        padding: 2.5rem 2rem;
+        text-align: center;
+    }
+
+    .registration-header h1 {
+        margin: 0 0 0.5rem 0;
+        font-size: 2.2rem;
+    }
+
+    .registration-header p {
+        margin: 0;
+        opacity: 0.9;
+        font-size: 1.1rem;
+    }
+
+    .registration-form {
+        padding: 2rem;
+    }
+
+    .account-type-selection {
+        margin-bottom: 2rem;
+    }
+
+    .type-options {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .type-option {
+        position: relative;
+    }
+
+    .type-option input[type="radio"] {
+        position: absolute;
+        opacity: 0;
+    }
+
+    .type-label {
+        display: block;
+        padding: 1.5rem;
+        border: 2px solid #e9ecef;
+        border-radius: 10px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        height: 100%;
+        background: #f8f9fa;
+    }
+
+    .type-option input[type="radio"]:checked + .type-label {
+        border-color: #4361ee;
+        background: #f0f4ff;
+        box-shadow: 0 5px 15px rgba(67, 97, 238, 0.1);
+    }
+
+    .type-option input[type="radio"]:checked + .type-label .type-icon {
+        background: #4361ee;
+        color: white;
+    }
+
+    .type-icon {
+        width: 60px;
+        height: 60px;
+        border-radius: 50%;
+        background: #e9ecef;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 2rem;
+        margin-bottom: 1rem;
+        transition: all 0.3s ease;
+    }
+
+    .type-content h3 {
+        margin: 0 0 0.5rem 0;
+        color: #333;
+        font-size: 1.3rem;
+    }
+
+    .type-content p {
+        color: #6c757d;
+        margin-bottom: 1rem;
+        font-size: 0.95rem;
+    }
+
+    .type-features {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    .type-features li {
+        margin-bottom: 0.5rem;
+        font-size: 0.85rem;
+        color: #495057;
+        display: flex;
+        align-items: flex-start;
+    }
+
+    .type-features li:before {
+        content: '✓';
+        margin-right: 0.5rem;
+        color: #28a745;
+        font-weight: bold;
+    }
+
+    .error-message {
+        color: #dc3545;
+        font-size: 0.875rem;
+        padding: 0.5rem;
+        background: #f8d7da;
+        border-radius: 4px;
+        border-left: 4px solid #dc3545;
+    }
+
+    .registration-actions {
+        text-align: center;
+    }
+
+    .btn-primary {
+        background: linear-gradient(135deg, #4361ee 0%, #3a0ca3 100%);
+        color: white;
+        border: none;
+        padding: 1rem 3rem;
+        font-size: 1.1rem;
+        font-weight: 500;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.75rem;
+    }
+
+    .btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(67, 97, 238, 0.3);
+    }
+
+    .auth-links {
+        margin-top: 1.5rem;
+        text-align: center;
+    }
+
+    .auth-links p {
+        color: #6c757d;
+        margin: 0;
+    }
+
+    .auth-links a {
+        color: #4361ee;
+        text-decoration: none;
+        font-weight: 500;
+    }
+
+    .auth-links a:hover {
+        text-decoration: underline;
+    }
+
+    @media (max-width: 768px) {
+        .type-options {
+            grid-template-columns: 1fr;
+        }
+
+        .registration-header {
+            padding: 2rem 1.5rem;
+        }
+
+        .registration-form {
+            padding: 1.5rem;
+        }
+
+        .btn-primary {
+            width: 100%;
+            padding: 1rem 2rem;
+        }
+    }
+
+    @media (max-width: 480px) {
+        .registration-header h1 {
+            font-size: 1.8rem;
+        }
+
+        .type-features li {
+            font-size: 0.8rem;
+        }
+    }
+</style>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Подсветка выбранного типа
+        const typeOptions = document.querySelectorAll('.type-option input[type="radio"]');
+        typeOptions.forEach(option => {
+            option.addEventListener('change', function() {
+                typeOptions.forEach(opt => {
+                    const label = opt.nextElementSibling;
+                    if (opt.checked) {
+                        label.style.borderColor = '#4361ee';
+                        label.style.backgroundColor = '#f0f4ff';
+                    } else {
+                        label.style.borderColor = '#e9ecef';
+                        label.style.backgroundColor = '#f8f9fa';
+                    }
+                });
+            });
+        });
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,504 @@
+{% extends 'users/base.html' %}
+
+{% block title %}Регистрация команды - Шаг 3 - CS Platform{% endblock %}
+
+{% block content %}
+<div class="registration-container">
+    <div class="registration-card">
+        <div class="registration-header">
+            <h1>👥 Описание команды</h1>
+            <p>Шаг 3 из 3: Расскажите о вашей команде</p>
+        </div>
+
+        <form method="post" class="registration-form">
+            {% csrf_token %}
+            
+            <!-- Описание команды -->
+            <div class="form-section">
+                <h3>О команде</h3>
+                
+                <div class="form-group">
+                    <label for="{{ form.description.id_for_label }}">Краткое описание команды *</label>
+                    {{ form.description }}
+                    <small class="form-text">
+                        Расскажите о вашей команде: цели, достижения, расписание тренировок, атмосфера
+                    </small>
+                    <div class="char-count">0 символов</div>
+                </div>
+            </div>
+
+            <!-- Кого ищем -->
+            <div class="form-section">
+                <h3>Кого ищем в команду?</h3>
+                <p class="section-description">Отметьте, каких игроков вы ищете:</p>
+                
+                <div class="looking-for-grid">
+                    <div class="looking-for-card">
+                        <div class="looking-for-checkbox">
+                            {{ form.looking_for_igl }}
+                            <label for="{{ form.looking_for_igl.id_for_label }}">
+                                <div class="looking-for-icon">🎯</div>
+                                <div class="looking-for-content">
+                                    <h4>IGL (In-Game Leader)</h4>
+                                    <p>Капитан, который разрабатывает тактики и руководит командой в игре</p>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="looking-for-card">
+                        <div class="looking-for-checkbox">
+                            {{ form.looking_for_awper }}
+                            <label for="{{ form.looking_for_awper.id_for_label }}">
+                                <div class="looking-for-icon">🎯</div>
+                                <div class="looking-for-content">
+                                    <h4>AWP-ист</h4>
+                                    <p>Снайпер, который эффективно играет на AWP и контролирует ключевые позиции</p>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Дополнительная информация -->
+            <div class="form-section">
+                <h3>Дополнительная информация</h3>
+                
+                <div class="additional-info">
+                    <div class="info-card">
+                        <div class="info-icon">📅</div>
+                        <div class="info-content">
+                            <h4>Расписание</h4>
+                            <p>После регистрации вы сможете указать расписание тренировок и игр в настройках команды</p>
+                        </div>
+                    </div>
+                    
+                    <div class="info-card">
+                        <div class="info-icon">🎮</div>
+                        <div class="info-content">
+                            <h4>Требования к игрокам</h4>
+                            <p>В поиске игроков вы сможете фильтровать по уровню, позициям и другим параметрам</p>
+                        </div>
+                    </div>
+                    
+                    <div class="info-card">
+                        <div class="info-icon">🏆</div>
+                        <div class="info-content">
+                            <h4>Участие в турнирах</h4>
+                            <p>После регистрации вы сможете зарегистрировать команду для участия в турнирах</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Кнопки -->
+            <div class="form-actions">
+                <div class="action-buttons">
+                    <a href="{% url 'register_step2' %}" class="btn btn-outline">
+                        ← Назад
+                    </a>
+                    <button type="submit" class="btn btn-primary">
+                        🚀 Завершить регистрацию
+                    </button>
+                </div>
+                
+                <div class="form-note">
+                    <p><small>После регистрации вы сможете дополнительно настроить профиль команды в личном кабинете</small></p>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+    .registration-container {
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 2rem 1rem;
+    }
+
+    .registration-card {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+        overflow: hidden;
+    }
+
+    .registration-header {
+        background: linear-gradient(135deg, #7209b7 0%, #3a0ca3 100%);
+        color: white;
+        padding: 2.5rem 2rem;
+        text-align: center;
+    }
+
+    .registration-header h1 {
+        margin: 0 0 0.5rem 0;
+        font-size: 2.2rem;
+    }
+
+    .registration-header p {
+        margin: 0;
+        opacity: 0.9;
+        font-size: 1.1rem;
+    }
+
+    .registration-form {
+        padding: 2rem;
+    }
+
+    .form-section {
+        margin-bottom: 3rem;
+        padding-bottom: 3rem;
+        border-bottom: 1px solid #e9ecef;
+    }
+
+    .form-section:last-of-type {
+        border-bottom: none;
+        margin-bottom: 1.5rem;
+    }
+
+    .form-section h3 {
+        color: #333;
+        margin-bottom: 1rem;
+        font-size: 1.4rem;
+        position: relative;
+        padding-left: 1.5rem;
+    }
+
+    .form-section h3::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 0.3rem;
+        width: 0.5rem;
+        height: 1.5rem;
+        background: #7209b7;
+        border-radius: 2px;
+    }
+
+    .section-description {
+        color: #6c757d;
+        margin-bottom: 1.5rem;
+        font-size: 0.95rem;
+        line-height: 1.5;
+    }
+
+    .form-group {
+        margin-bottom: 1.5rem;
+    }
+
+    .form-group label {
+        display: block;
+        margin-bottom: 0.5rem;
+        font-weight: 500;
+        color: #333;
+    }
+
+    textarea.form-control {
+        width: 100%;
+        padding: 0.875rem 1rem;
+        border: 2px solid #e9ecef;
+        border-radius: 8px;
+        font-size: 1rem;
+        min-height: 150px;
+        resize: vertical;
+        background: #f8f9fa;
+        transition: all 0.3s ease;
+    }
+
+    textarea.form-control:focus {
+        outline: none;
+        border-color: #7209b7;
+        background: white;
+        box-shadow: 0 0 0 3px rgba(114, 9, 183, 0.1);
+    }
+
+    .form-text {
+        display: block;
+        margin-top: 0.5rem;
+        font-size: 0.85rem;
+        color: #6c757d;
+        line-height: 1.4;
+    }
+
+    .char-count {
+        text-align: right;
+        font-size: 0.85rem;
+        color: #6c757d;
+        margin-top: 0.25rem;
+    }
+
+    .looking-for-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.5rem;
+    }
+
+    .looking-for-card {
+        background: #f8f9fa;
+        border-radius: 8px;
+        padding: 1.5rem;
+        border: 2px solid #e9ecef;
+        transition: all 0.3s ease;
+    }
+
+    .looking-for-card:hover {
+        border-color: #7209b7;
+        transform: translateY(-2px);
+    }
+
+    .looking-for-checkbox input[type="checkbox"] {
+        display: none;
+    }
+
+    .looking-for-checkbox label {
+        display: flex;
+        align-items: flex-start;
+        gap: 1rem;
+        cursor: pointer;
+        margin: 0;
+    }
+
+    .looking-for-checkbox input[type="checkbox"]:checked + label .looking-for-icon {
+        background: #7209b7;
+        color: white;
+    }
+
+    .looking-for-checkbox input[type="checkbox"]:checked + label .looking-for-card {
+        border-color: #7209b7;
+    }
+
+    .looking-for-icon {
+        width: 50px;
+        height: 50px;
+        border-radius: 50%;
+        background: #e9ecef;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        flex-shrink: 0;
+        transition: all 0.3s ease;
+    }
+
+    .looking-for-content h4 {
+        margin: 0 0 0.5rem 0;
+        color: #333;
+        font-size: 1.1rem;
+    }
+
+    .looking-for-content p {
+        margin: 0;
+        color: #6c757d;
+        font-size: 0.9rem;
+        line-height: 1.4;
+    }
+
+    .additional-info {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 1.5rem;
+    }
+
+    .info-card {
+        background: #f0f4ff;
+        border-radius: 8px;
+        padding: 1.5rem;
+        border-left: 4px solid #7209b7;
+    }
+
+    .info-icon {
+        font-size: 2rem;
+        margin-bottom: 1rem;
+    }
+
+    .info-content h4 {
+        margin: 0 0 0.5rem 0;
+        color: #333;
+        font-size: 1.1rem;
+    }
+
+    .info-content p {
+        margin: 0;
+        color: #666;
+        font-size: 0.9rem;
+        line-height: 1.4;
+    }
+
+    .form-actions {
+        margin-top: 2rem;
+    }
+
+    .action-buttons {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 1rem;
+    }
+
+    .form-note {
+        text-align: center;
+        color: #6c757d;
+        font-size: 0.9rem;
+    }
+
+    .btn {
+        padding: 0.75rem 1.5rem;
+        border-radius: 8px;
+        text-decoration: none;
+        font-weight: 500;
+        transition: all 0.3s ease;
+        border: none;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+    }
+
+    .btn-primary {
+        background: linear-gradient(135deg, #7209b7 0%, #3a0ca3 100%);
+        color: white;
+        padding: 1rem 2rem;
+        font-size: 1.1rem;
+    }
+
+    .btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(114, 9, 183, 0.3);
+    }
+
+    .btn-outline {
+        background: transparent;
+        color: #7209b7;
+        border: 2px solid #7209b7;
+    }
+
+    .btn-outline:hover {
+        background: #7209b7;
+        color: white;
+    }
+
+    @media (max-width: 768px) {
+        .registration-header {
+            padding: 2rem 1.5rem;
+        }
+
+        .registration-form {
+            padding: 1.5rem;
+        }
+
+        .looking-for-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .additional-info {
+            grid-template-columns: 1fr;
+        }
+
+        .action-buttons {
+            flex-direction: column;
+        }
+
+        .btn {
+            width: 100%;
+            justify-content: center;
+        }
+    }
+
+    @media (max-width: 480px) {
+        .registration-header h1 {
+            font-size: 1.8rem;
+        }
+
+        .registration-header p {
+            font-size: 1rem;
+        }
+
+        .looking-for-card,
+        .info-card {
+            padding: 1rem;
+        }
+    }
+</style>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Подсветка выбранных чекбоксов
+        const lookingForCheckboxes = document.querySelectorAll('.looking-for-checkbox input[type="checkbox"]');
+        lookingForCheckboxes.forEach(checkbox => {
+            const updateCheckbox = () => {
+                const label = checkbox.nextElementSibling;
+                const lookingForCard = label.closest('.looking-for-card');
+                const lookingForIcon = label.querySelector('.looking-for-icon');
+                
+                if (checkbox.checked) {
+                    lookingForCard.style.borderColor = '#7209b7';
+                    lookingForCard.style.backgroundColor = '#f0f4ff';
+                    lookingForIcon.style.background = '#7209b7';
+                    lookingForIcon.style.color = 'white';
+                } else {
+                    lookingForCard.style.borderColor = '#e9ecef';
+                    lookingForCard.style.backgroundColor = '#f8f9fa';
+                    lookingForIcon.style.background = '#e9ecef';
+                    lookingForIcon.style.color = 'inherit';
+                }
+            };
+            
+            checkbox.addEventListener('change', updateCheckbox);
+            updateCheckbox(); // Инициализация
+        });
+        
+        // Подсчет символов в описании
+        const descriptionTextarea = document.getElementById('{{ form.description.id_for_label }}');
+        const charCount = document.querySelector('.char-count');
+        
+        if (descriptionTextarea && charCount) {
+            const updateCharCount = () => {
+                const count = descriptionTextarea.value.length;
+                charCount.textContent = `${count} символов`;
+                
+                if (count > 500) {
+                    charCount.style.color = '#dc3545';
+                } else if (count > 200) {
+                    charCount.style.color = '#ffc107';
+                } else {
+                    charCount.style.color = '#6c757d';
+                }
+            };
+            
+            descriptionTextarea.addEventListener('input', updateCharCount);
+            updateCharCount(); // Инициализация
+        }
+        
+        // Валидация формы
+        const form = document.querySelector('.registration-form');
+        form.addEventListener('submit', function(e) {
+            // Проверяем описание команды
+            if (descriptionTextarea.value.trim().length < 10) {
+                e.preventDefault();
+                alert('Пожалуйста, напишите более подробное описание команды (минимум 10 символов).');
+                descriptionTextarea.focus();
+                return false;
+            }
+            
+            return true;
+        });
+        
+        // Подсказки при наведении
+        const infoCards = document.querySelectorAll('.info-card');
+        infoCards.forEach(card => {
+            card.addEventListener('mouseenter', function() {
+                this.style.transform = 'translateY(-5px)';
+                this.style.boxShadow = '0 5px 15px rgba(0, 0, 0, 0.1)';
+            });
+            
+            card.addEventListener('mouseleave', function() {
+                this.style.transform = 'translateY(0)';
+                this.style.boxShadow = 'none';
+            });
+        });
+    });
+</script>
+{% endblock %}

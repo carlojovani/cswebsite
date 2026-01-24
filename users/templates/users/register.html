@@ -1,0 +1,154 @@
+{% extends 'users/base.html' %}
+{% block content %}
+
+<h2>Регистрация</h2>
+
+{% if form.errors %}
+<div class="alert alert-danger">
+    <strong>Ошибка!</strong> Пожалуйста, исправьте следующие ошибки:
+    <ul>
+        {% for field in form %}
+            {% for error in field.errors %}
+                <li>{{ field.label }}: {{ error }}</li>
+            {% endfor %}
+        {% endfor %}
+        {% for error in form.non_field_errors %}
+            <li>{{ error }}</li>
+        {% endfor %}
+    </ul>
+</div>
+{% endif %}
+
+<form method="post" novalidate>
+    {% csrf_token %}
+
+    <div class="form-group">
+        <label for="id_username">Имя пользователя:</label>
+        {{ form.username }}
+        {% if form.username.errors %}
+        <div class="text-danger">
+            {% for error in form.username.errors %}
+                {{ error }}
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="form-group">
+        <label for="id_email">Email:</label>
+        {{ form.email }}
+        {% if form.email.errors %}
+        <div class="text-danger">
+            {% for error in form.email.errors %}
+                {{ error }}
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="form-group">
+        <label for="id_faceit_nickname">Faceit никнейм:</label>
+        {{ form.faceit_nickname }}
+        {% if form.faceit_nickname.errors %}
+        <div class="text-danger">
+            {% for error in form.faceit_nickname.errors %}
+                {{ error }}
+            {% endfor %}
+        </div>
+        {% endif %}
+        <small class="form-text text-muted">Укажите ваш точный никнейм с Faceit</small>
+    </div>
+
+    <div class="form-group">
+        <label>Тип пользователя:</label><br>
+        {% for choice in form.user_type %}
+            <div class="form-check form-check-inline">
+                {{ choice.tag }}
+                <label class="form-check-label" for="{{ choice.id_for_label }}">
+                    {{ choice.choice_label }}
+                </label>
+            </div>
+        {% endfor %}
+        {% if form.user_type.errors %}
+        <div class="text-danger">
+            {% for error in form.user_type.errors %}
+                {{ error }}
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="form-group">
+        <label for="id_password1">Пароль:</label>
+        {{ form.password1 }}
+        {% if form.password1.errors %}
+        <div class="text-danger">
+            {% for error in form.password1.errors %}
+                {{ error }}
+            {% endfor %}
+        </div>
+        {% endif %}
+        <small class="form-text text-muted">
+            Пароль должен содержать минимум 8 символов и не состоять только из цифр.
+        </small>
+    </div>
+
+    <div class="form-group">
+        <label for="id_password2">Подтверждение пароля:</label>
+        {{ form.password2 }}
+        {% if form.password2.errors %}
+        <div class="text-danger">
+            {% for error in form.password2.errors %}
+                {{ error }}
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+
+    <button type="submit" class="btn btn-primary">Зарегистрироваться</button>
+</form>
+
+<p class="mt-3">
+    Уже есть аккаунт? <a href="{% url 'login' %}">Войти</a>
+</p>
+
+<style>
+.form-group {
+    margin-bottom: 1rem;
+}
+.form-control {
+    display: block;
+    width: 100%;
+    padding: 0.375rem 0.75rem;
+    font-size: 1rem;
+    line-height: 1.5;
+    color: #495057;
+    background-color: #fff;
+    background-clip: padding-box;
+    border: 1px solid #ced4da;
+    border-radius: 0.25rem;
+}
+.alert {
+    padding: 1rem;
+    margin-bottom: 1rem;
+    border: 1px solid transparent;
+    border-radius: 0.25rem;
+}
+.alert-danger {
+    color: #721c24;
+    background-color: #f8d7da;
+    border-color: #f5c6cb;
+}
+.text-danger {
+    color: #dc3545;
+}
+.btn-primary {
+    color: #fff;
+    background-color: #007bff;
+    border-color: #007bff;
+    padding: 0.375rem 0.75rem;
+    border-radius: 0.25rem;
+}
+</style>
+
+{% endblock %}

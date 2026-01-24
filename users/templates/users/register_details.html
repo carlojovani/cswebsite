@@ -1,0 +1,44 @@
+{% extends 'users/base.html' %}
+{% block content %}
+
+<h2>Завершение регистрации</h2>
+
+{% if user_type == 'player' %}
+<div class="success-message">
+    <h3>✅ Faceit данные успешно загружены!</h3>
+    <p>Ваш профиль создан на основе данных с Faceit:</p>
+
+    {% if faceit_data %}
+    <div style="background: #f0f8ff; padding: 15px; border-radius: 5px; margin: 15px 0;">
+        <p><strong>Никнейм:</strong> {{ faceit_data.nickname }}</p>
+        <p><strong>Уровень:</strong> {{ faceit_data.skill_level }}</p>
+        <p><strong>ELO:</strong> {{ faceit_data.faceit_elo }}</p>
+        {% if faceit_data.country %}
+        <p><strong>Страна:</strong> {{ faceit_data.country|upper }}</p>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <p>Нажмите кнопку ниже для завершения регистрации:</p>
+
+    <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button type="submit" style="background: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer;">
+            Завершить регистрацию
+        </button>
+    </form>
+</div>
+
+{% else %}
+<h3>Заполните информацию о команде</h3>
+
+<form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit">Создать команду</button>
+</form>
+
+{% endif %}
+
+{% endblock %}

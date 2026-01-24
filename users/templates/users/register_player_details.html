@@ -1,0 +1,641 @@
+{% extends 'users/base.html' %}
+
+{% block title %}Регистрация игрока - Шаг 3 - CS Platform{% endblock %}
+
+{% block content %}
+<div class="registration-container">
+    <div class="registration-card">
+        <div class="registration-header">
+            <h1>🎮 Игровые характеристики</h1>
+            <p>Шаг 3 из 3: Укажите ваши позиции и роли</p>
+        </div>
+
+        <form method="post" class="registration-form">
+            {% csrf_token %}
+            
+            <!-- CT позиции -->
+            <div class="form-section">
+                <h3>CT позиции на картах</h3>
+                <p class="section-description">Выберите вашу основную позицию на стороне контр-террористов для каждой карты:</p>
+                
+                <div class="maps-grid">
+                    <!-- Mirage -->
+                    <div class="map-card">
+                        <div class="map-header">
+                            <div class="map-icon">🏜️</div>
+                            <h4>Mirage</h4>
+                        </div>
+                        <div class="map-field">
+                            {{ form.mirage_ct_position }}
+                        </div>
+                    </div>
+                    
+                    <!-- Dust 2 -->
+                    <div class="map-card">
+                        <div class="map-header">
+                            <div class="map-icon">🏜️</div>
+                            <h4>Dust 2</h4>
+                        </div>
+                        <div class="map-field">
+                            {{ form.dust2_ct_position }}
+                        </div>
+                    </div>
+                    
+                    <!-- Anubis -->
+                    <div class="map-card">
+                        <div class="map-header">
+                            <div class="map-icon">🐫</div>
+                            <h4>Anubis</h4>
+                        </div>
+                        <div class="map-field">
+                            {{ form.anubis_ct_position }}
+                        </div>
+                    </div>
+                    
+                    <!-- Nuke -->
+                    <div class="map-card">
+                        <div class="map-header">
+                            <div class="map-icon">🏭</div>
+                            <h4>Nuke</h4>
+                        </div>
+                        <div class="map-field">
+                            {{ form.nuke_ct_position }}
+                        </div>
+                    </div>
+                    
+                    <!-- Ancient -->
+                    <div class="map-card">
+                        <div class="map-header">
+                            <div class="map-icon">🏺</div>
+                            <h4>Ancient</h4>
+                        </div>
+                        <div class="map-field">
+                            {{ form.ancient_ct_position }}
+                        </div>
+                    </div>
+                    
+                    <!-- Inferno -->
+                    <div class="map-card">
+                        <div class="map-header">
+                            <div class="map-icon">🔥</div>
+                            <h4>Inferno</h4>
+                        </div>
+                        <div class="map-field">
+                            {{ form.inferno_ct_position }}
+                        </div>
+                    </div>
+                    
+                    <!-- Overpass -->
+                    <div class="map-card">
+                        <div class="map-header">
+                            <div class="map-icon">🌉</div>
+                            <h4>Overpass</h4>
+                        </div>
+                        <div class="map-field">
+                            {{ form.overpass_ct_position }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- T роли -->
+            <div class="form-section">
+                <h3>Роль на T стороне</h3>
+                <p class="section-description">Выберите вашу основную роль на стороне террористов:</p>
+                
+                <div class="role-selection">
+                    <div class="form-group">
+                        {{ form.t_role }}
+                        <small class="form-text">
+                            <strong>Люркер</strong> - играет отдельно от команды, создает неожиданность<br>
+                            <strong>Ентри</strong> - первым заходит на сайт, открывает пространство<br>
+                            <strong>Сапорт</strong> - помогает команде, кидает смоуки, флешки
+                        </small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Специальные возможности -->
+            <div class="form-section">
+                <h3>Специальные возможности</h3>
+                
+                <div class="special-abilities">
+                    <div class="ability-card">
+                        <div class="ability-checkbox">
+                            {{ form.is_igl }}
+                            <label for="{{ form.is_igl.id_for_label }}">
+                                <div class="ability-icon">🎯</div>
+                                <div class="ability-content">
+                                    <h4>IGL (In-Game Leader)</h4>
+                                    <p>Могу быть капитаном, отдавать команды, разрабатывать тактики</p>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="ability-card">
+                        <div class="ability-checkbox">
+                            {{ form.can_awp }}
+                            <label for="{{ form.can_awp.id_for_label }}">
+                                <div class="ability-icon">🎯</div>
+                                <div class="ability-content">
+                                    <h4>AWP-ист</h4>
+                                    <p>Могу эффективно играть на снайперской винтовке AWP</p>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Дополнительная информация -->
+            <div class="form-section">
+                <h3>Дополнительная информация</h3>
+                
+                <div class="form-group">
+                    <label for="{{ form.description.id_for_label }}">Расскажите о себе</label>
+                    {{ form.description }}
+                    <small class="form-text">
+                        Расскажите о вашем опыте, стиле игры, достижениях, целях
+                    </small>
+                    <div class="char-count">0 символов</div>
+                </div>
+            </div>
+
+            <!-- Кнопки -->
+            <div class="form-actions">
+                <div class="action-buttons">
+                    <a href="{% url 'register_step2' %}" class="btn btn-outline">
+                        ← Назад
+                    </a>
+                    <button type="submit" class="btn btn-primary">
+                        🚀 Завершить регистрацию
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+    .registration-container {
+        max-width: 1000px;
+        margin: 0 auto;
+        padding: 2rem 1rem;
+    }
+
+    .registration-card {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+        overflow: hidden;
+    }
+
+    .registration-header {
+        background: linear-gradient(135deg, #4361ee 0%, #3a0ca3 100%);
+        color: white;
+        padding: 2.5rem 2rem;
+        text-align: center;
+    }
+
+    .registration-header h1 {
+        margin: 0 0 0.5rem 0;
+        font-size: 2.2rem;
+    }
+
+    .registration-header p {
+        margin: 0;
+        opacity: 0.9;
+        font-size: 1.1rem;
+    }
+
+    .registration-form {
+        padding: 2rem;
+    }
+
+    .form-section {
+        margin-bottom: 3rem;
+        padding-bottom: 3rem;
+        border-bottom: 1px solid #e9ecef;
+    }
+
+    .form-section:last-of-type {
+        border-bottom: none;
+        margin-bottom: 1.5rem;
+    }
+
+    .form-section h3 {
+        color: #333;
+        margin-bottom: 1rem;
+        font-size: 1.4rem;
+        position: relative;
+        padding-left: 1.5rem;
+    }
+
+    .form-section h3::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 0.3rem;
+        width: 0.5rem;
+        height: 1.5rem;
+        background: #4361ee;
+        border-radius: 2px;
+    }
+
+    .section-description {
+        color: #6c757d;
+        margin-bottom: 1.5rem;
+        font-size: 0.95rem;
+        line-height: 1.5;
+    }
+
+    .maps-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 1.5rem;
+    }
+
+    .map-card {
+        background: #f8f9fa;
+        border-radius: 8px;
+        padding: 1.5rem;
+        border: 2px solid #e9ecef;
+        transition: all 0.3s ease;
+    }
+
+    .map-card:hover {
+        border-color: #4361ee;
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+    }
+
+    .map-header {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-bottom: 1rem;
+    }
+
+    .map-icon {
+        font-size: 1.5rem;
+    }
+
+    .map-header h4 {
+        margin: 0;
+        color: #333;
+        font-size: 1.1rem;
+    }
+
+    .map-field select {
+        width: 100%;
+        padding: 0.75rem;
+        border: 2px solid #e9ecef;
+        border-radius: 6px;
+        font-size: 0.95rem;
+        background: white;
+        transition: all 0.3s ease;
+    }
+
+    .map-field select:focus {
+        outline: none;
+        border-color: #4361ee;
+        box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.1);
+    }
+
+    .role-selection {
+        max-width: 400px;
+    }
+
+    .role-selection select {
+        width: 100%;
+        padding: 0.875rem 1rem;
+        border: 2px solid #e9ecef;
+        border-radius: 8px;
+        font-size: 1rem;
+        background: #f8f9fa;
+        transition: all 0.3s ease;
+        margin-bottom: 0.5rem;
+    }
+
+    .role-selection select:focus {
+        outline: none;
+        border-color: #4361ee;
+        background: white;
+        box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.1);
+    }
+
+    .special-abilities {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.5rem;
+    }
+
+    .ability-card {
+        background: #f8f9fa;
+        border-radius: 8px;
+        padding: 1.5rem;
+        border: 2px solid #e9ecef;
+        transition: all 0.3s ease;
+    }
+
+    .ability-card:hover {
+        border-color: #4361ee;
+        transform: translateY(-2px);
+    }
+
+    .ability-checkbox input[type="checkbox"] {
+        display: none;
+    }
+
+    .ability-checkbox label {
+        display: flex;
+        align-items: flex-start;
+        gap: 1rem;
+        cursor: pointer;
+        margin: 0;
+    }
+
+    .ability-checkbox input[type="checkbox"]:checked + label .ability-icon {
+        background: #4361ee;
+        color: white;
+    }
+
+    .ability-checkbox input[type="checkbox"]:checked + label .ability-card {
+        border-color: #4361ee;
+    }
+
+    .ability-icon {
+        width: 50px;
+        height: 50px;
+        border-radius: 50%;
+        background: #e9ecef;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        flex-shrink: 0;
+        transition: all 0.3s ease;
+    }
+
+    .ability-content h4 {
+        margin: 0 0 0.5rem 0;
+        color: #333;
+        font-size: 1.1rem;
+    }
+
+    .ability-content p {
+        margin: 0;
+        color: #6c757d;
+        font-size: 0.9rem;
+        line-height: 1.4;
+    }
+
+    .form-group {
+        margin-bottom: 1.5rem;
+    }
+
+    .form-group label {
+        display: block;
+        margin-bottom: 0.5rem;
+        font-weight: 500;
+        color: #333;
+    }
+
+    textarea.form-control {
+        width: 100%;
+        padding: 0.875rem 1rem;
+        border: 2px solid #e9ecef;
+        border-radius: 8px;
+        font-size: 1rem;
+        min-height: 120px;
+        resize: vertical;
+        background: #f8f9fa;
+        transition: all 0.3s ease;
+    }
+
+    textarea.form-control:focus {
+        outline: none;
+        border-color: #4361ee;
+        background: white;
+        box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.1);
+    }
+
+    .form-text {
+        display: block;
+        margin-top: 0.5rem;
+        font-size: 0.85rem;
+        color: #6c757d;
+        line-height: 1.4;
+    }
+
+    .char-count {
+        text-align: right;
+        font-size: 0.85rem;
+        color: #6c757d;
+        margin-top: 0.25rem;
+    }
+
+    .form-actions {
+        margin-top: 2rem;
+    }
+
+    .action-buttons {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+    }
+
+    .btn {
+        padding: 0.75rem 1.5rem;
+        border-radius: 8px;
+        text-decoration: none;
+        font-weight: 500;
+        transition: all 0.3s ease;
+        border: none;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+    }
+
+    .btn-primary {
+        background: linear-gradient(135deg, #4361ee 0%, #3a0ca3 100%);
+        color: white;
+        padding: 1rem 2rem;
+        font-size: 1.1rem;
+    }
+
+    .btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(67, 97, 238, 0.3);
+    }
+
+    .btn-outline {
+        background: transparent;
+        color: #4361ee;
+        border: 2px solid #4361ee;
+    }
+
+    .btn-outline:hover {
+        background: #4361ee;
+        color: white;
+    }
+
+    @media (max-width: 768px) {
+        .registration-header {
+            padding: 2rem 1.5rem;
+        }
+
+        .registration-form {
+            padding: 1.5rem;
+        }
+
+        .maps-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .special-abilities {
+            grid-template-columns: 1fr;
+        }
+
+        .action-buttons {
+            flex-direction: column;
+        }
+
+        .btn {
+            width: 100%;
+            justify-content: center;
+        }
+    }
+
+    @media (max-width: 480px) {
+        .registration-header h1 {
+            font-size: 1.8rem;
+        }
+
+        .registration-header p {
+            font-size: 1rem;
+        }
+
+        .map-card {
+            padding: 1rem;
+        }
+
+        .ability-card {
+            padding: 1rem;
+        }
+    }
+</style>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Подсветка выбранных чекбоксов
+        const abilityCheckboxes = document.querySelectorAll('.ability-checkbox input[type="checkbox"]');
+        abilityCheckboxes.forEach(checkbox => {
+            const updateCheckbox = () => {
+                const label = checkbox.nextElementSibling;
+                const abilityCard = label.closest('.ability-card');
+                const abilityIcon = label.querySelector('.ability-icon');
+                
+                if (checkbox.checked) {
+                    abilityCard.style.borderColor = '#4361ee';
+                    abilityCard.style.backgroundColor = '#f0f4ff';
+                    abilityIcon.style.background = '#4361ee';
+                    abilityIcon.style.color = 'white';
+                } else {
+                    abilityCard.style.borderColor = '#e9ecef';
+                    abilityCard.style.backgroundColor = '#f8f9fa';
+                    abilityIcon.style.background = '#e9ecef';
+                    abilityIcon.style.color = 'inherit';
+                }
+            };
+            
+            checkbox.addEventListener('change', updateCheckbox);
+            updateCheckbox(); // Инициализация
+        });
+        
+        // Подсчет символов в описании
+        const descriptionTextarea = document.getElementById('{{ form.description.id_for_label }}');
+        const charCount = document.querySelector('.char-count');
+        
+        if (descriptionTextarea && charCount) {
+            const updateCharCount = () => {
+                const count = descriptionTextarea.value.length;
+                charCount.textContent = `${count} символов`;
+                
+                if (count > 1000) {
+                    charCount.style.color = '#dc3545';
+                } else if (count > 500) {
+                    charCount.style.color = '#ffc107';
+                } else {
+                    charCount.style.color = '#6c757d';
+                }
+            };
+            
+            descriptionTextarea.addEventListener('input', updateCharCount);
+            updateCharCount(); // Инициализация
+        }
+        
+        // Валидация формы
+        const form = document.querySelector('.registration-form');
+        form.addEventListener('submit', function(e) {
+            // Проверяем, что выбрана хотя бы одна CT позиция
+            const ctSelects = document.querySelectorAll('.map-field select');
+            let hasCtPosition = false;
+            
+            ctSelects.forEach(select => {
+                if (select.value) {
+                    hasCtPosition = true;
+                }
+            });
+            
+            if (!hasCtPosition) {
+                e.preventDefault();
+                alert('Пожалуйста, выберите хотя бы одну CT позицию на картах.');
+                return false;
+            }
+            
+            // Проверяем T роль
+            const tRoleSelect = document.getElementById('{{ form.t_role.id_for_label }}');
+            if (!tRoleSelect.value) {
+                e.preventDefault();
+                alert('Пожалуйста, выберите вашу роль на T стороне.');
+                tRoleSelect.focus();
+                return false;
+            }
+            
+            return true;
+        });
+        
+        // Автоподсказки для карт (можно расширить)
+        const mapData = {
+            'mirage': {
+                positions: {
+                    'mirage_ct_b_anchor': 'Основной игрок на B, держит туннель и окно',
+                    'mirage_ct_short': 'Игрок на шорте, контролирует мид и коннект',
+                    'mirage_ct_window': 'Снайпер на окне, видит мид и палас',
+                    'mirage_ct_con': 'Игрок на коннекте, помогает и на A и на B',
+                    'mirage_ct_a_anchor': 'Основной игрок на A, держит рамп и палас'
+                }
+            }
+            // Можно добавить для других карт
+        };
+        
+        // Добавляем подсказки при наведении на селекты
+        const mapSelects = document.querySelectorAll('.map-field select');
+        mapSelects.forEach(select => {
+            select.addEventListener('change', function() {
+                const mapName = this.closest('.map-card').querySelector('h4').textContent.toLowerCase();
+                const positionValue = this.value;
+                
+                if (mapData[mapName] && mapData[mapName].positions[positionValue]) {
+                    // Можно показать tooltip или изменить стиль
+                    this.title = mapData[mapName].positions[positionValue];
+                }
+            });
+        });
+    });
+</script>
+{% endblock %}

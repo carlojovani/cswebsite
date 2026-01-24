@@ -1,0 +1,23 @@
+<!-- users/templates/users/home.html -->
+{% extends 'users/base.html' %}
+{% block content %}
+
+<h1>Добро пожаловать на CS Platform!</h1>
+
+<p>Платформа для поиска игроков и команд в CS:GO</p>
+
+<div style="display: flex; gap: 20px; margin-top: 40px;">
+    <div style="flex: 1; border: 1px solid #ddd; padding: 20px; border-radius: 5px;">
+        <h3>👤 Для игроков</h3>
+        <p>Найдите команду для игры, участвуйте в турнирах, улучшайте свой скилл!</p>
+        <a href="{% url 'search_team' %}">Найти команду →</a>
+    </div>
+    
+    <div style="flex: 1; border: 1px solid #ddd; padding: 20px; border-radius: 5px;">
+        <h3>👥 Для команд</h3>
+        <p>Найдите игроков для вашей команды, участвуйте в соревнованиях!</p>
+        <a href="{% url 'search_player' %}">Найти игроков →</a>
+    </div>
+</div>
+
+{% endblock %}

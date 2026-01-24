@@ -1,0 +1,426 @@
+{% extends 'users/base.html' %}
+
+{% block title %}Редактирование профиля команды - CS Platform{% endblock %}
+
+{% block content %}
+<div class="edit-profile-container">
+    <div class="edit-profile-header">
+        <h1>✏️ Редактирование профиля команды</h1>
+        <p>Обновите информацию о вашей команде</p>
+    </div>
+
+    <form method="post" class="edit-profile-form">
+        {% csrf_token %}
+
+        <!-- Описание команды -->
+        <div class="form-section">
+            <h2>О команде</h2>
+
+            <div class="form-group">
+                <label for="{{ form.description.id_for_label }}">Описание команды *</label>
+                {{ form.description }}
+                <small class="form-text">
+                    Расскажите о вашей команде: цели, достижения, расписание тренировок
+                </small>
+                <div class="char-count">{{ form.description.value|length|default:0 }} символов</div>
+            </div>
+        </div>
+
+        <!-- Кого ищем -->
+        <div class="form-section">
+            <h2>Кого ищем в команду?</h2>
+
+            <div class="looking-for-grid">
+                <div class="looking-for-card">
+                    <div class="looking-for-checkbox">
+                        {{ form.looking_for_igl }}
+                        <label for="{{ form.looking_for_igl.id_for_label }}">
+                            <div class="looking-for-icon">🎯</div>
+                            <div class="looking-for-content">
+                                <h4>IGL (In-Game Leader)</h4>
+                                <p>Ищем капитана для разработки тактик и руководства командой</p>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="looking-for-card">
+                    <div class="looking-for-checkbox">
+                        {{ form.looking_for_awper }}
+                        <label for="{{ form.looking_for_awper.id_for_label }}">
+                            <div class="looking-for-icon">🎯</div>
+                            <div class="looking-for-content">
+                                <h4>AWP-ист</h4>
+                                <p>Ищем снайпера для контроля ключевых позиций</p>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Статус команды -->
+        <div class="form-section">
+            <h2>Статус команды</h2>
+
+            <div class="form-group">
+                <div class="form-check">
+                    {{ form.is_active }}
+                    <label for="{{ form.is_active.id_for_label }}">
+                        Команда активна и ищет игроков
+                    </label>
+                </div>
+                <small class="form-text">
+                    Если выключено, команда не будет отображаться в поиске
+                </small>
+            </div>
+        </div>
+
+        <!-- Кнопки -->
+        <div class="form-actions">
+            <div class="action-buttons">
+                <button type="submit" class="btn btn-primary">
+                    💾 Сохранить изменения
+                </button>
+
+                <a href="{% url 'profile' user.id %}" class="btn btn-outline">
+                    ← Назад в профиль
+                </a>
+            </div>
+        </div>
+    </form>
+</div>
+
+<style>
+    .edit-profile-container {
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 2rem 1rem;
+    }
+
+    .edit-profile-header {
+        text-align: center;
+        margin-bottom: 2rem;
+        padding: 2rem;
+        background: linear-gradient(135deg, #7209b7 0%, #3a0ca3 100%);
+        border-radius: 12px;
+        color: white;
+    }
+
+    .edit-profile-header h1 {
+        font-size: 2.2rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .edit-profile-header p {
+        font-size: 1.1rem;
+        opacity: 0.9;
+    }
+
+    .edit-profile-form {
+        background: white;
+        border-radius: 12px;
+        padding: 2.5rem;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+    }
+
+    .form-section {
+        margin-bottom: 2.5rem;
+        padding-bottom: 2.5rem;
+        border-bottom: 1px solid #e9ecef;
+    }
+
+    .form-section:last-of-type {
+        border-bottom: none;
+        margin-bottom: 1.5rem;
+    }
+
+    .form-section h2 {
+        color: #333;
+        margin-bottom: 1.5rem;
+        font-size: 1.3rem;
+        position: relative;
+        padding-left: 1.5rem;
+    }
+
+    .form-section h2::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 0.3rem;
+        width: 0.5rem;
+        height: 1.5rem;
+        background: #7209b7;
+        border-radius: 2px;
+    }
+
+    .form-group {
+        margin-bottom: 1.5rem;
+    }
+
+    .form-group label {
+        display: block;
+        margin-bottom: 0.5rem;
+        font-weight: 500;
+        color: #333;
+    }
+
+    textarea.form-control {
+        width: 100%;
+        padding: 0.875rem 1rem;
+        border: 2px solid #e9ecef;
+        border-radius: 8px;
+        font-size: 1rem;
+        min-height: 150px;
+        resize: vertical;
+        background: #f8f9fa;
+        transition: all 0.3s ease;
+    }
+
+    textarea.form-control:focus {
+        outline: none;
+        border-color: #7209b7;
+        background: white;
+        box-shadow: 0 0 0 3px rgba(114, 9, 183, 0.1);
+    }
+
+    .form-text {
+        display: block;
+        margin-top: 0.5rem;
+        font-size: 0.85rem;
+        color: #6c757d;
+        line-height: 1.4;
+    }
+
+    .char-count {
+        text-align: right;
+        font-size: 0.85rem;
+        color: #6c757d;
+        margin-top: 0.25rem;
+    }
+
+    .looking-for-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.5rem;
+    }
+
+    .looking-for-card {
+        background: #f8f9fa;
+        border-radius: 8px;
+        padding: 1.5rem;
+        border: 2px solid #e9ecef;
+        transition: all 0.3s ease;
+    }
+
+    .looking-for-card:hover {
+        border-color: #7209b7;
+        transform: translateY(-2px);
+    }
+
+    .looking-for-checkbox input[type="checkbox"] {
+        display: none;
+    }
+
+    .looking-for-checkbox label {
+        display: flex;
+        align-items: flex-start;
+        gap: 1rem;
+        cursor: pointer;
+        margin: 0;
+    }
+
+    .looking-for-checkbox input[type="checkbox"]:checked + label .looking-for-icon {
+        background: #7209b7;
+        color: white;
+    }
+
+    .looking-for-checkbox input[type="checkbox"]:checked + label .looking-for-card {
+        border-color: #7209b7;
+        background: #f0f4ff;
+    }
+
+    .looking-for-icon {
+        width: 50px;
+        height: 50px;
+        border-radius: 50%;
+        background: #e9ecef;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        flex-shrink: 0;
+        transition: all 0.3s ease;
+    }
+
+    .looking-for-content h4 {
+        margin: 0 0 0.5rem 0;
+        color: #333;
+        font-size: 1.1rem;
+    }
+
+    .looking-for-content p {
+        margin: 0;
+        color: #6c757d;
+        font-size: 0.9rem;
+        line-height: 1.4;
+    }
+
+    .form-check {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .form-check input[type="checkbox"] {
+        width: 1.2rem;
+        height: 1.2rem;
+    }
+
+    .form-check label {
+        margin: 0;
+        font-weight: normal;
+        color: #495057;
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .form-actions {
+        margin-top: 2rem;
+        padding-top: 1.5rem;
+        border-top: 1px solid #e9ecef;
+    }
+
+    .action-buttons {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+
+    .btn {
+        padding: 0.75rem 1.5rem;
+        border-radius: 8px;
+        text-decoration: none;
+        font-weight: 500;
+        transition: all 0.3s ease;
+        border: none;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+    }
+
+    .btn-primary {
+        background: linear-gradient(135deg, #7209b7 0%, #3a0ca3 100%);
+        color: white;
+        padding: 1rem 2rem;
+        font-size: 1.1rem;
+    }
+
+    .btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(114, 9, 183, 0.3);
+    }
+
+    .btn-outline {
+        background: transparent;
+        color: #7209b7;
+        border: 2px solid #7209b7;
+    }
+
+    .btn-outline:hover {
+        background: #7209b7;
+        color: white;
+    }
+
+    @media (max-width: 768px) {
+        .edit-profile-container {
+            padding: 1rem;
+        }
+
+        .edit-profile-header {
+            padding: 1.5rem;
+        }
+
+        .edit-profile-form {
+            padding: 1.5rem;
+        }
+
+        .looking-for-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .action-buttons {
+            flex-direction: column;
+        }
+
+        .btn {
+            width: 100%;
+            justify-content: center;
+        }
+    }
+
+    @media (max-width: 480px) {
+        .edit-profile-header h1 {
+            font-size: 1.8rem;
+        }
+
+        .edit-profile-header p {
+            font-size: 1rem;
+        }
+    }
+</style>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Подсветка выбранных чекбоксов
+        const lookingForCheckboxes = document.querySelectorAll('.looking-for-checkbox input[type="checkbox"]');
+        lookingForCheckboxes.forEach(checkbox => {
+            const updateCheckbox = () => {
+                const label = checkbox.nextElementSibling;
+                const lookingForCard = label.closest('.looking-for-card');
+                const lookingForIcon = label.querySelector('.looking-for-icon');
+
+                if (checkbox.checked) {
+                    lookingForCard.style.borderColor = '#7209b7';
+                    lookingForCard.style.backgroundColor = '#f0f4ff';
+                    lookingForIcon.style.background = '#7209b7';
+                    lookingForIcon.style.color = 'white';
+                } else {
+                    lookingForCard.style.borderColor = '#e9ecef';
+                    lookingForCard.style.backgroundColor = '#f8f9fa';
+                    lookingForIcon.style.background = '#e9ecef';
+                    lookingForIcon.style.color = 'inherit';
+                }
+            };
+
+            checkbox.addEventListener('change', updateCheckbox);
+            updateCheckbox(); // Инициализация
+        });
+
+        // Подсчет символов в описании
+        const descriptionTextarea = document.getElementById('{{ form.description.id_for_label }}');
+        const charCount = document.querySelector('.char-count');
+
+        if (descriptionTextarea && charCount) {
+            const updateCharCount = () => {
+                const count = descriptionTextarea.value.length;
+                charCount.textContent = `${count} символов`;
+
+                if (count > 500) {
+                    charCount.style.color = '#dc3545';
+                } else if (count > 200) {
+                    charCount.style.color = '#ffc107';
+                } else {
+                    charCount.style.color = '#6c757d';
+                }
+            };
+
+            descriptionTextarea.addEventListener('input', updateCharCount);
+            updateCharCount(); // Инициализация
+        }
+    });
+</script>
+{% endblock %}

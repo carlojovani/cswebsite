@@ -1,0 +1,547 @@
+[file name]: search_team.html
+[file content begin]
+{% extends 'users/base.html' %}
+
+{% block title %}Поиск команд - CS Platform{% endblock %}
+
+{% block content %}
+<div class="search-container">
+    <div class="search-header">
+        <h1>👥 Поиск команд</h1>
+        <p>Найдите команду, которая ищет таких игроков как вы</p>
+    </div>
+
+    <!-- Фильтры -->
+    <div class="search-filters">
+        <h2>Фильтры</h2>
+        <form method="get" class="filters-form">
+            <div class="filter-group">
+                <label>Требуются:</label>
+                <div class="filter-options">
+                    <div class="filter-checkbox">
+                        <input type="checkbox" name="igl" id="filter-igl"
+                               {% if filters.igl == 'true' %}checked{% endif %}>
+                        <label for="filter-igl">
+                            <span class="filter-icon">🎯</span>
+                            <span class="filter-text">IGL</span>
+                        </label>
+                    </div>
+                    <div class="filter-checkbox">
+                        <input type="checkbox" name="awper" id="filter-awper"
+                               {% if filters.awper == 'true' %}checked{% endif %}>
+                        <label for="filter-awper">
+                            <span class="filter-icon">🎯</span>
+                            <span class="filter-text">AWP-ист</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="filter-actions">
+                <button type="submit" class="btn btn-primary">
+                    🔍 Применить фильтры
+                </button>
+                <a href="{% url 'search_team' %}" class="btn btn-outline">
+                    ❌ Сбросить
+                </a>
+            </div>
+        </form>
+    </div>
+
+    <!-- Результаты поиска -->
+    <div class="search-results">
+        <h2>Найдено команд: {{ teams|length }}</h2>
+
+        {% if teams %}
+        <div class="teams-grid">
+            {% for team in teams %}
+            <div class="team-card">
+                <div class="team-header">
+                    <div class="team-avatar">
+                        <div class="avatar-placeholder">👥</div>
+                    </div>
+                    <div class="team-info">
+                        <h3>{{ team.team_name }}</h3>
+                        <div class="team-badges">
+                            {% if team.looking_for_igl %}
+                            <span class="badge badge-igl">Ищет IGL</span>
+                            {% endif %}
+                            {% if team.looking_for_awper %}
+                            <span class="badge badge-awper">Ищет AWP-иста</span>
+                            {% endif %}
+                            {% if team.is_active %}
+                            <span class="badge badge-active">Активна</span>
+                            {% else %}
+                            <span class="badge badge-inactive">Неактивна</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="team-description">
+                    {% if team.description %}
+                        {{ team.description|truncatechars:200 }}
+                    {% else %}
+                        <p class="no-description">Описание не указано</p>
+                    {% endif %}
+                </div>
+
+                <div class="team-footer">
+                    <div class="team-meta">
+                        <span class="meta-item">📅 {{ team.created_date|date:"d.m.Y" }}</span>
+                    </div>
+                    <div class="team-actions">
+                        <a href="{% url 'team_details' team.id %}" class="btn btn-small">
+                            Подробнее
+                        </a>
+                        {% if request.user.id == team.user.id %}
+                            <!-- ИСПРАВЬТЕ ЭТУ СТРОКУ: -->
+                            <a href="{% url 'edit_profile' %}" class="btn btn-small btn-outline">
+                                Редактировать
+                            </a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- Пагинация -->
+        {% if teams.has_other_pages %}
+        <div class="pagination">
+            {% if teams.has_previous %}
+                <a href="?page={{ teams.previous_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
+                   class="page-link">← Назад</a>
+            {% endif %}
+
+            {% for i in teams.paginator.page_range %}
+                {% if teams.number == i %}
+                    <span class="page-current">{{ i }}</span>
+                {% else %}
+                    <a href="?page={{ i }}{% for key,value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
+                       class="page-link">{{ i }}</a>
+                {% endif %}
+            {% endfor %}
+
+            {% if teams.has_next %}
+                <a href="?page={{ teams.next_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
+                   class="page-link">Вперед →</a>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% else %}
+        <div class="no-results">
+            <div class="no-results-icon">😕</div>
+            <h3>Команды не найдены</h3>
+            <p>Попробуйте изменить параметры фильтров</p>
+            <a href="{% url 'search_team' %}" class="btn btn-primary">
+                Сбросить фильтры
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<style>
+    .search-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 2rem 1rem;
+    }
+
+    .search-header {
+        text-align: center;
+        margin-bottom: 3rem;
+        padding: 2rem;
+        background: linear-gradient(135deg, #7209b7 0%, #3a0ca3 100%);
+        border-radius: 12px;
+        color: white;
+    }
+
+    .search-header h1 {
+        font-size: 2.5rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .search-header p {
+        font-size: 1.2rem;
+        opacity: 0.9;
+    }
+
+    .search-filters {
+        background: white;
+        border-radius: 12px;
+        padding: 2rem;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        margin-bottom: 2rem;
+    }
+
+    .search-filters h2 {
+        color: #333;
+        margin-bottom: 1.5rem;
+        font-size: 1.4rem;
+    }
+
+    .filter-group {
+        margin-bottom: 1.5rem;
+    }
+
+    .filter-group label {
+        display: block;
+        margin-bottom: 0.75rem;
+        font-weight: 500;
+        color: #555;
+        font-size: 1.1rem;
+    }
+
+    .filter-options {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+
+    .filter-checkbox {
+        flex: 1;
+        min-width: 120px;
+    }
+
+    .filter-checkbox input[type="checkbox"] {
+        display: none;
+    }
+
+    .filter-checkbox label {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 1rem;
+        background: #f8f9fa;
+        border-radius: 8px;
+        border: 2px solid #e9ecef;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        margin: 0;
+        font-weight: normal;
+    }
+
+    .filter-checkbox input[type="checkbox"]:checked + label {
+        background: #7209b7;
+        border-color: #7209b7;
+        color: white;
+    }
+
+    .filter-checkbox label:hover {
+        border-color: #7209b7;
+    }
+
+    .filter-icon {
+        font-size: 1.2rem;
+    }
+
+    .filter-text {
+        font-weight: 500;
+    }
+
+    .filter-actions {
+        display: flex;
+        gap: 1rem;
+        margin-top: 2rem;
+    }
+
+    .btn {
+        padding: 0.75rem 1.5rem;
+        border-radius: 8px;
+        text-decoration: none;
+        font-weight: 500;
+        transition: all 0.3s ease;
+        border: none;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+    }
+
+    .btn-primary {
+        background: linear-gradient(135deg, #7209b7 0%, #3a0ca3 100%);
+        color: white;
+    }
+
+    .btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(114, 9, 183, 0.3);
+    }
+
+    .btn-outline {
+        background: transparent;
+        color: #7209b7;
+        border: 2px solid #7209b7;
+    }
+
+    .btn-outline:hover {
+        background: #7209b7;
+        color: white;
+    }
+
+    .btn-small {
+        padding: 0.5rem 1rem;
+        font-size: 0.9rem;
+    }
+
+    .search-results {
+        background: white;
+        border-radius: 12px;
+        padding: 2rem;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+    }
+
+    .search-results h2 {
+        color: #333;
+        margin-bottom: 2rem;
+        font-size: 1.4rem;
+    }
+
+    .teams-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+        gap: 1.5rem;
+    }
+
+    .team-card {
+        background: #f8f9fa;
+        border-radius: 8px;
+        padding: 1.5rem;
+        border: 2px solid #e9ecef;
+        transition: all 0.3s ease;
+    }
+
+    .team-card:hover {
+        border-color: #7209b7;
+        transform: translateY(-5px);
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+    }
+
+    .team-header {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .team-avatar .avatar-placeholder {
+        width: 60px;
+        height: 60px;
+        border-radius: 50%;
+        background: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.8rem;
+        border: 2px solid #7209b7;
+    }
+
+    .team-info h3 {
+        margin: 0 0 0.5rem 0;
+        color: #333;
+        font-size: 1.3rem;
+    }
+
+    .team-badges {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    .badge {
+        padding: 0.25rem 0.75rem;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: 500;
+    }
+
+    .badge-igl {
+        background: #4361ee;
+        color: white;
+    }
+
+    .badge-awper {
+        background: #06d6a0;
+        color: white;
+    }
+
+    .badge-active {
+        background: #4cc9f0;
+        color: white;
+    }
+
+    .badge-inactive {
+        background: #adb5bd;
+        color: white;
+    }
+
+    .team-description {
+        color: #555;
+        line-height: 1.6;
+        margin-bottom: 1.5rem;
+        font-size: 0.95rem;
+    }
+
+    .no-description {
+        color: #6c757d;
+        font-style: italic;
+    }
+
+    .team-footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-top: 1px solid #e9ecef;
+        padding-top: 1rem;
+    }
+
+    .team-meta {
+        font-size: 0.9rem;
+        color: #6c757d;
+    }
+
+    .meta-item {
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+    }
+
+    .team-actions {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .pagination {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 0.5rem;
+        margin-top: 3rem;
+        padding-top: 2rem;
+        border-top: 1px solid #e9ecef;
+    }
+
+    .page-link {
+        padding: 0.5rem 1rem;
+        background: white;
+        border: 1px solid #e9ecef;
+        border-radius: 4px;
+        color: #7209b7;
+        text-decoration: none;
+        transition: all 0.3s ease;
+    }
+
+    .page-link:hover {
+        background: #7209b7;
+        color: white;
+        border-color: #7209b7;
+    }
+
+    .page-current {
+        padding: 0.5rem 1rem;
+        background: #7209b7;
+        color: white;
+        border-radius: 4px;
+        font-weight: 500;
+    }
+
+    .no-results {
+        text-align: center;
+        padding: 4rem 2rem;
+    }
+
+    .no-results-icon {
+        font-size: 4rem;
+        margin-bottom: 1rem;
+    }
+
+    .no-results h3 {
+        color: #333;
+        margin-bottom: 0.5rem;
+    }
+
+    .no-results p {
+        color: #6c757d;
+        margin-bottom: 1.5rem;
+    }
+
+    @media (max-width: 768px) {
+        .search-container {
+            padding: 1rem;
+        }
+
+        .search-header {
+            padding: 1.5rem;
+        }
+
+        .search-header h1 {
+            font-size: 2rem;
+        }
+
+        .teams-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .filter-options {
+            flex-direction: column;
+        }
+
+        .filter-checkbox {
+            width: 100%;
+        }
+
+        .filter-actions {
+            flex-direction: column;
+        }
+
+        .team-footer {
+            flex-direction: column;
+            gap: 1rem;
+            text-align: center;
+        }
+
+        .team-actions {
+            width: 100%;
+            justify-content: center;
+        }
+    }
+
+    @media (max-width: 480px) {
+        .search-header h1 {
+            font-size: 1.8rem;
+        }
+
+        .search-header p {
+            font-size: 1rem;
+        }
+    }
+</style>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Подсветка выбранных фильтров
+        const filterCheckboxes = document.querySelectorAll('.filter-checkbox input[type="checkbox"]');
+        filterCheckboxes.forEach(checkbox => {
+            const updateFilter = () => {
+                const label = checkbox.nextElementSibling;
+                if (checkbox.checked) {
+                    label.style.background = '#7209b7';
+                    label.style.borderColor = '#7209b7';
+                    label.style.color = 'white';
+                } else {
+                    label.style.background = '#f8f9fa';
+                    label.style.borderColor = '#e9ecef';
+                    label.style.color = 'inherit';
+                }
+            };
+
+            checkbox.addEventListener('change', updateFilter);
+            updateFilter(); // Инициализация
+        });
+    });
+</script>
+{% endblock %}

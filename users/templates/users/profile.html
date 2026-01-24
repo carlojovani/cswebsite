@@ -1,0 +1,651 @@
+[file name]: profile.html
+[file content begin]
+{% extends 'users/base.html' %}
+
+{% block title %}Профиль {{ profile_user.username }}{% endblock %}
+
+{% block content %}
+<div class="profile-container">
+    <!-- Заголовок профиля -->
+    <div class="profile-header">
+        <div class="profile-avatar">
+            {% if profile_user.user_type == 'player' and player_profile and player_profile.avatar %}
+                <img src="{{ player_profile.avatar }}" alt="{{ profile_user.username }}" class="avatar-img">
+            {% else %}
+                <div class="avatar-placeholder">
+                    {% if profile_user.user_type == 'player' %}
+                        👤
+                    {% else %}
+                        👥
+                    {% endif %}
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="profile-info">
+            <h1>{{ profile_user.username }}</h1>
+            <div class="profile-badges">
+                {% if profile_user.user_type == 'player' %}
+                    <span class="badge badge-player">Игрок</span>
+                {% else %}
+                    <span class="badge badge-team">Команда</span>
+                {% endif %}
+
+                {% if profile_user.is_superuser %}
+                    <span class="badge badge-admin">Админ</span>
+                {% endif %}
+
+                {% if profile_user.user_type == 'player' and player_profile and player_profile.is_verified %}
+                    <span class="badge badge-verified">✓ Проверен</span>
+                {% endif %}
+            </div>
+
+            <p class="profile-faceit">
+                <strong>Faceit:</strong>
+                {% if profile_user.faceit_nickname %}
+                    <a href="https://www.faceit.com/en/players/{{ profile_user.faceit_nickname }}"
+                       target="_blank" class="faceit-link">
+                        {{ profile_user.faceit_nickname }}
+                    </a>
+                {% else %}
+                    Не указан
+                {% endif %}
+            </p>
+
+            <p class="profile-email">
+                <strong>Email:</strong> {{ profile_user.email|default:"Не указан" }}
+            </p>
+
+            <p class="profile-date">
+                <strong>Регистрация:</strong> {{ profile_user.date_joined|date:"d.m.Y" }}
+            </p>
+        </div>
+
+        {% if request.user == profile_user %}
+        <div class="profile-actions">
+            {% if profile_user.user_type == 'player' %}
+                <a href="{% url 'update_faceit_data' %}" class="btn btn-update">
+                    🔄 Обновить с Faceit
+                </a>
+            {% else %}
+                <!-- ИСПРАВЛЕННАЯ СТРОКА: заменил edit_team_profile на edit_profile -->
+                <a href="{% url 'edit_profile' %}" class="btn btn-edit">
+                    ✏️ Редактировать профиль
+                </a>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Контент профиля -->
+    <div class="profile-content">
+        {% if profile_user.user_type == 'player' %}
+            <!-- Профиль игрока -->
+            {% if player_profile %}
+            <div class="profile-stats">
+                <h2>Статистика CS2</h2>
+
+                <div class="stats-grid">
+                    <div class="stat-card stat-level">
+                        <div class="stat-label">Уровень</div>
+                        <div class="stat-value">{{ player_profile.level|default:"-" }}</div>
+                        {% if player_profile.skill_level %}
+                        <div class="stat-sub">Faceit: {{ player_profile.skill_level }}</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="stat-card stat-elo">
+                        <div class="stat-label">ELO</div>
+                        <div class="stat-value">{{ player_profile.elo|default:"-" }}</div>
+                    </div>
+
+                    <div class="stat-card stat-winrate">
+                        <div class="stat-label">Винрейт</div>
+                        <div class="stat-value">{{ player_profile.win_rate|default:"-" }}%</div>
+                        <div class="stat-sub">{{ player_profile.wins }}/{{ player_profile.matches }}</div>
+                    </div>
+
+                    <div class="stat-card stat-kd">
+                        <div class="stat-label">K/D</div>
+                        <div class="stat-value">{{ player_profile.average_kd|default:"-"|floatformat:2 }}</div>
+                    </div>
+
+                    <div class="stat-card stat-hs">
+                        <div class="stat-label">HS%</div>
+                        <div class="stat-value">{{ player_profile.average_hs|default:"-"|floatformat:1 }}%</div>
+                    </div>
+
+                    <div class="stat-card stat-streak">
+                        <div class="stat-label">Серия побед</div>
+                        <div class="stat-value">{{ player_profile.current_win_streak|default:"-" }}</div>
+                        <div class="stat-sub">Лучшая: {{ player_profile.longest_win_streak|default:"-" }}</div>
+                    </div>
+                </div>
+
+                <!-- Дополнительная информация -->
+                <div class="profile-details">
+                    <div class="details-grid">
+                        {% if player_profile.country %}
+                        <div class="detail-item">
+                            <strong>Страна:</strong>
+                            <span class="flag">🇷🇺</span> {{ player_profile.country|upper }}
+                        </div>
+                        {% endif %}
+
+                        {% if player_profile.region %}
+                        <div class="detail-item">
+                            <strong>Регион:</strong> {{ player_profile.region }}
+                        </div>
+                        {% endif %}
+
+                        {% if player_profile.steam_id %}
+                        <div class="detail-item">
+                            <strong>Steam ID:</strong>
+                            <a href="https://steamcommunity.com/profiles/{{ player_profile.steam_id }}"
+                               target="_blank" class="steam-link">
+                                {{ player_profile.steam_id }}
+                            </a>
+                        </div>
+                        {% endif %}
+
+                        {% if player_profile.faceit_player_id %}
+                        <div class="detail-item">
+                            <strong>Faceit ID:</strong> {{ player_profile.faceit_player_id }}
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Данные из анкеты -->
+                <div class="profile-registration">
+                    <h3>Данные из анкеты</h3>
+                    <div class="details-grid">
+                        <div class="detail-item">
+                            <strong>Роль на T:</strong> {{ player_profile.get_t_role_display }}
+                        </div>
+                        <div class="detail-item">
+                            <strong>Могу быть IGL:</strong>
+                            {% if player_profile.is_igl %}
+                                <span class="status-active">✅ Да</span>
+                            {% else %}
+                                <span class="status-inactive">⛔ Нет</span>
+                            {% endif %}
+                        </div>
+                        <div class="detail-item">
+                            <strong>Могу играть на AWP:</strong>
+                            {% if player_profile.can_awp %}
+                                <span class="status-active">✅ Да</span>
+                            {% else %}
+                                <span class="status-inactive">⛔ Нет</span>
+                            {% endif %}
+                        </div>
+                        <div class="detail-item">
+                            <strong>Mirage (CT):</strong> {{ player_profile.get_mirage_ct_position_display }}
+                        </div>
+                        <div class="detail-item">
+                            <strong>Dust 2 (CT):</strong> {{ player_profile.get_dust2_ct_position_display }}
+                        </div>
+                        <div class="detail-item">
+                            <strong>Anubis (CT):</strong> {{ player_profile.get_anubis_ct_position_display }}
+                        </div>
+                        <div class="detail-item">
+                            <strong>Nuke (CT):</strong> {{ player_profile.get_nuke_ct_position_display }}
+                        </div>
+                        <div class="detail-item">
+                            <strong>Ancient (CT):</strong> {{ player_profile.get_ancient_ct_position_display }}
+                        </div>
+                        <div class="detail-item">
+                            <strong>Inferno (CT):</strong> {{ player_profile.get_inferno_ct_position_display }}
+                        </div>
+                        <div class="detail-item">
+                            <strong>Overpass (CT):</strong> {{ player_profile.get_overpass_ct_position_display }}
+                        </div>
+                        {% if player_profile.description %}
+                        <div class="detail-item detail-item--full">
+                            <strong>О себе:</strong> {{ player_profile.description|linebreaks }}
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Информация о последнем обновлении -->
+                {% if player_profile.last_faceit_update %}
+                <div class="update-info">
+                    <p>
+                        <small>
+                            Данные обновлены: {{ player_profile.last_faceit_update|date:"d.m.Y H:i" }}
+                            {% if days_since_update %}
+                                ({{ days_since_update }} дней назад)
+                            {% endif %}
+                        </small>
+                    </p>
+                </div>
+                {% endif %}
+
+            </div>
+            {% else %}
+            <div class="empty-profile">
+                <h3>Профиль игрока не найден</h3>
+                <p>Нажмите кнопку "Обновить с Faceit" чтобы создать профиль</p>
+            </div>
+            {% endif %}
+
+        {% else %}
+            <!-- Профиль команды -->
+            {% if team_profile %}
+            <div class="team-profile">
+                <div class="team-info">
+                    <h2>Информация о команде</h2>
+
+                    <div class="team-card">
+                        <div class="team-main">
+                            <h3>{{ team_profile.team_name }}</h3>
+
+                            {% if team_profile.description %}
+                            <div class="team-description">
+                                {{ team_profile.description|linebreaks }}
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        <div class="team-requirements">
+                            <h4>Требования к игрокам:</h4>
+                            <div class="requirements-grid">
+                                <div class="requirement-item">
+                                    <strong>Ищем IGL:</strong>
+                                    {% if team_profile.looking_for_igl %}
+                                        <span class="status-active">✅ Да</span>
+                                    {% else %}
+                                        <span class="status-inactive">⛔ Нет</span>
+                                    {% endif %}
+                                </div>
+                                
+                                <div class="requirement-item">
+                                    <strong>Ищем AWP-иста:</strong>
+                                    {% if team_profile.looking_for_awper %}
+                                        <span class="status-active">✅ Да</span>
+                                    {% else %}
+                                        <span class="status-inactive">⛔ Нет</span>
+                                    {% endif %}
+                                </div>
+
+                                <div class="requirement-item">
+                                    <strong>Статус:</strong>
+                                    {% if team_profile.is_active %}
+                                        <span class="status-active">✅ Активна</span>
+                                    {% else %}
+                                        <span class="status-inactive">⛔ Неактивна</span>
+                                    {% endif %}
+                                </div>
+
+                                <div class="requirement-item">
+                                    <strong>Создана:</strong>
+                                    {{ team_profile.created_date|date:"d.m.Y" }}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Кнопка редактирования для владельца команды -->
+                {% if request.user == team_profile.user %}
+                <div class="team-actions">
+                    <a href="{% url 'edit_profile' %}" class="btn btn-edit">
+                        ✏️ Редактировать профиль команды
+                    </a>
+                </div>
+                {% endif %}
+
+            </div>
+            {% else %}
+            <div class="empty-profile">
+                <h3>Профиль команды не найден</h3>
+                <p>Нажмите кнопку "Редактировать профиль" чтобы создать профиль</p>
+            </div>
+            {% endif %}
+        {% endif %}
+    </div>
+</div>
+
+<style>
+    /* Profile Styles */
+    .profile-container {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        overflow: hidden;
+    }
+
+    .profile-header {
+        display: flex;
+        align-items: center;
+        padding: 2rem;
+        background: linear-gradient(135deg, #4361ee 0%, #3a0ca3 100%);
+        color: white;
+        gap: 2rem;
+    }
+
+    .profile-avatar {
+        flex-shrink: 0;
+    }
+
+    .avatar-img {
+        width: 120px;
+        height: 120px;
+        border-radius: 50%;
+        border: 4px solid rgba(255, 255, 255, 0.3);
+        object-fit: cover;
+    }
+
+    .avatar-placeholder {
+        width: 120px;
+        height: 120px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 3rem;
+        border: 4px solid rgba(255, 255, 255, 0.3);
+    }
+
+    .profile-info {
+        flex-grow: 1;
+    }
+
+    .profile-info h1 {
+        margin: 0 0 0.5rem 0;
+        font-size: 2rem;
+    }
+
+    .profile-badges {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+        flex-wrap: wrap;
+    }
+
+    .badge {
+        padding: 0.25rem 0.75rem;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: 500;
+    }
+
+    .badge-player {
+        background: #4cc9f0;
+        color: white;
+    }
+
+    .badge-team {
+        background: #f72585;
+        color: white;
+    }
+
+    .badge-admin {
+        background: #ffba08;
+        color: #333;
+    }
+
+    .badge-verified {
+        background: #06d6a0;
+        color: white;
+    }
+
+    .profile-faceit,
+    .profile-email,
+    .profile-date {
+        margin: 0.25rem 0;
+        font-size: 0.95rem;
+    }
+
+    .faceit-link {
+        color: #4cc9f0;
+        text-decoration: none;
+    }
+
+    .faceit-link:hover {
+        text-decoration: underline;
+    }
+
+    .profile-actions {
+        display: flex;
+        gap: 1rem;
+    }
+
+    .btn {
+        padding: 0.75rem 1.5rem;
+        border-radius: 6px;
+        text-decoration: none;
+        font-weight: 500;
+        transition: all 0.3s ease;
+        border: none;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .btn-update {
+        background: #06d6a0;
+        color: white;
+    }
+
+    .btn-update:hover {
+        background: #05b888;
+        transform: translateY(-2px);
+    }
+
+    .btn-edit {
+        background: #7209b7;
+        color: white;
+    }
+
+    .btn-edit:hover {
+        background: #5a0891;
+        transform: translateY(-2px);
+    }
+
+    .profile-content {
+        padding: 2rem;
+    }
+
+    /* Stats Grid */
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+        margin: 2rem 0;
+    }
+
+    .stat-card {
+        background: #f8f9fa;
+        border-radius: 8px;
+        padding: 1.5rem;
+        text-align: center;
+        border: 2px solid transparent;
+        transition: all 0.3s ease;
+    }
+
+    .stat-card:hover {
+        border-color: #4361ee;
+        transform: translateY(-5px);
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+    }
+
+    .stat-label {
+        font-size: 0.9rem;
+        color: #6c757d;
+        margin-bottom: 0.5rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .stat-value {
+        font-size: 2.5rem;
+        font-weight: bold;
+        color: #333;
+        margin-bottom: 0.25rem;
+    }
+
+    .stat-sub {
+        font-size: 0.85rem;
+        color: #6c757d;
+    }
+
+    /* Details Grid */
+    .details-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 1rem;
+        margin: 2rem 0;
+        padding: 1.5rem;
+        background: #f8f9fa;
+        border-radius: 8px;
+    }
+
+    .detail-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem;
+    }
+
+    .detail-item--full {
+        grid-column: 1 / -1;
+        align-items: flex-start;
+    }
+
+    .flag {
+        font-size: 1.2rem;
+    }
+
+    .steam-link {
+        color: #4361ee;
+        text-decoration: none;
+    }
+
+    .steam-link:hover {
+        text-decoration: underline;
+    }
+
+    /* Team Profile */
+    .team-card {
+        background: #f8f9fa;
+        border-radius: 8px;
+        padding: 2rem;
+        margin: 1rem 0;
+    }
+
+    .team-main {
+        margin-bottom: 2rem;
+    }
+
+    .team-description {
+        line-height: 1.8;
+        color: #555;
+        margin-top: 1rem;
+    }
+
+    .requirements-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 1rem;
+    }
+
+    .requirement-item {
+        padding: 1rem;
+        background: white;
+        border-radius: 6px;
+        border-left: 4px solid #4361ee;
+    }
+
+    .status-active {
+        color: #06d6a0;
+        font-weight: 500;
+    }
+
+    .status-inactive {
+        color: #ef476f;
+        font-weight: 500;
+    }
+
+    .team-actions {
+        text-align: center;
+        margin-top: 2rem;
+        padding: 2rem;
+        background: #f8f9fa;
+        border-radius: 8px;
+    }
+
+    /* Empty Profile */
+    .empty-profile {
+        text-align: center;
+        padding: 4rem 2rem;
+        background: #f8f9fa;
+        border-radius: 8px;
+        border: 2px dashed #dee2e6;
+    }
+
+    .empty-profile h3 {
+        color: #6c757d;
+        margin-bottom: 1rem;
+    }
+
+    .empty-profile p {
+        color: #6c757d;
+    }
+
+    /* Update Info */
+    .update-info {
+        text-align: center;
+        padding: 1rem;
+        background: #e9ecef;
+        border-radius: 6px;
+        margin-top: 2rem;
+    }
+
+    .update-info small {
+        color: #6c757d;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+        .profile-header {
+            flex-direction: column;
+            text-align: center;
+            padding: 1.5rem;
+        }
+
+        .profile-actions {
+            flex-direction: column;
+            width: 100%;
+        }
+
+        .profile-actions .btn {
+            width: 100%;
+            justify-content: center;
+        }
+
+        .stats-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+
+        .player-card {
+            flex-direction: column;
+            text-align: center;
+        }
+    }
+
+    @media (max-width: 480px) {
+        .stats-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .details-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}
+[file content end]
