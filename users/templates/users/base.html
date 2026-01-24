@@ -1,3 +1,4 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="ru" class="theme-frost">
 <head>
@@ -125,10 +126,15 @@
         }
 
         .logo {
-            font-size: 1.6rem;
-            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
             color: var(--text);
-            letter-spacing: 0.2px;
+        }
+
+        .logo img {
+            height: 40px;
+            width: auto;
+            display: block;
         }
 
         nav ul {
@@ -362,12 +368,12 @@
 <body>
     <header>
         <div class="container header-container">
-            <a href="{% url 'home' %}" class="logo">Esportsfinder</a>
+            <a href="{% url 'home' %}" class="logo" aria-label="Esportsfinder">
+                <img src="{% static 'users/img/logo.png' %}" alt="Esportsfinder">
+            </a>
 
             <nav>
                 <ul>
-                    <li><a href="{% url 'home' %}">Главная</a></li>
-
                     {% if user.is_authenticated %}
                         <!-- Для игроков показываем поиск команд -->
                         {% if user.user_type == 'player' %}
