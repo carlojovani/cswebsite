@@ -197,6 +197,18 @@ class PlayerProfile(models.Model):
                 return role_name
         return 'Не указано'
 
+    def get_positions_summary(self):
+        """Краткое описание позиций на картах."""
+        labels = []
+        for map_name, choices in self.CT_POSITION_CHOICES.items():
+            stored_value = getattr(self, f'{map_name}_ct_position', '')
+            selected_positions = self._split_positions(stored_value)
+            if not selected_positions:
+                continue
+            lookup = dict(choices)
+            labels.extend([lookup.get(position, position) for position in selected_positions])
+        return ', '.join(labels) if labels else 'Не указано'
+
 
 class TeamProfile(models.Model):
     user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='team_profile')
