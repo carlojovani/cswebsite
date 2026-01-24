@@ -122,7 +122,7 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            height: 64px;
+            padding: 0.75rem 0;
         }
 
         .logo {
@@ -132,7 +132,7 @@
         }
 
         .logo img {
-            height: 40px;
+            height: 120px;
             width: auto;
             display: block;
         }
@@ -179,6 +179,14 @@
             color: var(--primary);
             text-decoration: none;
             background: rgba(56, 189, 248, 0.12);
+        }
+
+        .user-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 1px solid var(--border);
         }
 
         /* Cards */
@@ -377,10 +385,10 @@
                     {% if user.is_authenticated %}
                         <!-- Для игроков показываем поиск команд -->
                         {% if user.user_type == 'player' %}
-                            <li><a href="{% url 'search_team' %}">👥 Поиск команд</a></li>
+                            <li><a href="{% url 'search_team' %}">Поиск команд</a></li>
                         <!-- Для команд показываем поиск игроков -->
                         {% elif user.user_type == 'team' %}
-                            <li><a href="{% url 'search_player' %}">👤 Поиск игроков</a></li>
+                            <li><a href="{% url 'search_player' %}">Поиск игроков</a></li>
                         {% endif %}
 
                     {% else %}
@@ -392,10 +400,8 @@
             <div class="auth-links">
                 {% if user.is_authenticated %}
                     <a href="{% url 'profile' user.id %}" class="user-profile-link">
-                        {% if user.user_type == 'player' %}
-                            👤
-                        {% else %}
-                            👥
+                        {% if user.user_type == 'player' and user.player_profile.avatar %}
+                            <img src="{{ user.player_profile.avatar }}" alt="Аватар {{ user.username }}" class="user-avatar">
                         {% endif %}
                         {{ user.username }}
                     </a>
