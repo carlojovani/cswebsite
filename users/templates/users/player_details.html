@@ -1,0 +1,320 @@
+{% extends 'users/base.html' %}
+
+{% block title %}Игрок {{ profile_user.username }} - CS Platform{% endblock %}
+
+{% block content %}
+<div class="player-details">
+    <div class="player-header">
+        <div class="player-avatar">
+            {% if player_profile.avatar %}
+                <img src="{{ player_profile.avatar }}" alt="{{ profile_user.username }}" class="avatar-img">
+            {% else %}
+                <div class="avatar-placeholder">👤</div>
+            {% endif %}
+        </div>
+        <div class="player-info">
+            <h1>{{ profile_user.username }}</h1>
+            <p class="player-faceit">
+                <strong>Faceit:</strong>
+                {% if profile_user.faceit_nickname %}
+                    <a href="https://www.faceit.com/en/players/{{ profile_user.faceit_nickname }}" target="_blank" class="faceit-link">
+                        {{ profile_user.faceit_nickname }}
+                    </a>
+                {% else %}
+                    Не указан
+                {% endif %}
+            </p>
+        </div>
+    </div>
+
+    <div class="player-card">
+        <div class="player-section">
+            <h2>Статистика CS2</h2>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-label">Уровень</div>
+                    <div class="stat-value">{{ player_profile.level|default:"-" }}</div>
+                    {% if player_profile.skill_level %}
+                        <div class="stat-sub">Faceit: {{ player_profile.skill_level }}</div>
+                    {% endif %}
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">ELO</div>
+                    <div class="stat-value">{{ player_profile.elo|default:"-" }}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Винрейт</div>
+                    <div class="stat-value">{{ player_profile.win_rate|default:"-" }}%</div>
+                    <div class="stat-sub">{{ player_profile.wins }}/{{ player_profile.matches }}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">K/D</div>
+                    <div class="stat-value">{{ player_profile.average_kd|default:"-"|floatformat:2 }}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">HS%</div>
+                    <div class="stat-value">{{ player_profile.average_hs|default:"-"|floatformat:1 }}%</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Серия побед</div>
+                    <div class="stat-value">{{ player_profile.current_win_streak|default:"-" }}</div>
+                    <div class="stat-sub">Лучшая: {{ player_profile.longest_win_streak|default:"-" }}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="player-section">
+            <h2>Роль и позиции</h2>
+            <div class="details-grid">
+                <div class="detail-item">
+                    <strong>Роль на T:</strong> {{ player_profile.get_t_role_display }}
+                </div>
+                <div class="detail-item">
+                    <strong>Могу быть IGL:</strong>
+                    {% if player_profile.is_igl %}
+                        <span class="status-active">✅ Да</span>
+                    {% else %}
+                        <span class="status-inactive">⛔ Нет</span>
+                    {% endif %}
+                </div>
+                <div class="detail-item">
+                    <strong>Могу играть на AWP:</strong>
+                    {% if player_profile.can_awp %}
+                        <span class="status-active">✅ Да</span>
+                    {% else %}
+                        <span class="status-inactive">⛔ Нет</span>
+                    {% endif %}
+                </div>
+                <div class="detail-item">
+                    <strong>Mirage (CT):</strong> {{ player_profile.get_mirage_ct_position_display }}
+                </div>
+                <div class="detail-item">
+                    <strong>Dust 2 (CT):</strong> {{ player_profile.get_dust2_ct_position_display }}
+                </div>
+                <div class="detail-item">
+                    <strong>Anubis (CT):</strong> {{ player_profile.get_anubis_ct_position_display }}
+                </div>
+                <div class="detail-item">
+                    <strong>Nuke (CT):</strong> {{ player_profile.get_nuke_ct_position_display }}
+                </div>
+                <div class="detail-item">
+                    <strong>Ancient (CT):</strong> {{ player_profile.get_ancient_ct_position_display }}
+                </div>
+                <div class="detail-item">
+                    <strong>Inferno (CT):</strong> {{ player_profile.get_inferno_ct_position_display }}
+                </div>
+                <div class="detail-item">
+                    <strong>Overpass (CT):</strong> {{ player_profile.get_overpass_ct_position_display }}
+                </div>
+                {% if player_profile.description %}
+                <div class="detail-item detail-item--full">
+                    <strong>О себе:</strong> {{ player_profile.description|linebreaks }}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="player-section">
+            <h2>Дополнительно</h2>
+            <div class="details-grid">
+                {% if player_profile.country %}
+                <div class="detail-item">
+                    <strong>Страна:</strong> {{ player_profile.country|upper }}
+                </div>
+                {% endif %}
+                {% if player_profile.steam_id %}
+                <div class="detail-item">
+                    <strong>Steam ID:</strong>
+                    <a href="https://steamcommunity.com/profiles/{{ player_profile.steam_id }}" target="_blank" class="steam-link">
+                        {{ player_profile.steam_id }}
+                    </a>
+                </div>
+                {% endif %}
+                {% if player_profile.faceit_player_id %}
+                <div class="detail-item">
+                    <strong>Faceit ID:</strong> {{ player_profile.faceit_player_id }}
+                </div>
+                {% endif %}
+                {% if player_profile.last_faceit_update %}
+                <div class="detail-item">
+                    <strong>Обновлено:</strong> {{ player_profile.last_faceit_update|date:"d.m.Y H:i" }}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="player-actions">
+        <a href="{% url 'search_player' %}" class="btn btn-outline">← Назад к поиску</a>
+    </div>
+</div>
+
+<style>
+    .player-details {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 2rem 1rem;
+    }
+
+    .player-header {
+        display: flex;
+        align-items: center;
+        gap: 1.5rem;
+        margin-bottom: 2rem;
+    }
+
+    .player-avatar {
+        flex-shrink: 0;
+    }
+
+    .avatar-img,
+    .avatar-placeholder {
+        width: 96px;
+        height: 96px;
+        border-radius: 50%;
+    }
+
+    .avatar-img {
+        object-fit: cover;
+        border: 3px solid #4361ee;
+    }
+
+    .avatar-placeholder {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 2.5rem;
+        background: #f1f3f9;
+        border: 3px solid #e1e5f2;
+    }
+
+    .player-info h1 {
+        margin-bottom: 0.5rem;
+        font-size: 2rem;
+        color: #2d2d2d;
+    }
+
+    .player-faceit {
+        margin: 0;
+        color: #6c757d;
+    }
+
+    .faceit-link {
+        color: #4361ee;
+        text-decoration: none;
+    }
+
+    .faceit-link:hover {
+        text-decoration: underline;
+    }
+
+    .player-card {
+        background: #fff;
+        border-radius: 12px;
+        padding: 2rem;
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.08);
+    }
+
+    .player-section + .player-section {
+        margin-top: 2rem;
+        padding-top: 2rem;
+        border-top: 1px solid #e9ecef;
+    }
+
+    .player-section h2 {
+        margin: 0 0 1rem;
+        font-size: 1.4rem;
+        color: #3a0ca3;
+    }
+
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 1rem;
+    }
+
+    .stat-card {
+        background: #f8f9fa;
+        border-radius: 8px;
+        padding: 1rem;
+        text-align: center;
+    }
+
+    .stat-label {
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        color: #6c757d;
+        margin-bottom: 0.5rem;
+    }
+
+    .stat-value {
+        font-size: 1.8rem;
+        font-weight: 600;
+        color: #333;
+    }
+
+    .stat-sub {
+        font-size: 0.8rem;
+        color: #6c757d;
+    }
+
+    .details-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 1rem;
+        background: #f8f9fa;
+        border-radius: 8px;
+        padding: 1rem 1.5rem;
+    }
+
+    .detail-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .detail-item--full {
+        grid-column: 1 / -1;
+        align-items: flex-start;
+    }
+
+    .status-active {
+        color: #28a745;
+    }
+
+    .status-inactive {
+        color: #dc3545;
+    }
+
+    .steam-link {
+        color: #4361ee;
+        text-decoration: none;
+    }
+
+    .steam-link:hover {
+        text-decoration: underline;
+    }
+
+    .player-actions {
+        margin-top: 1.5rem;
+        text-align: center;
+    }
+
+    .btn-outline {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.75rem 1.5rem;
+        border-radius: 8px;
+        border: 2px solid #4361ee;
+        color: #4361ee;
+        text-decoration: none;
+        transition: all 0.2s ease;
+    }
+
+    .btn-outline:hover {
+        background: #4361ee;
+        color: #fff;
+    }
+</style>
+{% endblock %}
