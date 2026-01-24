@@ -133,8 +133,9 @@
             display: inline-flex;
             align-items: center;
             color: var(--text);
-            padding: 2px;
+            padding: 0;
             border-radius: 10px;
+            line-height: 0;
         }
 
         .logo img {
@@ -161,6 +162,10 @@
             transition: transform .15s ease, box-shadow .15s ease, color .15s ease, background-color .15s ease;
         }
 
+        nav {
+            margin-left: auto;
+        }
+
         nav a:hover {
             text-decoration: none;
             color: var(--primary);
@@ -173,7 +178,7 @@
             display: flex;
             gap: 1rem;
             align-items: center;
-            margin-left: auto;
+            margin-left: 0;
             color: var(--muted);
             font-size: 0.95rem;
         }
@@ -377,6 +382,10 @@
                 gap: 1rem;
                 height: auto;
                 padding: 1rem 0;
+            }
+
+            nav {
+                margin-left: 0;
             }
 
             nav ul {
