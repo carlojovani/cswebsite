@@ -204,24 +204,19 @@
                     </div>
                 </div>
 
-                {% if player_profile.steam_id %}
                 <div id="heatmaps-root"
-                     data-steamid64="{{ player_profile.steam_id }}"
-                     style="margin-top:16px;">
-                    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px;">
-                        <h3 style="margin:0;">Heatmaps</h3>
-                        <div style="display:flex; gap:8px;">
-                            <button type="button" class="hm-tab" data-target="presence">Presence</button>
-                            <button type="button" class="hm-tab" data-target="kills">Kills</button>
-                            <button type="button" class="hm-tab" data-target="deaths">Deaths</button>
-                        </div>
+                     data-steamid64="{{ steamid64|default:'' }}"
+                     style="margin-top:16px; padding:12px; border:1px solid #2b2b2b; border-radius:12px;">
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <strong>Heatmaps</strong>
+                        <button type="button" class="hm-tab" data-k="presence">Presence</button>
+                        <button type="button" class="hm-tab" data-k="kills">Kills</button>
+                        <button type="button" class="hm-tab" data-k="deaths">Deaths</button>
                     </div>
 
-                    <div id="hm-status" style="opacity:.85; margin-bottom:10px;">Loading…</div>
-
-                    <img id="hm-img" alt="heatmap" style="max-width:100%; border-radius:12px; display:none;" />
+                    <div id="hm-status" style="margin:10px 0; opacity:.85;">Loading…</div>
+                    <img id="hm-img" style="max-width:100%; border-radius:12px; display:none;" alt="heatmap" />
                 </div>
-                {% endif %}
 
                 <!-- Информация о последнем обновлении -->
                 {% if player_profile.last_faceit_update %}
@@ -728,76 +723,70 @@
 </style>
 
 <script>
-    (function () {
+    document.addEventListener("DOMContentLoaded", async () => {
         const root = document.getElementById("heatmaps-root");
-        const steamid64 = (root?.dataset?.steamid64 || "").trim();
         const status = document.getElementById("hm-status");
         const img = document.getElementById("hm-img");
         const tabs = Array.from(document.querySelectorAll(".hm-tab"));
+        const steamid64 = (root?.dataset?.steamid64 || "").trim();
 
         tabs.forEach((b) => {
-            b.style.padding = "8px 12px";
+            b.style.padding = "6px 10px";
             b.style.borderRadius = "10px";
-            b.style.border = "1px solid rgba(255,255,255,.15)";
+            b.style.border = "1px solid rgba(0,0,0,.2)";
             b.style.background = "transparent";
             b.style.cursor = "pointer";
         });
 
-        function setActiveTab(name) {
+        function setActive(key) {
             tabs.forEach((t) => {
-                const active = t.dataset.target === name;
-                t.style.background = active ? "rgba(255,255,255,.12)" : "transparent";
+                t.style.background = t.dataset.k === key ? "rgba(0,0,0,.08)" : "transparent";
             });
         }
 
-        async function load() {
-            if (!steamid64) {
-                status.textContent = "steamid64 not found in profile (нужно сохранить SteamID64 у пользователя).";
+        if (!steamid64) {
+            status.textContent = "steamid64 НЕ передан в шаблон (в контексте нет переменной steamid64).";
+            return;
+        }
+
+        const apiUrl = `/api/local/heatmaps?steamid64=${encodeURIComponent(steamid64)}`;
+
+        try {
+            status.textContent = `Fetching: ${apiUrl}`;
+            const r = await fetch(apiUrl, { headers: { Accept: "application/json" } });
+
+            if (!r.ok) {
+                status.textContent = `API error ${r.status}: ` + (await r.text());
                 return;
             }
 
-            const url = `/api/local/heatmaps?steamid64=${encodeURIComponent(steamid64)}`;
-
-            try {
-                status.textContent = `Request: ${url}`;
-                const r = await fetch(url, { headers: { Accept: "application/json" } });
-
-                if (!r.ok) {
-                    const text = await r.text();
-                    status.textContent = `Heatmaps API error: ${r.status}. ${text}`;
-                    return;
-                }
-
-                const data = await r.json();
-                if (!data.images) {
-                    status.textContent = "API ok, but no images in response.";
-                    return;
-                }
-
-                status.textContent = `Kills: ${data.counts?.kills ?? "-"} • Deaths: ${data.counts?.deaths ?? "-"} • Presence points: ${data.counts?.presence_points ?? "-"}`;
-
-                const show = (key) => {
-                    if (!data.images[key]) {
-                        status.textContent = `No image for "${key}"`;
-                        return;
-                    }
-                    setActiveTab(key);
-                    img.style.display = "block";
-                    img.src = data.images[key] + `?t=${Date.now()}`;
-                };
-
-                tabs.forEach((t) => t.addEventListener("click", () => show(t.dataset.target)));
-
-                show("presence");
-            } catch (e) {
-                status.textContent = "JS error: " + (e?.message || e);
-                // eslint-disable-next-line no-console
-                console.error(e);
+            const data = await r.json();
+            if (!data.images) {
+                status.textContent = "API ok, но data.images отсутствует";
+                return;
             }
-        }
 
-        load();
-    })();
+            status.textContent = `Kills: ${data.counts?.kills ?? "-"} • Deaths: ${data.counts?.deaths ?? "-"} • Presence points: ${data.counts?.presence_points ?? "-"}`;
+
+            function show(key) {
+                const url = data.images[key];
+                if (!url) {
+                    status.textContent = `Нет картинки для key=${key}`;
+                    return;
+                }
+                setActive(key);
+                img.style.display = "block";
+                img.src = url + `?t=${Date.now()}`;
+            }
+
+            tabs.forEach((t) => t.addEventListener("click", () => show(t.dataset.k)));
+            show("presence");
+        } catch (e) {
+            status.textContent = "JS error: " + (e?.message || e);
+            // eslint-disable-next-line no-console
+            console.error(e);
+        }
+    });
 </script>
 {% endblock %}
 [file content end]

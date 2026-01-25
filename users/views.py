@@ -216,12 +216,13 @@ def profile(request, user_id):
         messages.error(request, 'У вас нет доступа к этому профилю.')
         return redirect('home')
 
-    context = {'profile_user': user}
+    context = {'profile_user': user, 'steamid64': ''}
 
     if user.user_type == CustomUser.USER_TYPE_PLAYER:
         try:
             player_profile = PlayerProfile.objects.get(user=user)
             context['player_profile'] = player_profile
+            context['steamid64'] = player_profile.steam_id or ''
         except PlayerProfile.DoesNotExist:
             messages.warning(request, 'Профиль игрока не найден.')
             context['player_profile'] = None
