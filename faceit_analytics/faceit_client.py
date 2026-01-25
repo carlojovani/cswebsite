@@ -14,10 +14,13 @@ class FaceitClient:
         self.session = requests.Session()
         self.session.headers.update({"Authorization": f"Bearer {self.api_key}"})
 
-    def search_player(self, nickname: str, game: str = "cs2") -> dict:
+    def search_player(self, nickname: str, game: str | None = "cs2") -> dict:
+        params = {"nickname": nickname}
+        if game:
+            params["game"] = game
         r = self.session.get(
             f"{FACEIT_API_BASE}/players",
-            params={"nickname": nickname, "game": game},
+            params=params,
             timeout=self.timeout,
         )
         r.raise_for_status()

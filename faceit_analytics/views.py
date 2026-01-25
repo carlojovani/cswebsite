@@ -23,9 +23,13 @@ def faceit_heatmaps(request):
     client = FaceitClient(api_key=getattr(settings, "FACEIT_API_KEY", None))
 
     player = client.search_player(nickname, game="cs2")
+    if not player.get("player_id"):
+        player = client.search_player(nickname, game="csgo")
+    if not player.get("player_id"):
+        player = client.search_player(nickname, game=None)
     player_id = player.get("player_id")
     games = player.get("games", {})
-    steamid64 = (games.get("cs2") or {}).get("game_player_id")
+    steamid64 = (games.get("cs2") or games.get("csgo") or {}).get("game_player_id")
 
     if not player_id or not steamid64:
         return JsonResponse(
