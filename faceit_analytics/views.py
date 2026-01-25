@@ -96,6 +96,8 @@ def faceit_heatmaps(request):
 
     kills_png = out_dir / "kills_heatmap.png"
     presence_png = out_dir / "presence_heatmap.png"
+    presence_ct_png = out_dir / "presence_heatmap_ct.png"
+    presence_t_png = out_dir / "presence_heatmap_t.png"
 
     if kills_png.exists() and presence_png.exists():
         summary = {
@@ -113,6 +115,18 @@ def faceit_heatmaps(request):
                     f"{settings.MEDIA_URL}faceit_heatmaps/{nickname}/{match_id}/"
                     "presence_heatmap.png"
                 ),
+                "presence_ct": (
+                    f"{settings.MEDIA_URL}faceit_heatmaps/{nickname}/{match_id}/"
+                    "presence_heatmap_ct.png"
+                )
+                if presence_ct_png.exists()
+                else None,
+                "presence_t": (
+                    f"{settings.MEDIA_URL}faceit_heatmaps/{nickname}/{match_id}/"
+                    "presence_heatmap_t.png"
+                )
+                if presence_t_png.exists()
+                else None,
             },
         }
         return JsonResponse(summary)
@@ -138,6 +152,14 @@ def faceit_heatmaps(request):
             "presence": (
                 f"{settings.MEDIA_URL}faceit_heatmaps/{nickname}/{match_id}/"
                 "presence_heatmap.png"
+            ),
+            "presence_ct": (
+                f"{settings.MEDIA_URL}faceit_heatmaps/{nickname}/{match_id}/"
+                "presence_heatmap_ct.png"
+            ),
+            "presence_t": (
+                f"{settings.MEDIA_URL}faceit_heatmaps/{nickname}/{match_id}/"
+                "presence_heatmap_t.png"
             ),
         },
     }
