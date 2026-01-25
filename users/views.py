@@ -222,7 +222,17 @@ def profile(request, user_id):
         try:
             player_profile = PlayerProfile.objects.get(user=user)
             context['player_profile'] = player_profile
-            context['steamid64'] = player_profile.steam_id or ''
+            context['steamid64'] = (
+                getattr(player_profile, "steamid64", None)
+                or getattr(player_profile, "steam_id64", None)
+                or getattr(player_profile, "steam_id", None)
+                or ""
+            )
+            context['steamid64_debug'] = {
+                "steamid64": getattr(player_profile, "steamid64", None),
+                "steam_id64": getattr(player_profile, "steam_id64", None),
+                "steam_id": getattr(player_profile, "steam_id", None),
+            }
         except PlayerProfile.DoesNotExist:
             messages.warning(request, 'Профиль игрока не найден.')
             context['player_profile'] = None
