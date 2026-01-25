@@ -3,6 +3,7 @@ from pathlib import Path
 from django.conf import settings
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET
+from requests import HTTPError
 
 from .analyzer import build_heatmaps
 from .demo_fetch import get_demo_dem_path
@@ -42,17 +43,48 @@ def faceit_heatmaps(request):
         return JsonResponse({"error": "No match_id in history item"}, status=500)
 
     match = client.match_details(match_id)
-    demo_urls = match.get("demo_url") or match.get("demo_urls") or []
-    if isinstance(demo_urls, str):
-        demo_urls = [demo_urls]
+    raw_demo_urls = match.get("demo_url") or match.get("demo_urls") or []
+    demo_urls = []
+    if isinstance(raw_demo_urls, str):
+        demo_urls = [raw_demo_urls]
+    elif isinstance(raw_demo_urls, dict):
+        for key in ("url", "demo_url", "resource_url", "download_url"):
+            value = raw_demo_urls.get(key)
+            if value:
+                demo_urls.append(value)
+    elif isinstance(raw_demo_urls, list):
+        for item in raw_demo_urls:
+            if isinstance(item, str):
+                demo_urls.append(item)
+            elif isinstance(item, dict):
+                for key in ("url", "demo_url", "resource_url", "download_url"):
+                    value = item.get(key)
+                    if value:
+                        demo_urls.append(value)
     if not demo_urls:
         return JsonResponse(
             {"error": "No demo_url in match details (maybe demo not available yet)"},
             status=404,
         )
 
-    resource_url = demo_urls[0]
-    signed_url = client.get_signed_download_url(resource_url)
+    signed_url = None
+    last_error = None
+    for resource_url in demo_urls:
+        try:
+            signed_url = client.get_signed_download_url(resource_url)
+            break
+        except HTTPError as exc:
+            last_error = exc
+            continue
+    if not signed_url:
+        details = str(last_error) if last_error else "No downloadable demo URL"
+        return JsonResponse(
+            {
+                "error": "Failed to obtain downloadable demo URL",
+                "details": details,
+            },
+            status=404,
+        )
 
     media_root = Path(getattr(settings, "MEDIA_ROOT", "media"))
     out_dir = media_root / "faceit_heatmaps" / nickname / match_id
