@@ -89,3 +89,30 @@ def get_demo_dem_path(signed_url: str, work_dir: Path) -> Path:
     dem_path = work_dir / "match.dem"
     os.replace(raw_path, dem_path)
     return dem_path
+
+
+def get_local_dem_path(demo_dir: Path) -> Path:
+    """
+    Ищет match.dem или match.dem.zst в demo_dir и возвращает путь к .dem
+    """
+    demo_dir.mkdir(parents=True, exist_ok=True)
+
+    dem = demo_dir / "match.dem"
+    dem_zst = demo_dir / "match.dem.zst"
+
+    if dem.exists():
+        return dem
+
+    if dem_zst.exists():
+        try:
+            import zstandard as zstd
+        except ImportError as exc:
+            raise RuntimeError("Install zstandard: pip install zstandard") from exc
+
+        out_path = dem
+        dctx = zstd.ZstdDecompressor()
+        with open(dem_zst, "rb") as fin, open(out_path, "wb") as fout:
+            dctx.copy_stream(fin, fout)
+        return out_path
+
+    raise FileNotFoundError(f"Put match.dem or match.dem.zst into {demo_dir}")
