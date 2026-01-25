@@ -205,21 +205,21 @@
                 </div>
 
                 {% if player_profile.steam_id %}
-                <div class="heatmaps-card" id="heatmaps-root" data-steamid="{{ player_profile.steam_id }}">
-                    <div class="heatmaps-header">
-                        <h3>Тепловые карты (локальная демка) <span class="heatmaps-map" id="hm-map"></span></h3>
-                        <div class="heatmaps-tabs">
-                            <button type="button" class="hm-tab active" data-target="presence">Presence</button>
+                <div id="heatmaps-root"
+                     data-steamid64="{{ player_profile.steam_id }}"
+                     style="margin-top:16px;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px;">
+                        <h3 style="margin:0;">Heatmaps</h3>
+                        <div style="display:flex; gap:8px;">
+                            <button type="button" class="hm-tab" data-target="presence">Presence</button>
                             <button type="button" class="hm-tab" data-target="kills">Kills</button>
                             <button type="button" class="hm-tab" data-target="deaths">Deaths</button>
                         </div>
                     </div>
 
-                    <div class="heatmaps-meta" id="hm-meta"></div>
+                    <div id="hm-status" style="opacity:.85; margin-bottom:10px;">Loading…</div>
 
-                    <div class="heatmaps-body">
-                        <img id="hm-img" alt="heatmap" />
-                    </div>
+                    <img id="hm-img" alt="heatmap" style="max-width:100%; border-radius:12px; display:none;" />
                 </div>
                 {% endif %}
 
@@ -728,54 +728,75 @@
 </style>
 
 <script>
-    (function() {
-        const root = document.getElementById('heatmaps-root');
-        if (!root) {
-            return;
+    (function () {
+        const root = document.getElementById("heatmaps-root");
+        const steamid64 = (root?.dataset?.steamid64 || "").trim();
+        const status = document.getElementById("hm-status");
+        const img = document.getElementById("hm-img");
+        const tabs = Array.from(document.querySelectorAll(".hm-tab"));
+
+        tabs.forEach((b) => {
+            b.style.padding = "8px 12px";
+            b.style.borderRadius = "10px";
+            b.style.border = "1px solid rgba(255,255,255,.15)";
+            b.style.background = "transparent";
+            b.style.cursor = "pointer";
+        });
+
+        function setActiveTab(name) {
+            tabs.forEach((t) => {
+                const active = t.dataset.target === name;
+                t.style.background = active ? "rgba(255,255,255,.12)" : "transparent";
+            });
         }
 
-        const steamid64 = root.dataset.steamid;
-        if (!steamid64) {
-            return;
-        }
+        async function load() {
+            if (!steamid64) {
+                status.textContent = "steamid64 not found in profile (нужно сохранить SteamID64 у пользователя).";
+                return;
+            }
 
-        const img = document.getElementById('hm-img');
-        const meta = document.getElementById('hm-meta');
-        const mapLabel = document.getElementById('hm-map');
-        const tabs = Array.from(document.querySelectorAll('.hm-tab'));
+            const url = `/api/local/heatmaps?steamid64=${encodeURIComponent(steamid64)}`;
 
-        const setActive = (name, images) => {
-            tabs.forEach((tab) => tab.classList.toggle('active', tab.dataset.target === name));
-            img.src = `${images[name]}?t=${Date.now()}`;
-        };
+            try {
+                status.textContent = `Request: ${url}`;
+                const r = await fetch(url, { headers: { Accept: "application/json" } });
 
-        const showError = (message) => {
-            meta.textContent = message;
-        };
-
-        meta.textContent = 'Строим тепловые карты из локальной демки...';
-
-        fetch(`/api/local/heatmaps?steamid64=${encodeURIComponent(steamid64)}`)
-            .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
-            .then(({ ok, data }) => {
-                if (!ok) {
-                    throw new Error(data.error || 'Failed to load heatmaps.');
+                if (!r.ok) {
+                    const text = await r.text();
+                    status.textContent = `Heatmaps API error: ${r.status}. ${text}`;
+                    return;
                 }
 
-                const mapName = data.map ? `(${data.map})` : '';
-                mapLabel.textContent = mapName;
-                meta.textContent = `Kills: ${data.counts.kills} • Deaths: ${data.counts.deaths} • Presence points: ${data.counts.presence_points}`;
-                setActive('presence', data.images);
+                const data = await r.json();
+                if (!data.images) {
+                    status.textContent = "API ok, but no images in response.";
+                    return;
+                }
 
-                tabs.forEach((tab) => {
-                    tab.addEventListener('click', () => setActive(tab.dataset.target, data.images));
-                });
-            })
-            .catch((error) => {
-                showError(error.message || 'Failed to load heatmaps.');
+                status.textContent = `Kills: ${data.counts?.kills ?? "-"} • Deaths: ${data.counts?.deaths ?? "-"} • Presence points: ${data.counts?.presence_points ?? "-"}`;
+
+                const show = (key) => {
+                    if (!data.images[key]) {
+                        status.textContent = `No image for "${key}"`;
+                        return;
+                    }
+                    setActiveTab(key);
+                    img.style.display = "block";
+                    img.src = data.images[key] + `?t=${Date.now()}`;
+                };
+
+                tabs.forEach((t) => t.addEventListener("click", () => show(t.dataset.target)));
+
+                show("presence");
+            } catch (e) {
+                status.textContent = "JS error: " + (e?.message || e);
                 // eslint-disable-next-line no-console
-                console.error(error);
-            });
+                console.error(e);
+            }
+        }
+
+        load();
     })();
 </script>
 {% endblock %}
