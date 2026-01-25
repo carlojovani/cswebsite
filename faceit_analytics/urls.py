@@ -1,5 +1,4 @@
 from django.urls import path
-
 from .views import faceit_heatmaps
 from .views_local import local_heatmaps
 
