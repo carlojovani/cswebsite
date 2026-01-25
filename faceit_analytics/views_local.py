@@ -37,6 +37,8 @@ def local_heatmaps(request):
         "analyzer_version": stats.get("analyzer_version"),
         "images": {
             "presence": f"{settings.MEDIA_URL}heatmaps_local/{steamid64}/presence_heatmap.png",
+            "presence_ct": f"{settings.MEDIA_URL}heatmaps_local/{steamid64}/presence_heatmap_ct.png",
+            "presence_t": f"{settings.MEDIA_URL}heatmaps_local/{steamid64}/presence_heatmap_t.png",
             "kills": f"{settings.MEDIA_URL}heatmaps_local/{steamid64}/kills_heatmap.png",
             "deaths": f"{settings.MEDIA_URL}heatmaps_local/{steamid64}/deaths_heatmap.png",
         },
