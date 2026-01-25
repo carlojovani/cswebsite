@@ -204,6 +204,34 @@
                     </div>
                 </div>
 
+                {% if profile_user.faceit_nickname %}
+                <div class="faceit-heatmaps">
+                    <div class="heatmaps-header">
+                        <h3>Тепловые карты Faceit</h3>
+                        <button type="button"
+                                class="btn btn-update"
+                                data-faceit-heatmaps
+                                data-faceit-nickname="{{ profile_user.faceit_nickname }}">
+                            Построить по последнему матчу
+                        </button>
+                    </div>
+                    <p class="heatmaps-hint">
+                        Построение может занять несколько минут — демка скачивается и обрабатывается автоматически.
+                    </p>
+                    <div class="heatmaps-status" data-heatmaps-status></div>
+                    <div class="heatmaps-grid" data-heatmaps-grid>
+                        <div class="heatmap-card">
+                            <h4>Убийства</h4>
+                            <img class="heatmap-image" data-heatmap-kills alt="Heatmap kills">
+                        </div>
+                        <div class="heatmap-card">
+                            <h4>Присутствие</h4>
+                            <img class="heatmap-image" data-heatmap-presence alt="Heatmap presence">
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
                 <!-- Информация о последнем обновлении -->
                 {% if player_profile.last_faceit_update %}
                 <div class="update-info">
@@ -512,6 +540,68 @@
         align-items: flex-start;
     }
 
+    .faceit-heatmaps {
+        background: #fff7f0;
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin: 2rem 0;
+        border: 1px solid #ffe3cc;
+    }
+
+    .heatmaps-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+
+    .heatmaps-hint {
+        margin: 0.75rem 0 1rem;
+        color: #6c757d;
+        font-size: 0.95rem;
+    }
+
+    .heatmaps-status {
+        margin-bottom: 1rem;
+        font-weight: 600;
+        color: #3a0ca3;
+    }
+
+    .heatmaps-status.status-error {
+        color: #ef476f;
+    }
+
+    .heatmaps-status.status-success {
+        color: #06d6a0;
+    }
+
+    .heatmaps-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1.5rem;
+    }
+
+    .heatmap-card {
+        background: #ffffff;
+        border-radius: 10px;
+        padding: 1rem;
+        border: 1px solid #ffe3cc;
+    }
+
+    .heatmap-card h4 {
+        margin-bottom: 0.75rem;
+        color: #343a40;
+    }
+
+    .heatmap-image {
+        width: 100%;
+        border-radius: 8px;
+        display: none;
+        background: #fff;
+        border: 1px solid #f2f2f2;
+    }
+
     .flag {
         font-size: 1.2rem;
     }
@@ -631,6 +721,10 @@
             flex-direction: column;
             text-align: center;
         }
+
+        .heatmaps-grid {
+            grid-template-columns: 1fr;
+        }
     }
 
     @media (max-width: 480px) {
@@ -643,5 +737,71 @@
         }
     }
 </style>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const button = document.querySelector('[data-faceit-heatmaps]');
+        const statusEl = document.querySelector('[data-heatmaps-status]');
+        const killsImg = document.querySelector('[data-heatmap-kills]');
+        const presenceImg = document.querySelector('[data-heatmap-presence]');
+
+        if (!button || !statusEl || !killsImg || !presenceImg) {
+            return;
+        }
+
+        const nickname = button.getAttribute('data-faceit-nickname');
+
+        const setStatus = (text, tone = 'info') => {
+            statusEl.textContent = text;
+            statusEl.classList.remove('status-error', 'status-success');
+            if (tone === 'error') {
+                statusEl.classList.add('status-error');
+            }
+            if (tone === 'success') {
+                statusEl.classList.add('status-success');
+            }
+        };
+
+        const setImages = (killsUrl, presenceUrl) => {
+            killsImg.src = killsUrl;
+            presenceImg.src = presenceUrl;
+            killsImg.style.display = 'block';
+            presenceImg.style.display = 'block';
+        };
+
+        button.addEventListener('click', async () => {
+            if (!nickname) {
+                setStatus('Укажите Faceit никнейм в профиле.', 'error');
+                return;
+            }
+
+            button.disabled = true;
+            setStatus('Запрашиваем демо и строим тепловые карты...', 'info');
+            killsImg.style.display = 'none';
+            presenceImg.style.display = 'none';
+
+            try {
+                const response = await fetch(`/api/faceit/heatmaps?nickname=${encodeURIComponent(nickname)}`);
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Не удалось получить тепловые карты.');
+                }
+
+                setImages(data.images.kills, data.images.presence);
+                setStatus(
+                    data.cached
+                        ? 'Готово! Карты загружены из кэша.'
+                        : 'Готово! Карты построены по последнему матчу.',
+                    'success'
+                );
+            } catch (error) {
+                setStatus(error.message || 'Ошибка при построении тепловых карт.', 'error');
+            } finally {
+                button.disabled = false;
+            }
+        });
+    });
+</script>
 {% endblock %}
 [file content end]
