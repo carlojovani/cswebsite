@@ -71,16 +71,16 @@ def faceit_heatmaps(request):
             status=404,
         )
 
-    signed_url = None
+    download_url = None
     last_error = None
     for resource_url in demo_urls:
         try:
-            signed_url = client.get_signed_download_url(resource_url)
+            download_url = client.get_download_url(resource_url)
             break
         except HTTPError as exc:
             last_error = exc
             continue
-    if not signed_url:
+    if not download_url:
         details = str(last_error) if last_error else "No downloadable demo URL"
         return JsonResponse(
             {
@@ -118,7 +118,7 @@ def faceit_heatmaps(request):
         return JsonResponse(summary)
 
     work_dir = media_root / "faceit_cache" / nickname / match_id
-    dem_path = get_demo_dem_path(signed_url, work_dir)
+    dem_path = get_demo_dem_path(download_url, work_dir)
 
     stats = build_heatmaps(dem_path, out_dir, steamid64)
 

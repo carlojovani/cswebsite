@@ -43,15 +43,23 @@ class FaceitClient:
         r.raise_for_status()
         return r.json()
 
-    def get_signed_download_url(self, resource_url: str) -> str:
-        r = self.session.get(
-            f"{FACEIT_DOWNLOADS_BASE}/download",
-            params={"resource_url": resource_url},
-            timeout=self.timeout,
-        )
-        r.raise_for_status()
-        data = r.json()
-        signed = data.get("signed_url") or data.get("url")
-        if not signed:
-            raise RuntimeError(f"Unexpected downloads response: {data}")
-        return signed
+    def get_download_url(self, resource_url: str) -> str:
+        """
+        Возвращает URL, по которому можно скачать демо.
+        Если Downloads API недоступен (401/403/404) — используем resource_url напрямую (CDN).
+        """
+        try:
+            r = self.session.get(
+                f"{FACEIT_DOWNLOADS_BASE}/download",
+                params={"resource_url": resource_url},
+                timeout=self.timeout,
+            )
+            r.raise_for_status()
+            data = r.json()
+            signed = data.get("signed_url") or data.get("url")
+            return signed or resource_url
+        except requests.HTTPError as e:
+            code = e.response.status_code if e.response is not None else None
+            if code in (401, 403, 404):
+                return resource_url
+            raise
