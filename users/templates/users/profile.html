@@ -232,6 +232,25 @@
                 </div>
                 {% endif %}
 
+                {% if player_profile.steam_id %}
+                <div class="heatmaps-card" id="heatmaps-root" data-steamid="{{ player_profile.steam_id }}">
+                    <div class="heatmaps-header">
+                        <h3>Heatmaps <span class="heatmaps-map" id="hm-map"></span></h3>
+                        <div class="heatmaps-tabs">
+                            <button type="button" class="hm-tab active" data-target="presence">Presence</button>
+                            <button type="button" class="hm-tab" data-target="kills">Kills</button>
+                            <button type="button" class="hm-tab" data-target="deaths">Deaths</button>
+                        </div>
+                    </div>
+
+                    <div class="heatmaps-meta" id="hm-meta"></div>
+
+                    <div class="heatmaps-body">
+                        <img id="hm-img" alt="heatmap" />
+                    </div>
+                </div>
+                {% endif %}
+
                 <!-- Информация о последнем обновлении -->
                 {% if player_profile.last_faceit_update %}
                 <div class="update-info">
@@ -602,6 +621,57 @@
         border: 1px solid #f2f2f2;
     }
 
+    .heatmaps-card {
+        padding: 1.5rem;
+        border-radius: 12px;
+        background: #f8f9fa;
+        border: 1px solid #e9ecef;
+        margin: 2rem 0;
+    }
+
+    .heatmaps-card .heatmaps-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+
+    .heatmaps-tabs {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    .hm-tab {
+        padding: 0.5rem 0.9rem;
+        border-radius: 10px;
+        border: 1px solid rgba(0, 0, 0, 0.12);
+        background: transparent;
+        color: #343a40;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .hm-tab.active,
+    .hm-tab:hover {
+        background: rgba(67, 97, 238, 0.12);
+        border-color: rgba(67, 97, 238, 0.35);
+    }
+
+    .heatmaps-meta {
+        margin: 0.75rem 0 1rem;
+        color: #6c757d;
+        font-size: 0.95rem;
+    }
+
+    .heatmaps-body img {
+        max-width: 100%;
+        border-radius: 12px;
+        border: 1px solid #e9ecef;
+        background: #fff;
+    }
+
     .flag {
         font-size: 1.2rem;
     }
@@ -725,6 +795,11 @@
         .heatmaps-grid {
             grid-template-columns: 1fr;
         }
+
+        .heatmaps-card .heatmaps-header {
+            flex-direction: column;
+            align-items: flex-start;
+        }
     }
 
     @media (max-width: 480px) {
@@ -802,6 +877,56 @@
             }
         });
     });
+</script>
+
+<script>
+    (function() {
+        const root = document.getElementById('heatmaps-root');
+        if (!root) {
+            return;
+        }
+
+        const steamid64 = root.dataset.steamid;
+        if (!steamid64) {
+            return;
+        }
+
+        const img = document.getElementById('hm-img');
+        const meta = document.getElementById('hm-meta');
+        const mapLabel = document.getElementById('hm-map');
+        const tabs = Array.from(document.querySelectorAll('.hm-tab'));
+
+        const setActive = (name, images) => {
+            tabs.forEach((tab) => tab.classList.toggle('active', tab.dataset.target === name));
+            img.src = `${images[name]}?t=${Date.now()}`;
+        };
+
+        const showError = (message) => {
+            meta.textContent = message;
+        };
+
+        fetch(`/api/local/heatmaps?steamid64=${encodeURIComponent(steamid64)}`)
+            .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
+            .then(({ ok, data }) => {
+                if (!ok) {
+                    throw new Error(data.error || 'Failed to load heatmaps.');
+                }
+
+                const mapName = data.map ? `(${data.map})` : '';
+                mapLabel.textContent = mapName;
+                meta.textContent = `Kills: ${data.counts.kills} • Deaths: ${data.counts.deaths} • Presence points: ${data.counts.presence_points}`;
+                setActive('presence', data.images);
+
+                tabs.forEach((tab) => {
+                    tab.addEventListener('click', () => setActive(tab.dataset.target, data.images));
+                });
+            })
+            .catch((error) => {
+                showError(error.message || 'Failed to load heatmaps.');
+                // eslint-disable-next-line no-console
+                console.error(error);
+            });
+    })();
 </script>
 {% endblock %}
 [file content end]
