@@ -118,7 +118,16 @@ def build_heatmaps(
     presence_pts = _sample(presence_pts, max_presence_points)
 
     presence_png = out_dir / "presence_heatmap.png"
-    presence_mm = _save_awpy_heatmap(map_name, presence_pts, presence_png, f"Presence ({map_name})")
+    if presence_pts:
+        presence_mm = _save_awpy_heatmap(
+            map_name,
+            presence_pts,
+            presence_png,
+            f"Presence ({map_name})",
+        )
+    else:
+        _make_placeholder_png(presence_png, "No presence points for this player in this demo")
+        presence_mm = {"note": "no presence"}
 
     # ---------- KILLS (where you stood when killing) ----------
     kills_df = dem.kills.to_pandas()
