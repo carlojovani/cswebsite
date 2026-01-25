@@ -29,11 +29,11 @@ class Command(BaseCommand):
         match = client.match_details(match_id)
         demo_urls = match.get("demo_url") or []
         resource_url = demo_urls[0]
-        signed_url = client.get_signed_download_url(resource_url)
+        download_url = client.get_download_url(resource_url)
 
         media_root = Path(getattr(settings, "MEDIA_ROOT", "media"))
         work_dir = media_root / "faceit_cache" / nickname / match_id
-        dem_path = get_demo_dem_path(signed_url, work_dir)
+        dem_path = get_demo_dem_path(download_url, work_dir)
 
         out_dir = Path(out) if out else (media_root / "faceit_heatmaps" / nickname / match_id)
         stats = build_heatmaps(dem_path, out_dir, steamid64)
