@@ -100,6 +100,10 @@ def register_step2(request):
                         player_profile.skill_level = faceit_data.get('skill_level', 0)
                         player_profile.faceit_url = faceit_data.get('faceit_url', '')
                         player_profile.avatar = faceit_data.get('avatar', '')
+                        player_profile.steam_id = (
+                            faceit_data.get('steam_id_64')
+                            or faceit_data.get('game_player_id', '')
+                        )
                         player_profile.matches = faceit_data.get('matches', 0)
                         player_profile.wins = faceit_data.get('wins', 0)
                         player_profile.win_rate = faceit_data.get('win_rate', 0.0)
@@ -325,6 +329,11 @@ def update_faceit_data(request):
             player_profile.skill_level = faceit_data.get('skill_level', player_profile.skill_level)
             player_profile.faceit_url = faceit_data.get('faceit_url', player_profile.faceit_url)
             player_profile.avatar = faceit_data.get('avatar', player_profile.avatar)
+            player_profile.steam_id = (
+                faceit_data.get('steam_id_64')
+                or faceit_data.get('game_player_id')
+                or player_profile.steam_id
+            )
             player_profile.matches = faceit_data.get('matches', player_profile.matches)
             player_profile.wins = faceit_data.get('wins', player_profile.wins)
             player_profile.win_rate = faceit_data.get('win_rate', player_profile.win_rate)
