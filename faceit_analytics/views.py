@@ -94,10 +94,10 @@ def faceit_heatmaps(request):
     out_dir = media_root / "faceit_heatmaps" / nickname / match_id
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    kills_png = out_dir / "kills_heatmap.png"
-    presence_png = out_dir / "presence_heatmap.png"
-    presence_ct_png = out_dir / "presence_heatmap_ct.png"
-    presence_t_png = out_dir / "presence_heatmap_t.png"
+    kills_png = out_dir / "kills_heatmap_512.png"
+    presence_png = out_dir / "presence_heatmap_512.png"
+    presence_ct_png = out_dir / "presence_heatmap_ct_512.png"
+    presence_t_png = out_dir / "presence_heatmap_t_512.png"
 
     if kills_png.exists() and presence_png.exists():
         summary = {
@@ -109,21 +109,21 @@ def faceit_heatmaps(request):
             "images": {
                 "kills": (
                     f"{settings.MEDIA_URL}faceit_heatmaps/{nickname}/{match_id}/"
-                    "kills_heatmap.png"
+                    "kills_heatmap_512.png"
                 ),
                 "presence": (
                     f"{settings.MEDIA_URL}faceit_heatmaps/{nickname}/{match_id}/"
-                    "presence_heatmap.png"
+                    "presence_heatmap_512.png"
                 ),
                 "presence_ct": (
                     f"{settings.MEDIA_URL}faceit_heatmaps/{nickname}/{match_id}/"
-                    "presence_heatmap_ct.png"
+                    "presence_heatmap_ct_512.png"
                 )
                 if presence_ct_png.exists()
                 else None,
                 "presence_t": (
                     f"{settings.MEDIA_URL}faceit_heatmaps/{nickname}/{match_id}/"
-                    "presence_heatmap_t.png"
+                    "presence_heatmap_t_512.png"
                 )
                 if presence_t_png.exists()
                 else None,
@@ -143,23 +143,23 @@ def faceit_heatmaps(request):
         "match_id": match_id,
         "cached": False,
         "map": stats["map"],
-        "kills": stats["kills"],
+        "kills": stats["counts"]["kills"],
         "images": {
             "kills": (
                 f"{settings.MEDIA_URL}faceit_heatmaps/{nickname}/{match_id}/"
-                "kills_heatmap.png"
+                f"{stats['files']['kills']}"
             ),
             "presence": (
                 f"{settings.MEDIA_URL}faceit_heatmaps/{nickname}/{match_id}/"
-                "presence_heatmap.png"
+                f"{stats['files']['presence']}"
             ),
             "presence_ct": (
                 f"{settings.MEDIA_URL}faceit_heatmaps/{nickname}/{match_id}/"
-                "presence_heatmap_ct.png"
+                f"{stats['files']['presence_ct']}"
             ),
             "presence_t": (
                 f"{settings.MEDIA_URL}faceit_heatmaps/{nickname}/{match_id}/"
-                "presence_heatmap_t.png"
+                f"{stats['files']['presence_t']}"
             ),
         },
     }
