@@ -30,16 +30,17 @@ def local_heatmaps(request):
             {"error": "Failed to build heatmaps", "details": str(exc)}, status=500
         )
 
+    files = stats.get("files", {})
     return JsonResponse({
         "steamid64": steamid64,
         "map": stats.get("map"),
         "counts": stats.get("counts"),
         "analyzer_version": stats.get("analyzer_version"),
         "images": {
-            "presence": f"{settings.MEDIA_URL}heatmaps_local/{steamid64}/presence_heatmap.png",
-            "presence_ct": f"{settings.MEDIA_URL}heatmaps_local/{steamid64}/presence_heatmap_ct.png",
-            "presence_t": f"{settings.MEDIA_URL}heatmaps_local/{steamid64}/presence_heatmap_t.png",
-            "kills": f"{settings.MEDIA_URL}heatmaps_local/{steamid64}/kills_heatmap.png",
-            "deaths": f"{settings.MEDIA_URL}heatmaps_local/{steamid64}/deaths_heatmap.png",
+            "presence": f"{settings.MEDIA_URL}heatmaps_local/{steamid64}/{files.get('presence')}",
+            "presence_ct": f"{settings.MEDIA_URL}heatmaps_local/{steamid64}/{files.get('presence_ct')}",
+            "presence_t": f"{settings.MEDIA_URL}heatmaps_local/{steamid64}/{files.get('presence_t')}",
+            "kills": f"{settings.MEDIA_URL}heatmaps_local/{steamid64}/{files.get('kills')}",
+            "deaths": f"{settings.MEDIA_URL}heatmaps_local/{steamid64}/{files.get('deaths')}",
         },
     })

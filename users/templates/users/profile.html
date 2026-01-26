@@ -217,7 +217,7 @@
                     </div>
 
                     <div id="hm-status" style="margin:10px 0; opacity:.85;">Loading…</div>
-                    <img id="hm-img" style="max-width:100%; border-radius:12px; display:none;" alt="heatmap" />
+                    <img id="hm-img" class="heatmap-img" style="display:none;" alt="heatmap" />
                 </div>
 
                 <!-- Информация о последнем обновлении -->
@@ -585,6 +585,14 @@
         border-radius: 12px;
         border: 1px solid #e9ecef;
         background: #fff;
+    }
+
+    .heatmap-img {
+        width: 520px;
+        max-width: 100%;
+        height: auto;
+        display: block;
+        border-radius: 14px;
     }
 
     .flag {

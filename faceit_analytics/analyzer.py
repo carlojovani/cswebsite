@@ -352,15 +352,31 @@ def _density_to_heat_rgba_pixel(
     return Image.fromarray(out, mode="RGBA")
 
 
+SMALL_PREVIEW_SIZE = (512, 512)
+
+
+def _small_preview_path(out_path: Path) -> Path:
+    return out_path.with_name(out_path.stem + "_512.png")
+
+
 def _save_composited(radar: Image.Image, heat: Image.Image, out_path: Path) -> None:
     composited = Image.alpha_composite(radar, heat)
     _ensure_dir(out_path.parent)
-    composited.save(out_path)
+    composited.save(out_path, optimize=True, compress_level=9)
+
+    small = composited.resize(SMALL_PREVIEW_SIZE, Image.Resampling.LANCZOS)
+    small_path = _small_preview_path(out_path)
+    small.save(small_path, optimize=True, compress_level=9)
 
 
 def _make_placeholder_png(out_path: Path, size: tuple[int, int]) -> None:
     _ensure_dir(out_path.parent)
-    Image.new("RGBA", size, (0, 0, 0, 0)).save(out_path)
+    placeholder = Image.new("RGBA", size, (0, 0, 0, 0))
+    placeholder.save(out_path, optimize=True, compress_level=9)
+
+    small = placeholder.resize(SMALL_PREVIEW_SIZE, Image.Resampling.LANCZOS)
+    small_path = _small_preview_path(out_path)
+    small.save(small_path, optimize=True, compress_level=9)
 
 
 # ----------------------------
@@ -503,11 +519,11 @@ def build_heatmaps(dem_path: Path, out_dir: Path, steamid64: str) -> dict:
         },
         "analyzer_version": ANALYZER_VERSION,
         "files": {
-            "presence": presence_png.name,
-            "presence_ct": presence_ct_png.name,
-            "presence_t": presence_t_png.name,
-            "kills": kills_png.name,
-            "deaths": deaths_png.name,
+            "presence": _small_preview_path(presence_png).name,
+            "presence_ct": _small_preview_path(presence_ct_png).name,
+            "presence_t": _small_preview_path(presence_t_png).name,
+            "kills": _small_preview_path(kills_png).name,
+            "deaths": _small_preview_path(deaths_png).name,
         },
         "debug": {
             "radar_used": radar_name,
