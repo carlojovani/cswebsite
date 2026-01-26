@@ -45,15 +45,15 @@ HEAT_ALPHA_SIDE = 0.82
 
 # Presence (most smooth)
 PRESENCE_BINS  = 850
-PRESENCE_SIGMA = 8.0
-PRESENCE_PCTL  = 99.9
+PRESENCE_SIGMA = 4.0
+PRESENCE_PCTL  = 98.9
 PRESENCE_GAMMA = 1.20
 
 # K/D (slightly tighter)
-KD_BINS  = 520
-KD_SIGMA = 20.0
-KD_PCTL  = 99.0
-KD_GAMMA = 0.90
+KD_BINS  = 850
+KD_SIGMA = 4.0
+KD_PCTL  = 98.9
+KD_GAMMA = 1.20
 
 # Colormaps
 CMAP_ALL = "inferno"
