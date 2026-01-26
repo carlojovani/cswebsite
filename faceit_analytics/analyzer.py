@@ -21,6 +21,7 @@ In that case: use the awpy default radar OR adjust map-data.json scale/pos for y
 """
 
 from pathlib import Path
+import hashlib
 import json
 import math
 import os
@@ -135,6 +136,10 @@ def _prep_radar(map_name: str) -> tuple[Image.Image, dict, str]:
     return radar, meta, radar_path.name
 
 
+def load_radar_and_meta(map_name: str) -> tuple[Image.Image, dict, str]:
+    return _prep_radar(map_name)
+
+
 # ----------------------------
 # Mask building (clip to map outline)
 # ----------------------------
@@ -168,6 +173,10 @@ def _build_map_mask(radar: Image.Image) -> Image.Image:
     if MASK_EDGE_BLUR > 0:
         mask_img = mask_img.filter(ImageFilter.GaussianBlur(MASK_EDGE_BLUR))
     return mask_img
+
+
+def build_map_mask(radar: Image.Image) -> Image.Image:
+    return _build_map_mask(radar)
 
 
 # ----------------------------
@@ -211,6 +220,10 @@ def _world_to_pixel(points_xy: np.ndarray, map_meta: dict, radar_size: tuple[int
 
     m = (px >= 0) & (px < w) & (py >= 0) & (py < h)
     return np.stack([px[m], py[m]], axis=1).astype(np.float32)
+
+
+def world_to_pixel(points_xy: np.ndarray, map_meta: dict, radar_size: tuple[int, int]) -> np.ndarray:
+    return _world_to_pixel(points_xy, map_meta, radar_size)
 
 
 def _downsample_by_tick(df: pd.DataFrame, tick_col: str) -> pd.DataFrame:
@@ -352,6 +365,19 @@ def _density_to_heat_rgba_pixel(
     return Image.fromarray(out, mode="RGBA")
 
 
+def density_to_heat_rgba_pixel(
+    pts_px: np.ndarray,
+    radar_size: tuple[int, int],
+    *,
+    cmap_name: str,
+    sigma_px: float,
+    map_mask_L: Image.Image,
+) -> Image.Image:
+    return _density_to_heat_rgba_pixel(
+        pts_px, radar_size, cmap_name=cmap_name, sigma_px=sigma_px, map_mask_L=map_mask_L
+    )
+
+
 SMALL_PREVIEW_SIZE = (512, 512)
 
 
@@ -379,6 +405,110 @@ def _make_placeholder_png(out_path: Path, size: tuple[int, int]) -> None:
     small.save(small_path, optimize=True, compress_level=9)
 
 
+def _demo_cache_hash(dem_path: Path, radar_name: str, radar_size: tuple[int, int]) -> str:
+    h = hashlib.sha1()
+    h.update(dem_path.read_bytes())
+    h.update(ANALYZER_VERSION.encode("utf-8"))
+    h.update(radar_name.encode("utf-8"))
+    h.update(f"{radar_size[0]}x{radar_size[1]}".encode("utf-8"))
+    return h.hexdigest()
+
+
+def _empty_points() -> np.ndarray:
+    return np.empty((0, 2), dtype=np.float32)
+
+
+def _extract_points_from_demo(
+    dem_path: Path,
+    steamid64: str,
+    map_meta: dict,
+    radar_size: tuple[int, int],
+    map_mask_L: Image.Image,
+    dem: Demo | None = None,
+) -> tuple[dict, dict]:
+    if dem is None:
+        dem = Demo(str(dem_path), verbose=False)
+        dem.parse()
+
+    ticks_df = dem.ticks.to_pandas()
+    sid_col = _pick_existing(ticks_df, ["steamid", "steamID", "player_steamid", "playerSteamID"])
+    xcol = _pick_existing(ticks_df, ["X", "x", "player_X", "player_x"])
+    ycol = _pick_existing(ticks_df, ["Y", "y", "player_Y", "player_y"])
+    tick_col = _pick_existing(ticks_df, ["tick", "ticks", "tick_num"])
+
+    ticks_my = _filter_by_steamid_numeric(ticks_df, sid_col, steamid64)
+    low = {c.lower(): c for c in ticks_my.columns}
+    if "health" in low:
+        hc = low["health"]
+        alive = ticks_my[pd.to_numeric(ticks_my[hc], errors="coerce").fillna(0) > 0]
+        if len(alive) > 0:
+            ticks_my = alive
+
+    ticks_my = _downsample_by_tick(ticks_my, tick_col)
+    pts_px = _world_to_pixel(_to_points_xy(ticks_my, xcol, ycol), map_meta, radar_size)
+
+    auto_dx = 0
+    auto_dy = 0
+    auto_score = 0.0
+    if AUTO_OFFSET and pts_px.shape[0] > 200:
+        auto_dx, auto_dy, auto_score = _auto_offset_shift(pts_px, map_mask_L)
+        pts_px = _apply_shift(pts_px, auto_dx, auto_dy, radar_size)
+
+    ct_pts = _empty_points()
+    t_pts = _empty_points()
+    if "side" in low:
+        side_col = low["side"]
+        side_norm = ticks_my[side_col].map(_normalize_side_value)
+
+        ct_df = ticks_my[side_norm == "CT"]
+        t_df = ticks_my[side_norm == "T"]
+
+        ct_pts = _world_to_pixel(_to_points_xy(ct_df, xcol, ycol), map_meta, radar_size)
+        t_pts = _world_to_pixel(_to_points_xy(t_df, xcol, ycol), map_meta, radar_size)
+
+        if AUTO_OFFSET and (auto_dx or auto_dy):
+            ct_pts = _apply_shift(ct_pts, auto_dx, auto_dy, radar_size)
+            t_pts = _apply_shift(t_pts, auto_dx, auto_dy, radar_size)
+
+    kills_df = dem.kills.to_pandas()
+    attacker_col = _pick_existing(kills_df, ["attacker_steamid", "killer_steamid", "attackerSteamID", "killerSteamID"])
+    kx = _pick_existing(kills_df, ["attacker_X", "attacker_x"])
+    ky = _pick_existing(kills_df, ["attacker_Y", "attacker_y"])
+    kills_my = _filter_by_steamid_numeric(kills_df, attacker_col, steamid64)
+    kill_pts = _world_to_pixel(_to_points_xy(kills_my, kx, ky), map_meta, radar_size)
+    if AUTO_OFFSET and (auto_dx or auto_dy):
+        kill_pts = _apply_shift(kill_pts, auto_dx, auto_dy, radar_size)
+
+    victim_col = _pick_existing(kills_df, ["victim_steamid", "victimSteamID"])
+    dx = _pick_existing(kills_df, ["victim_X", "victim_x"])
+    dy = _pick_existing(kills_df, ["victim_Y", "victim_y"])
+    deaths_my = _filter_by_steamid_numeric(kills_df, victim_col, steamid64)
+    death_pts = _world_to_pixel(_to_points_xy(deaths_my, dx, dy), map_meta, radar_size)
+    if AUTO_OFFSET and (auto_dx or auto_dy):
+        death_pts = _apply_shift(death_pts, auto_dx, auto_dy, radar_size)
+
+    points = {
+        "presence_all_px": pts_px,
+        "presence_ct_px": ct_pts,
+        "presence_t_px": t_pts,
+        "kills_px": kill_pts,
+        "deaths_px": death_pts,
+    }
+    debug = {
+        "auto_offset_px": [int(auto_dx), int(auto_dy)],
+        "auto_offset_score": float(auto_score),
+    }
+    return points, debug
+
+
+def _limit_points(points: np.ndarray, max_points: int, seed: int = 7) -> np.ndarray:
+    if points.shape[0] <= max_points:
+        return points
+    rng = np.random.RandomState(seed)
+    idx = rng.choice(points.shape[0], max_points, replace=False)
+    return points[idx]
+
+
 # ----------------------------
 # Public API
 # ----------------------------
@@ -390,36 +520,18 @@ def build_heatmaps(dem_path: Path, out_dir: Path, steamid64: str) -> dict:
     dem.parse()
     map_name = dem.header.get("map_name", "unknown")
 
-    radar, meta, radar_name = _prep_radar(map_name)
+    radar, meta, radar_name = load_radar_and_meta(map_name)
     w, h = radar.size
-    map_mask_L = _build_map_mask(radar)
+    map_mask_L = build_map_mask(radar)
 
-    # ---- PRESENCE ----
-    ticks_df = dem.ticks.to_pandas()
-    sid_col = _pick_existing(ticks_df, ["steamid", "steamID", "player_steamid", "playerSteamID"])
-    xcol = _pick_existing(ticks_df, ["X", "x", "player_X", "player_x"])
-    ycol = _pick_existing(ticks_df, ["Y", "y", "player_Y", "player_y"])
-    tick_col = _pick_existing(ticks_df, ["tick", "ticks", "tick_num"])
-
-    ticks_my = _filter_by_steamid_numeric(ticks_df, sid_col, steamid64)
-
-    low = {c.lower(): c for c in ticks_my.columns}
-    if "health" in low:
-        hc = low["health"]
-        alive = ticks_my[pd.to_numeric(ticks_my[hc], errors="coerce").fillna(0) > 0]
-        if len(alive) > 0:
-            ticks_my = alive
-
-    ticks_my = _downsample_by_tick(ticks_my, tick_col)
-
-    pts_px = _world_to_pixel(_to_points_xy(ticks_my, xcol, ycol), meta, (w, h))
-
-    auto_dx = 0
-    auto_dy = 0
-    auto_score = 0.0
-    if AUTO_OFFSET and pts_px.shape[0] > 200:
-        auto_dx, auto_dy, auto_score = _auto_offset_shift(pts_px, map_mask_L)
-        pts_px = _apply_shift(pts_px, auto_dx, auto_dy, (w, h))
+    points, debug = _extract_points_from_demo(dem_path, steamid64, meta, (w, h), map_mask_L, dem=dem)
+    pts_px = points["presence_all_px"]
+    ct_pts = points["presence_ct_px"]
+    t_pts = points["presence_t_px"]
+    kill_pts = points["kills_px"]
+    death_pts = points["deaths_px"]
+    auto_dx, auto_dy = debug["auto_offset_px"]
+    auto_score = debug["auto_offset_score"]
 
     heat_all = _density_to_heat_rgba_pixel(
         pts_px, (w, h), cmap_name=CMAP_ALL, sigma_px=PRESENCE_SIGMA_PX, map_mask_L=map_mask_L
@@ -430,57 +542,26 @@ def build_heatmaps(dem_path: Path, out_dir: Path, steamid64: str) -> dict:
     # CT/T split
     presence_ct_png = out_dir / "presence_heatmap_ct.png"
     presence_t_png = out_dir / "presence_heatmap_t.png"
-    ct_count = 0
-    t_count = 0
+    ct_count = int(ct_pts.shape[0])
+    t_count = int(t_pts.shape[0])
 
-    if "side" in low:
-        side_col = low["side"]
-        side_norm = ticks_my[side_col].map(_normalize_side_value)
-
-        ct_df = ticks_my[side_norm == "CT"]
-        t_df = ticks_my[side_norm == "T"]
-
-        ct_pts = _world_to_pixel(_to_points_xy(ct_df, xcol, ycol), meta, (w, h))
-        t_pts = _world_to_pixel(_to_points_xy(t_df, xcol, ycol), meta, (w, h))
-
-        # apply same auto shift to keep everything consistent
-        if AUTO_OFFSET and (auto_dx or auto_dy):
-            ct_pts = _apply_shift(ct_pts, auto_dx, auto_dy, (w, h))
-            t_pts = _apply_shift(t_pts, auto_dx, auto_dy, (w, h))
-
-        ct_count = int(ct_pts.shape[0])
-        t_count = int(t_pts.shape[0])
-
-        if ct_count:
-            heat_ct = _density_to_heat_rgba_pixel(
-                ct_pts, (w, h), cmap_name=CMAP_CT, sigma_px=PRESENCE_SIGMA_PX, map_mask_L=map_mask_L
-            )
-            _save_composited(radar, heat_ct, presence_ct_png)
-        else:
-            _make_placeholder_png(presence_ct_png, (w, h))
-
-        if t_count:
-            heat_t = _density_to_heat_rgba_pixel(
-                t_pts, (w, h), cmap_name=CMAP_T, sigma_px=PRESENCE_SIGMA_PX, map_mask_L=map_mask_L
-            )
-            _save_composited(radar, heat_t, presence_t_png)
-        else:
-            _make_placeholder_png(presence_t_png, (w, h))
+    if ct_count:
+        heat_ct = _density_to_heat_rgba_pixel(
+            ct_pts, (w, h), cmap_name=CMAP_CT, sigma_px=PRESENCE_SIGMA_PX, map_mask_L=map_mask_L
+        )
+        _save_composited(radar, heat_ct, presence_ct_png)
     else:
         _make_placeholder_png(presence_ct_png, (w, h))
+
+    if t_count:
+        heat_t = _density_to_heat_rgba_pixel(
+            t_pts, (w, h), cmap_name=CMAP_T, sigma_px=PRESENCE_SIGMA_PX, map_mask_L=map_mask_L
+        )
+        _save_composited(radar, heat_t, presence_t_png)
+    else:
         _make_placeholder_png(presence_t_png, (w, h))
 
     # ---- KILLS / DEATHS ----
-    kills_df = dem.kills.to_pandas()
-
-    attacker_col = _pick_existing(kills_df, ["attacker_steamid", "killer_steamid", "attackerSteamID", "killerSteamID"])
-    kills_my = _filter_by_steamid_numeric(kills_df, attacker_col, steamid64)
-    kx = _pick_existing(kills_df, ["attacker_X", "attacker_x"])
-    ky = _pick_existing(kills_df, ["attacker_Y", "attacker_y"])
-    kill_pts = _world_to_pixel(_to_points_xy(kills_my, kx, ky), meta, (w, h))
-    if AUTO_OFFSET and (auto_dx or auto_dy):
-        kill_pts = _apply_shift(kill_pts, auto_dx, auto_dy, (w, h))
-
     kills_png = out_dir / "kills_heatmap.png"
     if kill_pts.shape[0]:
         heat_k = _density_to_heat_rgba_pixel(
@@ -489,14 +570,6 @@ def build_heatmaps(dem_path: Path, out_dir: Path, steamid64: str) -> dict:
         _save_composited(radar, heat_k, kills_png)
     else:
         _make_placeholder_png(kills_png, (w, h))
-
-    victim_col = _pick_existing(kills_df, ["victim_steamid", "victimSteamID"])
-    deaths_my = _filter_by_steamid_numeric(kills_df, victim_col, steamid64)
-    dx = _pick_existing(kills_df, ["victim_X", "victim_x"])
-    dy = _pick_existing(kills_df, ["victim_Y", "victim_y"])
-    death_pts = _world_to_pixel(_to_points_xy(deaths_my, dx, dy), meta, (w, h))
-    if AUTO_OFFSET and (auto_dx or auto_dy):
-        death_pts = _apply_shift(death_pts, auto_dx, auto_dy, (w, h))
 
     deaths_png = out_dir / "deaths_heatmap.png"
     if death_pts.shape[0]:
@@ -511,8 +584,8 @@ def build_heatmaps(dem_path: Path, out_dir: Path, steamid64: str) -> dict:
         "steamid64": str(steamid64),
         "map": map_name,
         "counts": {
-            "kills": int(len(kills_my)),
-            "deaths": int(len(deaths_my)),
+            "kills": int(kill_pts.shape[0]),
+            "deaths": int(death_pts.shape[0]),
             "presence_points": int(pts_px.shape[0]),
             "presence_ct_points": int(ct_count),
             "presence_t_points": int(t_count),
@@ -534,4 +607,185 @@ def build_heatmaps(dem_path: Path, out_dir: Path, steamid64: str) -> dict:
             "time_step_ticks": int(TIME_STEP_TICKS),
             "presence_sigma_px": float(PRESENCE_SIGMA_PX),
         },
+    }
+
+
+def build_heatmaps_aggregate(
+    steamid64: str,
+    map_name: str,
+    limit: int,
+    demos_dir: Path,
+    out_dir: Path,
+    cache_dir: Path,
+) -> dict:
+    demos_dir = Path(demos_dir)
+    out_dir = Path(out_dir)
+    cache_dir = Path(cache_dir)
+
+    demo_paths = sorted(demos_dir.glob("*.dem"), key=lambda p: p.stat().st_mtime, reverse=True)
+    demo_paths = demo_paths[: max(int(limit), 1)]
+    if not demo_paths:
+        raise FileNotFoundError(f"No .dem files found in {demos_dir}")
+
+    radar, meta, radar_name = load_radar_and_meta(map_name)
+    w, h = radar.size
+    map_mask_L = build_map_mask(radar)
+
+    out_files = [
+        out_dir / "presence_heatmap.png",
+        out_dir / "presence_heatmap_ct.png",
+        out_dir / "presence_heatmap_t.png",
+        out_dir / "kills_heatmap.png",
+        out_dir / "deaths_heatmap.png",
+    ]
+    out_smalls = [_small_preview_path(p) for p in out_files]
+    expected_outputs = out_files + out_smalls
+
+    latest_demo_mtime = max(p.stat().st_mtime for p in demo_paths)
+    meta_path = out_dir / "aggregate_meta.json"
+    if all(p.exists() for p in expected_outputs) and meta_path.exists():
+        try:
+            meta_payload = json.loads(meta_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            meta_payload = {}
+        meta_matches = (
+            meta_payload.get("limit") == int(limit)
+            and meta_payload.get("demos") == [p.name for p in demo_paths]
+            and meta_payload.get("map") == map_name
+        )
+        if meta_matches and min(p.stat().st_mtime for p in expected_outputs) >= latest_demo_mtime:
+            return {
+                "steamid64": str(steamid64),
+                "map": map_name,
+                "files": {
+                    "presence": _small_preview_path(out_files[0]).name,
+                    "presence_ct": _small_preview_path(out_files[1]).name,
+                    "presence_t": _small_preview_path(out_files[2]).name,
+                    "kills": _small_preview_path(out_files[3]).name,
+                    "deaths": _small_preview_path(out_files[4]).name,
+                },
+                "cached": True,
+                "analyzer_version": ANALYZER_VERSION,
+            }
+
+    presence_all = []
+    presence_ct = []
+    presence_t = []
+    kills = []
+    deaths = []
+    cache_hits = 0
+
+    cache_root = cache_dir / str(steamid64) / map_name
+    _ensure_dir(cache_root)
+
+    for dem_path in demo_paths:
+        demo_hash = _demo_cache_hash(dem_path, radar_name, (w, h))
+        cache_path = cache_root / f"{demo_hash}.npz"
+        if cache_path.exists():
+            cache_hits += 1
+            with np.load(cache_path) as cached:
+                demo_points = {
+                    "presence_all_px": cached.get("presence_all_px", _empty_points()),
+                    "presence_ct_px": cached.get("presence_ct_px", _empty_points()),
+                    "presence_t_px": cached.get("presence_t_px", _empty_points()),
+                    "kills_px": cached.get("kills_px", _empty_points()),
+                    "deaths_px": cached.get("deaths_px", _empty_points()),
+                }
+        else:
+            demo_points, _ = _extract_points_from_demo(dem_path, steamid64, meta, (w, h), map_mask_L)
+            np.savez_compressed(
+                cache_path,
+                presence_all_px=demo_points["presence_all_px"],
+                presence_ct_px=demo_points["presence_ct_px"],
+                presence_t_px=demo_points["presence_t_px"],
+                kills_px=demo_points["kills_px"],
+                deaths_px=demo_points["deaths_px"],
+            )
+
+        presence_all.append(_limit_points(demo_points["presence_all_px"], 15000))
+        presence_ct.append(_limit_points(demo_points["presence_ct_px"], 15000))
+        presence_t.append(_limit_points(demo_points["presence_t_px"], 15000))
+        kills.append(demo_points["kills_px"])
+        deaths.append(demo_points["deaths_px"])
+
+    def _concat(parts: list[np.ndarray]) -> np.ndarray:
+        if not parts:
+            return _empty_points()
+        non_empty = [p for p in parts if p.size]
+        if not non_empty:
+            return _empty_points()
+        return np.concatenate(non_empty, axis=0).astype(np.float32)
+
+    presence_all_pts = _concat(presence_all)
+    presence_ct_pts = _concat(presence_ct)
+    presence_t_pts = _concat(presence_t)
+    kills_pts = _concat(kills)
+    deaths_pts = _concat(deaths)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    heat_all = _density_to_heat_rgba_pixel(
+        presence_all_pts, (w, h), cmap_name=CMAP_ALL, sigma_px=PRESENCE_SIGMA_PX, map_mask_L=map_mask_L
+    )
+    _save_composited(radar, heat_all, out_files[0])
+
+    if presence_ct_pts.size:
+        heat_ct = _density_to_heat_rgba_pixel(
+            presence_ct_pts, (w, h), cmap_name=CMAP_CT, sigma_px=PRESENCE_SIGMA_PX, map_mask_L=map_mask_L
+        )
+        _save_composited(radar, heat_ct, out_files[1])
+    else:
+        _make_placeholder_png(out_files[1], (w, h))
+
+    if presence_t_pts.size:
+        heat_t = _density_to_heat_rgba_pixel(
+            presence_t_pts, (w, h), cmap_name=CMAP_T, sigma_px=PRESENCE_SIGMA_PX, map_mask_L=map_mask_L
+        )
+        _save_composited(radar, heat_t, out_files[2])
+    else:
+        _make_placeholder_png(out_files[2], (w, h))
+
+    if kills_pts.size:
+        heat_k = _density_to_heat_rgba_pixel(
+            kills_pts, (w, h), cmap_name=CMAP_KILLS, sigma_px=KD_SIGMA_PX, map_mask_L=map_mask_L
+        )
+        _save_composited(radar, heat_k, out_files[3])
+    else:
+        _make_placeholder_png(out_files[3], (w, h))
+
+    if deaths_pts.size:
+        heat_d = _density_to_heat_rgba_pixel(
+            deaths_pts, (w, h), cmap_name=CMAP_DEATHS, sigma_px=KD_SIGMA_PX, map_mask_L=map_mask_L
+        )
+        _save_composited(radar, heat_d, out_files[4])
+    else:
+        _make_placeholder_png(out_files[4], (w, h))
+
+    meta_payload = {
+        "map": map_name,
+        "limit": int(limit),
+        "demos": [p.name for p in demo_paths],
+        "analyzer_version": ANALYZER_VERSION,
+    }
+    meta_path.write_text(json.dumps(meta_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    return {
+        "steamid64": str(steamid64),
+        "map": map_name,
+        "files": {
+            "presence": _small_preview_path(out_files[0]).name,
+            "presence_ct": _small_preview_path(out_files[1]).name,
+            "presence_t": _small_preview_path(out_files[2]).name,
+            "kills": _small_preview_path(out_files[3]).name,
+            "deaths": _small_preview_path(out_files[4]).name,
+        },
+        "counts": {
+            "presence_points": int(presence_all_pts.shape[0]),
+            "presence_ct_points": int(presence_ct_pts.shape[0]),
+            "presence_t_points": int(presence_t_pts.shape[0]),
+            "kills": int(kills_pts.shape[0]),
+            "deaths": int(deaths_pts.shape[0]),
+        },
+        "cache_hits": cache_hits,
+        "analyzer_version": ANALYZER_VERSION,
     }
