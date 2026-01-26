@@ -155,69 +155,98 @@
                 <!-- Данные из анкеты -->
                 <div class="profile-registration">
                     <h3>Данные из анкеты</h3>
-                    <div class="details-grid">
-                        <div class="detail-item">
-                            <strong>Роль на T:</strong> {{ player_profile.get_t_role_display }}
+                    <div class="roles-grid">
+                        <div class="roles-column">
+                            <h4>CT</h4>
+                            <div class="roles-list">
+                                <div class="role-item">
+                                    <span>Mirage</span>
+                                    <strong>{{ player_profile.get_mirage_ct_position_display }}</strong>
+                                </div>
+                                <div class="role-item">
+                                    <span>Dust 2</span>
+                                    <strong>{{ player_profile.get_dust2_ct_position_display }}</strong>
+                                </div>
+                                <div class="role-item">
+                                    <span>Anubis</span>
+                                    <strong>{{ player_profile.get_anubis_ct_position_display }}</strong>
+                                </div>
+                                <div class="role-item">
+                                    <span>Nuke</span>
+                                    <strong>{{ player_profile.get_nuke_ct_position_display }}</strong>
+                                </div>
+                                <div class="role-item">
+                                    <span>Ancient</span>
+                                    <strong>{{ player_profile.get_ancient_ct_position_display }}</strong>
+                                </div>
+                                <div class="role-item">
+                                    <span>Inferno</span>
+                                    <strong>{{ player_profile.get_inferno_ct_position_display }}</strong>
+                                </div>
+                                <div class="role-item">
+                                    <span>Overpass</span>
+                                    <strong>{{ player_profile.get_overpass_ct_position_display }}</strong>
+                                </div>
+                            </div>
                         </div>
-                        <div class="detail-item">
-                            <strong>Могу быть IGL:</strong>
-                            {% if player_profile.is_igl %}
-                                <span class="status-active">Да</span>
-                            {% else %}
-                                <span class="status-inactive">Нет</span>
-                            {% endif %}
+                        <div class="roles-column">
+                            <h4>T</h4>
+                            <div class="roles-list">
+                                <div class="role-item">
+                                    <span>Роль</span>
+                                    <strong>{{ player_profile.get_t_role_display }}</strong>
+                                </div>
+                                <div class="role-item">
+                                    <span>IGL</span>
+                                    {% if player_profile.is_igl %}
+                                        <strong class="status-active">Да</strong>
+                                    {% else %}
+                                        <strong class="status-inactive">Нет</strong>
+                                    {% endif %}
+                                </div>
+                                <div class="role-item">
+                                    <span>AWP</span>
+                                    {% if player_profile.can_awp %}
+                                        <strong class="status-active">Да</strong>
+                                    {% else %}
+                                        <strong class="status-inactive">Нет</strong>
+                                    {% endif %}
+                                </div>
+                            </div>
                         </div>
-                        <div class="detail-item">
-                            <strong>Могу играть на AWP:</strong>
-                            {% if player_profile.can_awp %}
-                                <span class="status-active">Да</span>
-                            {% else %}
-                                <span class="status-inactive">Нет</span>
-                            {% endif %}
-                        </div>
-                        <div class="detail-item">
-                            <strong>Mirage (CT):</strong> {{ player_profile.get_mirage_ct_position_display }}
-                        </div>
-                        <div class="detail-item">
-                            <strong>Dust 2 (CT):</strong> {{ player_profile.get_dust2_ct_position_display }}
-                        </div>
-                        <div class="detail-item">
-                            <strong>Anubis (CT):</strong> {{ player_profile.get_anubis_ct_position_display }}
-                        </div>
-                        <div class="detail-item">
-                            <strong>Nuke (CT):</strong> {{ player_profile.get_nuke_ct_position_display }}
-                        </div>
-                        <div class="detail-item">
-                            <strong>Ancient (CT):</strong> {{ player_profile.get_ancient_ct_position_display }}
-                        </div>
-                        <div class="detail-item">
-                            <strong>Inferno (CT):</strong> {{ player_profile.get_inferno_ct_position_display }}
-                        </div>
-                        <div class="detail-item">
-                            <strong>Overpass (CT):</strong> {{ player_profile.get_overpass_ct_position_display }}
-                        </div>
-                        {% if player_profile.description %}
-                        <div class="detail-item detail-item--full">
-                            <strong>О себе:</strong> {{ player_profile.description|linebreaks }}
-                        </div>
-                        {% endif %}
                     </div>
+                    {% if player_profile.description %}
+                    <div class="role-description">
+                        {{ player_profile.description|linebreaks }}
+                    </div>
+                    {% endif %}
                 </div>
 
                 <div id="heatmaps-root"
+                     class="heatmaps-card"
                      data-steamid64="{{ steamid64|default:'' }}"
-                     style="margin-top:16px; padding:12px; border:1px solid #2b2b2b; border-radius:12px;">
-                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                        <strong>Heatmaps</strong>
-                        <button type="button" class="hm-tab" data-k="presence">Presence</button>
-                        <button type="button" class="hm-tab" data-k="presence_ct">Presence CT</button>
-                        <button type="button" class="hm-tab" data-k="presence_t">Presence T</button>
-                        <button type="button" class="hm-tab" data-k="kills">Kills</button>
-                        <button type="button" class="hm-tab" data-k="deaths">Deaths</button>
+                     data-map="de_mirage"
+                     data-limit="5">
+                    <div class="heatmaps-header">
+                        <div>
+                            <h3>Heatmaps</h3>
+                            <div class="heatmaps-tabs">
+                                <button type="button" class="hm-tab active" data-group="type" data-value="presence">Presence</button>
+                                <button type="button" class="hm-tab" data-group="type" data-value="kills">Kills</button>
+                                <button type="button" class="hm-tab" data-group="type" data-value="deaths">Deaths</button>
+                            </div>
+                            <div class="heatmaps-tabs heatmaps-tabs--secondary" data-group="side">
+                                <button type="button" class="hm-tab active" data-group="side" data-value="presence">All</button>
+                                <button type="button" class="hm-tab" data-group="side" data-value="presence_ct">CT</button>
+                                <button type="button" class="hm-tab" data-group="side" data-value="presence_t">T</button>
+                            </div>
+                        </div>
                     </div>
 
-                    <div id="hm-status" style="margin:10px 0; opacity:.85;">Loading…</div>
-                    <img id="hm-img" class="heatmap-img" style="display:none;" alt="heatmap" />
+                    <div id="hm-status" class="heatmaps-meta">Загрузка тепловой карты…</div>
+                    <div class="heatmaps-body">
+                        <img id="hm-img" class="heatmap-img" alt="heatmap" loading="lazy" />
+                    </div>
                 </div>
 
                 <!-- Информация о последнем обновлении -->
@@ -528,6 +557,51 @@
         align-items: flex-start;
     }
 
+    .roles-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1rem;
+        margin: 1.5rem 0;
+        padding: 1.5rem;
+        background: #f8f9fa;
+        border-radius: 10px;
+    }
+
+    .roles-column h4 {
+        margin: 0 0 0.75rem;
+        font-size: 1rem;
+        color: #343a40;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+    }
+
+    .roles-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .role-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.35rem 0.2rem;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+        font-size: 0.95rem;
+    }
+
+    .role-item span {
+        color: #6c757d;
+    }
+
+    .role-description {
+        margin-top: 1rem;
+        padding: 1rem 1.25rem;
+        border-radius: 10px;
+        background: #f8f9fa;
+        color: #495057;
+    }
+
     .heatmaps-header {
         display: flex;
         justify-content: space-between;
@@ -556,6 +630,10 @@
         display: flex;
         gap: 0.5rem;
         flex-wrap: wrap;
+    }
+
+    .heatmaps-tabs--secondary {
+        margin-top: 0.65rem;
     }
 
     .hm-tab {
@@ -729,6 +807,10 @@
         .details-grid {
             grid-template-columns: 1fr;
         }
+
+        .roles-grid {
+            grid-template-columns: 1fr;
+        }
     }
 </style>
 
@@ -737,62 +819,82 @@
         const root = document.getElementById("heatmaps-root");
         const status = document.getElementById("hm-status");
         const img = document.getElementById("hm-img");
-        const tabs = Array.from(document.querySelectorAll(".hm-tab"));
+        const typeTabs = Array.from(document.querySelectorAll('.hm-tab[data-group="type"]'));
+        const sideTabs = Array.from(document.querySelectorAll('.hm-tab[data-group="side"]'));
+        const sideTabsRow = document.querySelector(".heatmaps-tabs--secondary");
         const steamid64 = (root?.dataset?.steamid64 || "").trim();
+        const mapName = (root?.dataset?.map || "de_mirage").trim() || "de_mirage";
+        const limit = (root?.dataset?.limit || "5").trim() || "5";
 
-        tabs.forEach((b) => {
-            b.style.padding = "6px 10px";
-            b.style.borderRadius = "10px";
-            b.style.border = "1px solid rgba(0,0,0,.2)";
-            b.style.background = "transparent";
-            b.style.cursor = "pointer";
-        });
-
-        function setActive(key) {
-            tabs.forEach((t) => {
-                t.style.background = t.dataset.k === key ? "rgba(0,0,0,.08)" : "transparent";
-            });
+        function setActive(tabs, value) {
+            tabs.forEach((t) => t.classList.toggle("active", t.dataset.value === value));
         }
 
         if (!steamid64) {
-            status.textContent = "steamid64 пустой — заполни steam_id в профиле";
+            status.textContent = "Heatmaps недоступны.";
             return;
         }
 
-        const apiUrl = `/api/local/heatmaps?steamid64=${encodeURIComponent(steamid64)}`;
+        const apiUrl = `/api/local/heatmaps_aggregate?steamid64=${encodeURIComponent(steamid64)}&map=${encodeURIComponent(mapName)}&limit=${encodeURIComponent(limit)}`;
 
         try {
-            status.textContent = `Fetching: ${apiUrl}`;
+            status.textContent = "Загрузка тепловой карты…";
             const r = await fetch(apiUrl, { headers: { Accept: "application/json" } });
 
             if (!r.ok) {
-                status.textContent = `API error ${r.status}: ` + (await r.text());
+                status.textContent = "Не удалось загрузить heatmap.";
                 return;
             }
 
             const data = await r.json();
             if (!data.images) {
-                status.textContent = "API ok, но data.images отсутствует";
+                status.textContent = "Нет данных для heatmap.";
                 return;
             }
 
-            status.textContent = `Kills: ${data.counts?.kills ?? "-"} • Deaths: ${data.counts?.deaths ?? "-"} • Presence points: ${data.counts?.presence_points ?? "-"}`;
+            let currentType = "presence";
+            let currentSide = "presence";
 
-            function show(key) {
-                const url = data.images[key];
-                if (!url) {
-                    status.textContent = `Нет картинки для key=${key}`;
-                    return;
-                }
-                setActive(key);
-                img.style.display = "block";
-                img.src = url + `?t=${Date.now()}`;
+            function imageKey() {
+                return currentType === "presence" ? currentSide : currentType;
             }
 
-            tabs.forEach((t) => t.addEventListener("click", () => show(t.dataset.k)));
-            show("presence");
+            function show() {
+                const key = imageKey();
+                const url = data.images[key];
+                if (!url) {
+                    status.textContent = "Нет изображения для выбранного режима.";
+                    return;
+                }
+                img.style.display = "block";
+                img.src = url + `?t=${Date.now()}`;
+                status.textContent = "";
+            }
+
+            typeTabs.forEach((t) =>
+                t.addEventListener("click", () => {
+                    currentType = t.dataset.value;
+                    setActive(typeTabs, currentType);
+                    if (sideTabsRow) {
+                        sideTabsRow.style.display = currentType === "presence" ? "flex" : "none";
+                    }
+                    show();
+                })
+            );
+
+            sideTabs.forEach((t) =>
+                t.addEventListener("click", () => {
+                    currentSide = t.dataset.value;
+                    setActive(sideTabs, currentSide);
+                    show();
+                })
+            );
+
+            setActive(typeTabs, currentType);
+            setActive(sideTabs, currentSide);
+            show();
         } catch (e) {
-            status.textContent = "JS error: " + (e?.message || e);
+            status.textContent = "Ошибка при загрузке heatmap.";
             // eslint-disable-next-line no-console
             console.error(e);
         }
