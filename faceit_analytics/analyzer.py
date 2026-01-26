@@ -1,19 +1,23 @@
 from __future__ import annotations
 
 """
-CS2 Smooth Radar Heatmaps (NO hexes) — analyzer_v4
+CS2 Heatmaps — analyzer_v8 (Alignment fix)
 
-Fixes compared to previous:
-- Radar no longer gets "over-darkened". We auto-detect darkness and only brighten if needed.
-- Near-black background pixels are made transparent (so the card/background doesn't become a big dark square).
-- Heatmap uses anti-hotspot normalization (log1p + percentile clip) and heavier smoothing for soft zones.
+You reported: points/paths are systematically shifted (down+right) and appear in impossible places.
+Root cause in 99% cases:
+- Your radar PNG (clean radar) DOES NOT match the awpy map-data.json calibration (pos_x/pos_y/scale),
+  because the PNG has different padding/crop/zoom than awpy's default radar.
+So even if the demo coords are correct, the projection to pixels is offset.
 
-Outputs:
-  presence_heatmap.png        (all sides)
-  presence_heatmap_ct.png     (CT only, optional)
-  presence_heatmap_t.png      (T only, optional)
-  kills_heatmap.png
-  deaths_heatmap.png
+What this version adds:
+1) Explicit pixel offsets you can tune once per map:
+      OFFSET_X_PX / OFFSET_Y_PX
+2) Optional auto-offset search (dx,dy) that chooses a shift that best fits the map OUTLINE mask.
+   This fixes typical padding/crop differences (systematic shift), without you guessing numbers.
+3) Heatmap alpha is clipped to the map mask (like v7), so nothing renders outside the map outline.
+
+If after auto-offset you STILL see "inside walls", then your radar is not only shifted, but also scaled.
+In that case: use the awpy default radar OR adjust map-data.json scale/pos for your radar.
 """
 
 from pathlib import Path
@@ -21,63 +25,66 @@ import json
 import math
 import os
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-
 import numpy as np
 import pandas as pd
 from PIL import Image, ImageEnhance, ImageFilter
-
-from scipy.ndimage import gaussian_filter
+from scipy.ndimage import gaussian_filter, label, binary_closing, binary_opening
+from matplotlib import cm
 from awpy import Demo
 
-ANALYZER_VERSION = "radar-smooth-v4"
+ANALYZER_VERSION = "radar-smooth-v8-aligned"
 
 
 # ----------------------------
-# Tuning (safe defaults)
+# USER TUNING (most important)
 # ----------------------------
 
-# Heatmap look (soft zones)
-HEAT_ALPHA_ALL = 0.88
-HEAT_ALPHA_SIDE = 0.82
+# If your overlay is shifted down+right, usually you need negative offsets here.
+# Start with (0,0). If you want manual tuning: try (-12, -10) etc.
+OFFSET_X_PX = -18
+OFFSET_Y_PX = -15
 
-# Presence (most smooth)
-PRESENCE_BINS  = 850
-PRESENCE_SIGMA = 4.0
-PRESENCE_PCTL  = 98.9
-PRESENCE_GAMMA = 1.20
+# Auto-offset will estimate a (dx,dy) shift using the map outline mask.
+AUTO_OFFSET = True
+AUTO_OFFSET_MAX = 60      # search range in pixels: [-60..60]
+AUTO_OFFSET_STEP = 2      # coarse step (2 is fast)
+AUTO_OFFSET_REFINE = True # refine around best with step=1
+AUTO_OFFSET_SAMPLE = 6000 # number of points sampled for scoring (speed)
 
-# K/D (slightly tighter)
-KD_BINS  = 850
-KD_SIGMA = 4.0
-KD_PCTL  = 98.9
-KD_GAMMA = 1.20
+# Trails vs Zones
+TIME_STEP_TICKS = 8          # trails: 16/32; zones: 64/96/128
+PRESENCE_SIGMA_PX = 2.2       # trails: 1.4..2.6; zones: 5..12
+KD_SIGMA_PX = 2.0
+
+# Hotspot control
+PCTL_CLIP = 98.8
+GAMMA = 0.5
+
+# Overlay alpha behavior
+MAX_ALPHA = 245
+ALPHA_POWER = 0.85
+ALPHA_CUTOFF = 0.035
+
+# Clip settings (map mask)
+MASK_ALPHA_THRESHOLD = 12
+MASK_BRIGHT_THRESHOLD = 28
+MASK_EDGE_BLUR = 1.6
 
 # Colormaps
 CMAP_ALL = "inferno"
-CMAP_KILLS = "magma"
-CMAP_DEATHS = "plasma"
 CMAP_CT = "Blues"
 CMAP_T  = "Reds"
+CMAP_KILLS = "magma"
+CMAP_DEATHS = "plasma"
 
-# Performance
-MAX_PRESENCE_POINTS = 200_000
-
-# Radar cleanup
-# Make pixels darker than this transparent (removes big dark square)
-RADAR_BG_THRESHOLD = 20          # 0..255, raise if your radar still has dark background
-RADAR_ALPHA_BLUR = 0.8           # softens the transparency edge
-# Auto-brighten only if radar is dark:
-RADAR_DARK_MEAN_THRESHOLD = 45.0 # if mean brightness below -> brighten
-RADAR_BRIGHTNESS = 1.50
-RADAR_CONTRAST = 1.10
-RADAR_GAMMA = 0.85               # <1 brightens mids
+# Optional radar enhancement
+RADAR_BRIGHTNESS = 1.00
+RADAR_CONTRAST   = 1.00
+RADAR_COLOR      = 1.00
 
 
 # ----------------------------
-# Utils
+# IO / map data helpers
 # ----------------------------
 def _ensure_dir(p: Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
@@ -88,8 +95,7 @@ def _awpy_maps_dir() -> Path:
 
 
 def _load_map_data(map_name: str) -> dict:
-    maps_dir = _awpy_maps_dir()
-    p = maps_dir / "map-data.json"
+    p = _awpy_maps_dir() / "map-data.json"
     if not p.exists():
         raise FileNotFoundError(f"Missing {p}. Put map-data.json into ~/.awpy/maps/")
     data = json.loads(p.read_text(encoding="utf-8"))
@@ -114,64 +120,59 @@ def _pick_radar_image(map_name: str) -> Path:
     raise FileNotFoundError(f"No radar image found in {maps_dir}. Tried: {[c.name for c in candidates]}")
 
 
-def _apply_gamma_rgba(im: Image.Image, gamma: float) -> Image.Image:
-    if gamma == 1.0:
-        return im.convert("RGBA")
-    im = im.convert("RGBA")
-    rgb = im.convert("RGB")
-    arr = np.asarray(rgb).astype(np.float32) / 255.0
-    arr = np.clip(arr, 0, 1) ** gamma
-    rgb2 = Image.fromarray((arr * 255).astype(np.uint8), "RGB")
-    out = Image.merge("RGBA", (*rgb2.split(), im.getchannel("A")))
-    return out
-
-
-def _radar_make_bg_transparent(radar: Image.Image) -> Image.Image:
-    """Make near-black pixels transparent to avoid a big dark square behind the map."""
-    r = radar.convert("RGBA")
-    arr = np.array(r)
-    rgb = arr[:, :, :3].astype(np.int16)
-    bright = rgb.mean(axis=2)
-
-    # alpha mask: keep where bright > threshold
-    alpha = np.where(bright > RADAR_BG_THRESHOLD, 255, 0).astype(np.uint8)
-    alpha_img = Image.fromarray(alpha, mode="L").filter(ImageFilter.GaussianBlur(RADAR_ALPHA_BLUR))
-    arr[:, :, 3] = np.array(alpha_img)
-    return Image.fromarray(arr, mode="RGBA")
-
-
-def _radar_auto_brighten(radar: Image.Image) -> Image.Image:
-    """Only brighten if radar is actually dark (prevents making good radars worse)."""
-    r = radar.convert("RGBA")
-    # compute mean brightness excluding fully transparent pixels
-    arr = np.array(r)
-    a = arr[:, :, 3].astype(np.float32) / 255.0
-    rgb = arr[:, :, :3].astype(np.float32)
-    bright = (rgb.mean(axis=2) * a)
-    denom = (a > 0.05).sum()
-    mean_bright = float(bright.sum() / max(1, denom))
-
-    if mean_bright >= RADAR_DARK_MEAN_THRESHOLD:
-        return r  # already bright enough
-
-    # brighten
-    r = ImageEnhance.Brightness(r).enhance(RADAR_BRIGHTNESS)
-    r = ImageEnhance.Contrast(r).enhance(RADAR_CONTRAST)
-    r = _apply_gamma_rgba(r, RADAR_GAMMA)
-    return r
-
-
 def _prep_radar(map_name: str) -> tuple[Image.Image, dict, str]:
     radar_path = _pick_radar_image(map_name)
     radar = Image.open(radar_path).convert("RGBA")
 
-    radar = _radar_make_bg_transparent(radar)
-    radar = _radar_auto_brighten(radar)
+    if RADAR_BRIGHTNESS != 1.0:
+        radar = ImageEnhance.Brightness(radar).enhance(RADAR_BRIGHTNESS)
+    if RADAR_CONTRAST != 1.0:
+        radar = ImageEnhance.Contrast(radar).enhance(RADAR_CONTRAST)
+    if RADAR_COLOR != 1.0:
+        radar = ImageEnhance.Color(radar).enhance(RADAR_COLOR)
 
     meta = _load_map_data(map_name)
     return radar, meta, radar_path.name
 
 
+# ----------------------------
+# Mask building (clip to map outline)
+# ----------------------------
+def _largest_component(mask: np.ndarray) -> np.ndarray:
+    lbl, n = label(mask)
+    if n <= 1:
+        return mask
+    sizes = np.bincount(lbl.ravel())
+    sizes[0] = 0
+    keep = sizes.argmax()
+    return lbl == keep
+
+
+def _build_map_mask(radar: Image.Image) -> Image.Image:
+    arr = np.array(radar)
+    a = arr[:, :, 3].astype(np.uint8)
+
+    if a.min() < 250:
+        m = a > MASK_ALPHA_THRESHOLD
+        m = _largest_component(m)
+    else:
+        rgb = arr[:, :, :3].astype(np.int16)
+        bright = rgb.mean(axis=2)
+        m = bright > MASK_BRIGHT_THRESHOLD
+        m = _largest_component(m)
+
+    m = binary_closing(m, structure=np.ones((5, 5), dtype=bool), iterations=1)
+    m = binary_opening(m, structure=np.ones((3, 3), dtype=bool), iterations=1)
+
+    mask_img = Image.fromarray((m.astype(np.uint8) * 255), mode="L")
+    if MASK_EDGE_BLUR > 0:
+        mask_img = mask_img.filter(ImageFilter.GaussianBlur(MASK_EDGE_BLUR))
+    return mask_img
+
+
+# ----------------------------
+# Data helpers
+# ----------------------------
 def _pick_existing(df: pd.DataFrame, candidates: list[str]) -> str:
     low = {c.lower(): c for c in df.columns}
     for c in candidates:
@@ -186,114 +187,38 @@ def _filter_by_steamid_numeric(df: pd.DataFrame, col: str, steamid64: str) -> pd
     return df[s.eq(target)]
 
 
-def _to_points_xy(df: pd.DataFrame, xcol: str, ycol: str) -> list[tuple[float, float]]:
-    xs = pd.to_numeric(df[xcol], errors="coerce")
-    ys = pd.to_numeric(df[ycol], errors="coerce")
-    pts: list[tuple[float, float]] = []
-    for x, y in zip(xs, ys):
-        if pd.notna(x) and pd.notna(y):
-            fx, fy = float(x), float(y)
-            if not (math.isnan(fx) or math.isnan(fy)):
-                pts.append((fx, fy))
-    return pts
+def _to_points_xy(df: pd.DataFrame, xcol: str, ycol: str) -> np.ndarray:
+    xs = pd.to_numeric(df[xcol], errors="coerce").to_numpy()
+    ys = pd.to_numeric(df[ycol], errors="coerce").to_numpy()
+    m = np.isfinite(xs) & np.isfinite(ys)
+    return np.stack([xs[m], ys[m]], axis=1).astype(np.float32)
 
 
-def _sample(points: list[tuple[float, float]], max_points: int) -> list[tuple[float, float]]:
-    if len(points) <= max_points:
-        return points
-    step = max(1, len(points) // max_points)
-    return points[::step]
-
-
-def _world_to_pixel(points_xy: list[tuple[float, float]], map_meta: dict, radar_size: tuple[int, int]) -> tuple[np.ndarray, np.ndarray]:
+def _world_to_pixel(points_xy: np.ndarray, map_meta: dict, radar_size: tuple[int, int]) -> np.ndarray:
     w, h = radar_size
     pos_x = float(map_meta["pos_x"])
     pos_y = float(map_meta["pos_y"])
     scale = float(map_meta["scale"])
 
-    xs = np.array([p[0] for p in points_xy], dtype=float)
-    ys = np.array([p[1] for p in points_xy], dtype=float)
-
+    xs = points_xy[:, 0]
+    ys = points_xy[:, 1]
     px = (xs - pos_x) / scale
     py = (pos_y - ys) / scale
 
+    # apply user offsets
+    px = px + float(OFFSET_X_PX)
+    py = py + float(OFFSET_Y_PX)
+
     m = (px >= 0) & (px < w) & (py >= 0) & (py < h)
-    return px[m], py[m]
+    return np.stack([px[m], py[m]], axis=1).astype(np.float32)
 
 
-def _density_map(px: np.ndarray, py: np.ndarray, w: int, h: int, *, bins: int, sigma: float, pctl: float, gamma: float) -> np.ndarray:
-    """histogram -> gaussian -> log1p -> percentile clip -> normalize -> gamma"""
-    H, _, _ = np.histogram2d(px, py, bins=bins, range=[[0, w], [0, h]])
-    H = gaussian_filter(H, sigma=sigma)
-    H = np.log1p(H)
-
-    vmax = np.percentile(H, pctl) if H.max() > 0 else 1.0
-    vmax = float(vmax) if vmax and vmax > 0 else 1.0
-
-    H = np.clip(H, 0, vmax) / vmax
-    H = np.clip(H, 0, 1) ** gamma
-    return H
-
-
-def _save_overlay(
-    radar: Image.Image,
-    radar_name: str,
-    map_name: str,
-    meta: dict,
-    points_xy: list[tuple[float, float]],
-    out_path: Path,
-    *,
-    bins: int,
-    sigma: float,
-    pctl: float,
-    gamma: float,
-    cmap: str,
-    alpha: float,
-) -> dict:
-    if not points_xy:
-        raise RuntimeError("No points to plot")
-
-    w, h = radar.size
-    px, py = _world_to_pixel(points_xy, meta, (w, h))
-    if px.size == 0:
-        raise RuntimeError("All points outside radar bounds")
-
-    H = _density_map(px, py, w, h, bins=bins, sigma=sigma, pctl=pctl, gamma=gamma)
-
-    fig = plt.figure(figsize=(w / 220, h / 220), dpi=220, facecolor="none")
-    ax = fig.add_subplot(111)
-    ax.set_facecolor("none")
-
-    ax.imshow(radar, extent=[0, w, h, 0])
-    ax.imshow(H.T, extent=[0, w, h, 0], cmap=cmap, alpha=alpha, interpolation="bilinear")
-
-    ax.set_xlim(0, w)
-    ax.set_ylim(h, 0)
-    ax.set_axis_off()
-
-    _ensure_dir(out_path.parent)
-    fig.savefig(out_path, dpi=240, bbox_inches="tight", pad_inches=0, transparent=True)
-    plt.close(fig)
-
-    return {
-        "radar_used": radar_name,
-        "bins": bins,
-        "sigma": sigma,
-        "pctl": pctl,
-        "gamma": gamma,
-        "points_in_bounds": int(px.size),
-    }
-
-
-def _make_placeholder_png(out_path: Path, text: str) -> None:
-    _ensure_dir(out_path.parent)
-    fig = plt.figure(facecolor="none")
-    ax = fig.add_subplot(111)
-    ax.set_facecolor("none")
-    ax.text(0.5, 0.5, text, ha="center", va="center")
-    ax.set_axis_off()
-    fig.savefig(out_path, dpi=220, bbox_inches="tight", pad_inches=0, transparent=True)
-    plt.close(fig)
+def _downsample_by_tick(df: pd.DataFrame, tick_col: str) -> pd.DataFrame:
+    if TIME_STEP_TICKS <= 1:
+        return df
+    t = pd.to_numeric(df[tick_col], errors="coerce")
+    bucket = (t // TIME_STEP_TICKS).astype("Int64")
+    return df.loc[~bucket.duplicated(keep="first")]
 
 
 def _normalize_side_value(v) -> str | None:
@@ -310,13 +235,138 @@ def _normalize_side_value(v) -> str | None:
 
 
 # ----------------------------
-# Public API (used by Django view)
+# Auto-offset (outline mask fitting)
 # ----------------------------
-def build_heatmaps(
-    dem_path: Path,
-    out_dir: Path,
-    steamid64: str,
-) -> dict:
+def _auto_offset_shift(pts: np.ndarray, mask_L: Image.Image) -> tuple[int, int, float]:
+    """
+    Find (dx,dy) that maximizes average mask value at shifted point locations.
+    This corrects systematic pixel shift caused by radar padding/crop mismatch.
+    """
+    if pts.size == 0:
+        return 0, 0, 0.0
+
+    mask = np.asarray(mask_L).astype(np.float32) / 255.0
+    h, w = mask.shape
+
+    # sample points for speed
+    if pts.shape[0] > AUTO_OFFSET_SAMPLE:
+        idx = np.random.RandomState(7).choice(pts.shape[0], AUTO_OFFSET_SAMPLE, replace=False)
+        p = pts[idx]
+    else:
+        p = pts
+
+    x = np.rint(p[:, 0]).astype(np.int32)
+    y = np.rint(p[:, 1]).astype(np.int32)
+
+    # clamp base
+    x = np.clip(x, 0, w - 1)
+    y = np.clip(y, 0, h - 1)
+
+    def score(dx: int, dy: int) -> float:
+        xx = np.clip(x + dx, 0, w - 1)
+        yy = np.clip(y + dy, 0, h - 1)
+        return float(mask[yy, xx].mean())
+
+    best_dx = 0
+    best_dy = 0
+    best_s = score(0, 0)
+
+    rng = range(-AUTO_OFFSET_MAX, AUTO_OFFSET_MAX + 1, AUTO_OFFSET_STEP)
+    for dy in rng:
+        for dx in rng:
+            s = score(dx, dy)
+            if s > best_s:
+                best_s = s
+                best_dx, best_dy = dx, dy
+
+    if AUTO_OFFSET_REFINE:
+        # refine around the best with step=1 in a small window
+        r2 = range(best_dy - AUTO_OFFSET_STEP, best_dy + AUTO_OFFSET_STEP + 1)
+        c2 = range(best_dx - AUTO_OFFSET_STEP, best_dx + AUTO_OFFSET_STEP + 1)
+        for dy in r2:
+            for dx in c2:
+                s = score(dx, dy)
+                if s > best_s:
+                    best_s = s
+                    best_dx, best_dy = dx, dy
+
+    return best_dx, best_dy, best_s
+
+
+def _apply_shift(pts: np.ndarray, dx: int, dy: int, radar_size: tuple[int, int]) -> np.ndarray:
+    if pts.size == 0:
+        return pts
+    w, h = radar_size
+    p = pts.copy()
+    p[:, 0] = np.clip(p[:, 0] + dx, 0, w - 1)
+    p[:, 1] = np.clip(p[:, 1] + dy, 0, h - 1)
+    return p
+
+
+# ----------------------------
+# Heat generation (pixel exact) + CLIP
+# ----------------------------
+def _density_to_heat_rgba_pixel(
+    pts_px: np.ndarray,
+    radar_size: tuple[int, int],
+    *,
+    cmap_name: str,
+    sigma_px: float,
+    map_mask_L: Image.Image,
+) -> Image.Image:
+    w, h = radar_size
+    if pts_px.size == 0:
+        return Image.new("RGBA", (w, h), (0, 0, 0, 0))
+
+    dens = np.zeros((h, w), dtype=np.float32)
+    ix = np.rint(pts_px[:, 0]).astype(np.int32)
+    iy = np.rint(pts_px[:, 1]).astype(np.int32)
+    ix = np.clip(ix, 0, w - 1)
+    iy = np.clip(iy, 0, h - 1)
+    np.add.at(dens, (iy, ix), 1.0)
+
+    dens = gaussian_filter(dens, sigma=sigma_px)
+
+    dens = np.log1p(dens)
+    vmax = np.percentile(dens, PCTL_CLIP) if dens.max() > 0 else 1.0
+    vmax = float(vmax) if vmax and vmax > 0 else 1.0
+    dens = np.clip(dens, 0, vmax) / vmax
+
+    dens = np.clip(dens, 0, 1) ** GAMMA
+
+    a = dens.copy()
+    a[a < ALPHA_CUTOFF] = 0.0
+    a = (a ** ALPHA_POWER) * (MAX_ALPHA / 255.0)
+
+    # CLIP alpha to map outline
+    mask = (np.asarray(map_mask_L).astype(np.float32) / 255.0)
+    a = a * mask
+
+    cmap = cm.get_cmap(cmap_name)
+    rgba = cmap(dens)
+    rgb = (rgba[:, :, :3] * 255).astype(np.uint8)
+
+    out = np.zeros((h, w, 4), dtype=np.uint8)
+    out[:, :, :3] = rgb
+    out[:, :, 3] = (a * 255).clip(0, 255).astype(np.uint8)
+    return Image.fromarray(out, mode="RGBA")
+
+
+def _save_composited(radar: Image.Image, heat: Image.Image, out_path: Path) -> None:
+    composited = Image.alpha_composite(radar, heat)
+    _ensure_dir(out_path.parent)
+    composited.save(out_path)
+
+
+def _make_placeholder_png(out_path: Path, size: tuple[int, int]) -> None:
+    _ensure_dir(out_path.parent)
+    Image.new("RGBA", size, (0, 0, 0, 0)).save(out_path)
+
+
+# ----------------------------
+# Public API
+# ----------------------------
+def build_heatmaps(dem_path: Path, out_dir: Path, steamid64: str) -> dict:
     out_dir = Path(out_dir)
     _ensure_dir(out_dir)
 
@@ -325,106 +375,121 @@ def build_heatmaps(
     map_name = dem.header.get("map_name", "unknown")
 
     radar, meta, radar_name = _prep_radar(map_name)
+    w, h = radar.size
+    map_mask_L = _build_map_mask(radar)
 
     # ---- PRESENCE ----
     ticks_df = dem.ticks.to_pandas()
     sid_col = _pick_existing(ticks_df, ["steamid", "steamID", "player_steamid", "playerSteamID"])
     xcol = _pick_existing(ticks_df, ["X", "x", "player_X", "player_x"])
     ycol = _pick_existing(ticks_df, ["Y", "y", "player_Y", "player_y"])
+    tick_col = _pick_existing(ticks_df, ["tick", "ticks", "tick_num"])
 
     ticks_my = _filter_by_steamid_numeric(ticks_df, sid_col, steamid64)
 
-    # only alive ticks if health exists
-    lower = {c.lower(): c for c in ticks_my.columns}
-    if "health" in lower:
-        hcol = lower["health"]
-        alive = ticks_my[pd.to_numeric(ticks_my[hcol], errors="coerce").fillna(0) > 0]
+    low = {c.lower(): c for c in ticks_my.columns}
+    if "health" in low:
+        hc = low["health"]
+        alive = ticks_my[pd.to_numeric(ticks_my[hc], errors="coerce").fillna(0) > 0]
         if len(alive) > 0:
             ticks_my = alive
 
-    presence_points = _sample(_to_points_xy(ticks_my, xcol, ycol), MAX_PRESENCE_POINTS)
+    ticks_my = _downsample_by_tick(ticks_my, tick_col)
 
-    presence_png = out_dir / "presence_heatmap.png"
-    presence_dbg = _save_overlay(
-        radar, radar_name, map_name, meta, presence_points, presence_png,
-        bins=PRESENCE_BINS, sigma=PRESENCE_SIGMA, pctl=PRESENCE_PCTL, gamma=PRESENCE_GAMMA,
-        cmap=CMAP_ALL, alpha=HEAT_ALPHA_ALL,
+    pts_px = _world_to_pixel(_to_points_xy(ticks_my, xcol, ycol), meta, (w, h))
+
+    auto_dx = 0
+    auto_dy = 0
+    auto_score = 0.0
+    if AUTO_OFFSET and pts_px.shape[0] > 200:
+        auto_dx, auto_dy, auto_score = _auto_offset_shift(pts_px, map_mask_L)
+        pts_px = _apply_shift(pts_px, auto_dx, auto_dy, (w, h))
+
+    heat_all = _density_to_heat_rgba_pixel(
+        pts_px, (w, h), cmap_name=CMAP_ALL, sigma_px=PRESENCE_SIGMA_PX, map_mask_L=map_mask_L
     )
+    presence_png = out_dir / "presence_heatmap.png"
+    _save_composited(radar, heat_all, presence_png)
 
-    # CT/T split presence for toggles
+    # CT/T split
     presence_ct_png = out_dir / "presence_heatmap_ct.png"
     presence_t_png = out_dir / "presence_heatmap_t.png"
-    presence_ct_dbg = {"note": "side column missing"}
-    presence_t_dbg = {"note": "side column missing"}
+    ct_count = 0
+    t_count = 0
 
-    if "side" in lower:
-        side_col = lower["side"]
+    if "side" in low:
+        side_col = low["side"]
         side_norm = ticks_my[side_col].map(_normalize_side_value)
 
         ct_df = ticks_my[side_norm == "CT"]
         t_df = ticks_my[side_norm == "T"]
 
-        ct_pts = _sample(_to_points_xy(ct_df, xcol, ycol), MAX_PRESENCE_POINTS)
-        t_pts = _sample(_to_points_xy(t_df, xcol, ycol), MAX_PRESENCE_POINTS)
+        ct_pts = _world_to_pixel(_to_points_xy(ct_df, xcol, ycol), meta, (w, h))
+        t_pts = _world_to_pixel(_to_points_xy(t_df, xcol, ycol), meta, (w, h))
 
-        if ct_pts:
-            presence_ct_dbg = _save_overlay(
-                radar, radar_name, map_name, meta, ct_pts, presence_ct_png,
-                bins=PRESENCE_BINS, sigma=PRESENCE_SIGMA, pctl=PRESENCE_PCTL, gamma=PRESENCE_GAMMA,
-                cmap=CMAP_CT, alpha=HEAT_ALPHA_SIDE,
+        # apply same auto shift to keep everything consistent
+        if AUTO_OFFSET and (auto_dx or auto_dy):
+            ct_pts = _apply_shift(ct_pts, auto_dx, auto_dy, (w, h))
+            t_pts = _apply_shift(t_pts, auto_dx, auto_dy, (w, h))
+
+        ct_count = int(ct_pts.shape[0])
+        t_count = int(t_pts.shape[0])
+
+        if ct_count:
+            heat_ct = _density_to_heat_rgba_pixel(
+                ct_pts, (w, h), cmap_name=CMAP_CT, sigma_px=PRESENCE_SIGMA_PX, map_mask_L=map_mask_L
             )
+            _save_composited(radar, heat_ct, presence_ct_png)
         else:
-            _make_placeholder_png(presence_ct_png, "No CT rounds for this player in this demo")
-            presence_ct_dbg = {"note": "no CT points"}
+            _make_placeholder_png(presence_ct_png, (w, h))
 
-        if t_pts:
-            presence_t_dbg = _save_overlay(
-                radar, radar_name, map_name, meta, t_pts, presence_t_png,
-                bins=PRESENCE_BINS, sigma=PRESENCE_SIGMA, pctl=PRESENCE_PCTL, gamma=PRESENCE_GAMMA,
-                cmap=CMAP_T, alpha=HEAT_ALPHA_SIDE,
+        if t_count:
+            heat_t = _density_to_heat_rgba_pixel(
+                t_pts, (w, h), cmap_name=CMAP_T, sigma_px=PRESENCE_SIGMA_PX, map_mask_L=map_mask_L
             )
+            _save_composited(radar, heat_t, presence_t_png)
         else:
-            _make_placeholder_png(presence_t_png, "No T rounds for this player in this demo")
-            presence_t_dbg = {"note": "no T points"}
+            _make_placeholder_png(presence_t_png, (w, h))
+    else:
+        _make_placeholder_png(presence_ct_png, (w, h))
+        _make_placeholder_png(presence_t_png, (w, h))
 
-    # ---- KILLS ----
+    # ---- KILLS / DEATHS ----
     kills_df = dem.kills.to_pandas()
+
     attacker_col = _pick_existing(kills_df, ["attacker_steamid", "killer_steamid", "attackerSteamID", "killerSteamID"])
     kills_my = _filter_by_steamid_numeric(kills_df, attacker_col, steamid64)
-
     kx = _pick_existing(kills_df, ["attacker_X", "attacker_x"])
     ky = _pick_existing(kills_df, ["attacker_Y", "attacker_y"])
-    kill_points = _to_points_xy(kills_my, kx, ky)
+    kill_pts = _world_to_pixel(_to_points_xy(kills_my, kx, ky), meta, (w, h))
+    if AUTO_OFFSET and (auto_dx or auto_dy):
+        kill_pts = _apply_shift(kill_pts, auto_dx, auto_dy, (w, h))
 
     kills_png = out_dir / "kills_heatmap.png"
-    if kill_points:
-        kills_dbg = _save_overlay(
-            radar, radar_name, map_name, meta, kill_points, kills_png,
-            bins=KD_BINS, sigma=KD_SIGMA, pctl=KD_PCTL, gamma=KD_GAMMA,
-            cmap=CMAP_KILLS, alpha=0.90,
+    if kill_pts.shape[0]:
+        heat_k = _density_to_heat_rgba_pixel(
+            kill_pts, (w, h), cmap_name=CMAP_KILLS, sigma_px=KD_SIGMA_PX, map_mask_L=map_mask_L
         )
+        _save_composited(radar, heat_k, kills_png)
     else:
-        _make_placeholder_png(kills_png, "No kills for this player in this demo")
-        kills_dbg = {"note": "no kills"}
+        _make_placeholder_png(kills_png, (w, h))
 
-    # ---- DEATHS ----
     victim_col = _pick_existing(kills_df, ["victim_steamid", "victimSteamID"])
     deaths_my = _filter_by_steamid_numeric(kills_df, victim_col, steamid64)
-
     dx = _pick_existing(kills_df, ["victim_X", "victim_x"])
     dy = _pick_existing(kills_df, ["victim_Y", "victim_y"])
-    death_points = _to_points_xy(deaths_my, dx, dy)
+    death_pts = _world_to_pixel(_to_points_xy(deaths_my, dx, dy), meta, (w, h))
+    if AUTO_OFFSET and (auto_dx or auto_dy):
+        death_pts = _apply_shift(death_pts, auto_dx, auto_dy, (w, h))
 
     deaths_png = out_dir / "deaths_heatmap.png"
-    if death_points:
-        deaths_dbg = _save_overlay(
-            radar, radar_name, map_name, meta, death_points, deaths_png,
-            bins=KD_BINS, sigma=KD_SIGMA, pctl=KD_PCTL, gamma=KD_GAMMA,
-            cmap=CMAP_DEATHS, alpha=0.90,
+    if death_pts.shape[0]:
+        heat_d = _density_to_heat_rgba_pixel(
+            death_pts, (w, h), cmap_name=CMAP_DEATHS, sigma_px=KD_SIGMA_PX, map_mask_L=map_mask_L
         )
+        _save_composited(radar, heat_d, deaths_png)
     else:
-        _make_placeholder_png(deaths_png, "No deaths for this player in this demo")
-        deaths_dbg = {"note": "no deaths"}
+        _make_placeholder_png(deaths_png, (w, h))
 
     return {
         "steamid64": str(steamid64),
@@ -432,7 +497,9 @@ def build_heatmaps(
         "counts": {
             "kills": int(len(kills_my)),
             "deaths": int(len(deaths_my)),
-            "presence_points": int(len(presence_points)),
+            "presence_points": int(pts_px.shape[0]),
+            "presence_ct_points": int(ct_count),
+            "presence_t_points": int(t_count),
         },
         "analyzer_version": ANALYZER_VERSION,
         "files": {
@@ -443,10 +510,12 @@ def build_heatmaps(
             "deaths": deaths_png.name,
         },
         "debug": {
-            "presence": presence_dbg,
-            "presence_ct": presence_ct_dbg,
-            "presence_t": presence_t_dbg,
-            "kills": kills_dbg,
-            "deaths": deaths_dbg,
+            "radar_used": radar_name,
+            "manual_offset_px": [int(OFFSET_X_PX), int(OFFSET_Y_PX)],
+            "auto_offset_enabled": bool(AUTO_OFFSET),
+            "auto_offset_px": [int(auto_dx), int(auto_dy)],
+            "auto_offset_score": float(auto_score),
+            "time_step_ticks": int(TIME_STEP_TICKS),
+            "presence_sigma_px": float(PRESENCE_SIGMA_PX),
         },
     }
