@@ -222,11 +222,56 @@
                     {% endif %}
                 </div>
 
+                <div id="analytics-root"
+                     class="analytics-card"
+                     data-profile-id="{{ player_profile.id }}"
+                     data-job-id="{% if analytics_job %}{{ analytics_job.id }}{% endif %}"
+                     data-job-status="{% if analytics_job %}{{ analytics_job.status }}{% endif %}"
+                     data-period="{{ analytics_period|default:'last_20' }}"
+                     data-can-trigger="{% if can_trigger_analytics %}1{% else %}0{% endif %}">
+                    <div class="analytics-header">
+                        <h3>Аналитика</h3>
+                        {% if can_trigger_analytics %}
+                            <button type="button" id="analytics-start" class="btn btn-update">
+                                Сгенерировать
+                            </button>
+                        {% endif %}
+                    </div>
+                    <div id="analytics-status" class="analytics-meta">
+                        {% if analytics_job %}
+                            {% if analytics_job.status == "FAILED" %}
+                                Ошибка обработки аналитики.
+                            {% elif analytics_job.status == "SUCCESS" %}
+                                Аналитика готова.
+                            {% else %}
+                                Аналитика в обработке…
+                            {% endif %}
+                        {% elif analytics_ready %}
+                            Аналитика готова.
+                        {% else %}
+                            Аналитика ещё не готова.
+                        {% endif %}
+                    </div>
+                    {% if analytics_job and analytics_job.status == "FAILED" and analytics_job.error %}
+                        <pre class="analytics-error">{{ analytics_job.error|truncatechars:220 }}</pre>
+                    {% endif %}
+                    {% if analytics_aggregates %}
+                        <div class="analytics-metrics">
+                            {% for key, value in analytics_aggregates.0.metrics_json.items %}
+                                <div class="analytics-metric">
+                                    <span class="metric-label">{{ key }}</span>
+                                    <strong class="metric-value">{{ value }}</strong>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                </div>
+
                 <div id="heatmaps-root"
                      class="heatmaps-card"
-                     data-steamid64="{{ steamid64|default:'' }}"
+                     data-profile-id="{{ player_profile.id }}"
                      data-map="de_mirage"
-                     data-limit="5">
+                     data-period="{{ analytics_period|default:'last_20' }}">
                     <div class="heatmaps-header">
                         <div>
                             <h3>Heatmaps</h3>
@@ -602,6 +647,63 @@
         color: #495057;
     }
 
+    .analytics-card {
+        padding: 1.5rem;
+        border-radius: 12px;
+        background: #f8f9fa;
+        border: 1px solid #e9ecef;
+        margin: 2rem 0;
+    }
+
+    .analytics-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+
+    .analytics-meta {
+        margin-top: 0.5rem;
+        color: #6c757d;
+        font-size: 0.95rem;
+    }
+
+    .analytics-error {
+        background: #fff5f5;
+        border: 1px solid #f5c2c2;
+        color: #b42318;
+        padding: 0.75rem;
+        border-radius: 8px;
+        margin-top: 0.75rem;
+        white-space: pre-wrap;
+    }
+
+    .analytics-metrics {
+        margin-top: 1rem;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 1rem;
+    }
+
+    .analytics-metric {
+        background: #fff;
+        border-radius: 10px;
+        padding: 0.75rem 1rem;
+        border: 1px solid #e9ecef;
+    }
+
+    .analytics-metric .metric-label {
+        display: block;
+        font-size: 0.85rem;
+        color: #6c757d;
+    }
+
+    .analytics-metric .metric-value {
+        font-size: 1.1rem;
+        color: #1d2939;
+    }
+
     .heatmaps-header {
         display: flex;
         justify-content: space-between;
@@ -816,26 +918,112 @@
 
 <script>
     document.addEventListener("DOMContentLoaded", async () => {
+        const analyticsRoot = document.getElementById("analytics-root");
+        const analyticsStatus = document.getElementById("analytics-status");
+        const analyticsStart = document.getElementById("analytics-start");
+        const profileId = analyticsRoot?.dataset?.profileId;
+        let currentJobId = analyticsRoot?.dataset?.jobId;
+        let currentJobStatus = analyticsRoot?.dataset?.jobStatus;
+
+        function getCookie(name) {
+            const cookieValue = document.cookie
+                .split("; ")
+                .find((row) => row.startsWith(`${name}=`));
+            return cookieValue ? decodeURIComponent(cookieValue.split("=")[1]) : null;
+        }
+
+        function setAnalyticsStatus(text) {
+            if (analyticsStatus) {
+                analyticsStatus.textContent = text;
+            }
+        }
+
+        async function pollJob(jobId) {
+            try {
+                const r = await fetch(`/api/analytics/jobs/${jobId}`, {
+                    headers: { Accept: "application/json" },
+                });
+                if (!r.ok) {
+                    setAnalyticsStatus("Не удалось получить статус обработки.");
+                    return;
+                }
+                const data = await r.json();
+                currentJobStatus = data.status;
+                if (data.status === "SUCCESS") {
+                    setAnalyticsStatus("Аналитика готова.");
+                    window.location.reload();
+                    return;
+                }
+                if (data.status === "FAILED") {
+                    setAnalyticsStatus("Ошибка обработки аналитики.");
+                    if (analyticsStart) {
+                        analyticsStart.disabled = false;
+                    }
+                    return;
+                }
+                setAnalyticsStatus(`Аналитика в обработке… ${data.progress || 0}%`);
+            } catch (e) {
+                setAnalyticsStatus("Ошибка при проверке статуса.");
+            }
+        }
+
+        if (currentJobId && (currentJobStatus === "PENDING" || currentJobStatus === "RUNNING")) {
+            setAnalyticsStatus("Аналитика в обработке…");
+            if (analyticsStart) {
+                analyticsStart.disabled = true;
+            }
+            setInterval(() => pollJob(currentJobId), 2000);
+        }
+
+        if (analyticsStart && profileId) {
+            analyticsStart.addEventListener("click", async () => {
+                analyticsStart.disabled = true;
+                setAnalyticsStatus("Запуск обработки…");
+                try {
+                    const r = await fetch(`/api/analytics/${profileId}/start`, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "X-CSRFToken": getCookie("csrftoken"),
+                        },
+                        body: JSON.stringify({}),
+                    });
+                    if (!r.ok) {
+                        setAnalyticsStatus("Не удалось запустить обработку.");
+                        analyticsStart.disabled = false;
+                        return;
+                    }
+                    const data = await r.json();
+                    currentJobId = data.job_id;
+                    setAnalyticsStatus("Аналитика в обработке…");
+                    setInterval(() => pollJob(currentJobId), 2000);
+                } catch (e) {
+                    setAnalyticsStatus("Ошибка запуска обработки.");
+                    analyticsStart.disabled = false;
+                }
+            });
+        }
+
         const root = document.getElementById("heatmaps-root");
         const status = document.getElementById("hm-status");
         const img = document.getElementById("hm-img");
         const typeTabs = Array.from(document.querySelectorAll('.hm-tab[data-group="type"]'));
         const sideTabs = Array.from(document.querySelectorAll('.hm-tab[data-group="side"]'));
         const sideTabsRow = document.querySelector(".heatmaps-tabs--secondary");
-        const steamid64 = (root?.dataset?.steamid64 || "").trim();
+        const heatmapProfileId = (root?.dataset?.profileId || "").trim();
         const mapName = (root?.dataset?.map || "de_mirage").trim() || "de_mirage";
-        const limit = (root?.dataset?.limit || "5").trim() || "5";
+        const period = (root?.dataset?.period || "last_20").trim() || "last_20";
 
         function setActive(tabs, value) {
             tabs.forEach((t) => t.classList.toggle("active", t.dataset.value === value));
         }
 
-        if (!steamid64) {
+        if (!heatmapProfileId) {
             status.textContent = "Heatmaps недоступны.";
             return;
         }
 
-        const apiUrl = `/api/local/heatmaps_aggregate?steamid64=${encodeURIComponent(steamid64)}&map=${encodeURIComponent(mapName)}&limit=${encodeURIComponent(limit)}`;
+        const apiUrl = `/api/analytics/${encodeURIComponent(heatmapProfileId)}/heatmaps?map=${encodeURIComponent(mapName)}&period=${encodeURIComponent(period)}`;
 
         try {
             status.textContent = "Загрузка тепловой карты…";
@@ -847,8 +1035,8 @@
             }
 
             const data = await r.json();
-            if (!data.images) {
-                status.textContent = "Нет данных для heatmap.";
+            if (!data.images || Object.keys(data.images).length === 0) {
+                status.textContent = "Heatmap ещё не готова.";
                 return;
             }
 

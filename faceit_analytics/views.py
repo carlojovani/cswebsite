@@ -1,13 +1,19 @@
 from pathlib import Path
 
 from django.conf import settings
+from django.contrib.auth.decorators import login_required
+from django.core.cache import cache
 from django.http import JsonResponse
-from django.views.decorators.http import require_GET
+from django.shortcuts import get_object_or_404
+from django.views.decorators.http import require_GET, require_POST
 from requests import HTTPError
 
 from .analyzer import build_heatmaps
 from .demo_fetch import get_demo_dem_path
 from .faceit_client import FaceitClient
+from .models import AnalyticsAggregate, HeatmapAggregate, ProcessingJob
+from .tasks import task_full_pipeline
+from users.models import PlayerProfile
 
 
 @require_GET
@@ -164,3 +170,81 @@ def faceit_heatmaps(request):
         },
     }
     return JsonResponse(resp)
+
+
+@login_required
+@require_POST
+def start_analytics_processing(request, profile_id: int):
+    profile = get_object_or_404(PlayerProfile, id=profile_id)
+    if not request.user.is_superuser and request.user != profile.user:
+        return JsonResponse({"error": "forbidden"}, status=403)
+
+    job = ProcessingJob.objects.create(
+        profile=profile,
+        job_type=ProcessingJob.JOB_FULL_PIPELINE,
+        status=ProcessingJob.STATUS_PENDING,
+        progress=0,
+        requested_by=request.user,
+    )
+
+    task = task_full_pipeline.delay(profile.id, job.id, period="last_20", resolution=64)
+    job.celery_task_id = task.id
+    job.save()
+
+    return JsonResponse({"job_id": job.id, "status": job.status})
+
+
+@login_required
+@require_GET
+def analytics_job_status(request, job_id: int):
+    job = get_object_or_404(ProcessingJob, id=job_id)
+    if not request.user.is_superuser and request.user != job.profile.user:
+        return JsonResponse({"error": "forbidden"}, status=403)
+
+    payload = {
+        "status": job.status,
+        "progress": job.progress,
+    }
+    if job.error:
+        payload["error"] = job.error
+    return JsonResponse(payload)
+
+
+@login_required
+@require_GET
+def profile_heatmaps(request, profile_id: int):
+    profile = get_object_or_404(PlayerProfile, id=profile_id)
+    if not request.user.is_superuser and request.user != profile.user:
+        return JsonResponse({"error": "forbidden"}, status=403)
+
+    period = request.GET.get("period", "last_20").strip() or "last_20"
+    map_name = request.GET.get("map", "de_mirage").strip() or "de_mirage"
+    cache_key = f"heatmap:{profile.id}:{period}:{map_name}"
+    cached = cache.get(cache_key)
+    if cached:
+        return JsonResponse(cached)
+
+    aggregates = HeatmapAggregate.objects.filter(
+        profile=profile,
+        period=period,
+        map_name=map_name,
+    )
+
+    images = {}
+    for side, key in (
+        (AnalyticsAggregate.SIDE_ALL, "presence"),
+        (AnalyticsAggregate.SIDE_CT, "presence_ct"),
+        (AnalyticsAggregate.SIDE_T, "presence_t"),
+    ):
+        aggregate = aggregates.filter(side=side).first()
+        if aggregate and aggregate.image:
+            images[key] = aggregate.image.url
+
+    response = {
+        "status": "ready" if images else "missing",
+        "images": images,
+        "map": map_name,
+        "period": period,
+    }
+    cache.set(cache_key, response, 120)
+    return JsonResponse(response)
