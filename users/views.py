@@ -1,3 +1,4 @@
+from django.core.cache import cache
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
@@ -5,6 +6,7 @@ from django.contrib import messages
 from django.db.models import Q
 from django.utils import timezone
 
+from faceit_analytics.models import AnalyticsAggregate, HeatmapAggregate, ProcessingJob
 from .forms import (
     RegistrationStep1Form,
     PlayerRegistrationForm,
@@ -237,6 +239,32 @@ def profile(request, user_id):
                 "steam_id64": getattr(player_profile, "steam_id64", None),
                 "steam_id": getattr(player_profile, "steam_id", None),
             }
+
+            period = "last_20"
+            cache_key = f"agg:{player_profile.id}:{period}"
+            analytics_aggregates = cache.get(cache_key)
+            if analytics_aggregates is None:
+                analytics_aggregates = list(
+                    AnalyticsAggregate.objects.filter(
+                        profile=player_profile,
+                        period=period,
+                    )
+                )
+                cache.set(cache_key, analytics_aggregates, 120)
+
+            context["analytics_period"] = period
+            context["analytics_aggregates"] = analytics_aggregates
+            context["analytics_ready"] = bool(analytics_aggregates)
+            context["heatmap_ready"] = HeatmapAggregate.objects.filter(
+                profile=player_profile,
+                period=period,
+            ).exists()
+            context["analytics_job"] = (
+                ProcessingJob.objects.filter(profile=player_profile)
+                .order_by("-created_at")
+                .first()
+            )
+            context["can_trigger_analytics"] = request.user == user or request.user.is_superuser
         except PlayerProfile.DoesNotExist:
             messages.warning(request, 'Профиль игрока не найден.')
             context['player_profile'] = None
