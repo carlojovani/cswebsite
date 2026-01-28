@@ -35,7 +35,10 @@ class ParsedDemoEvents:
     target_round_sides: dict[int, str]
     rounds_in_demo: set[int]
     tick_rate: float
+    tick_rate_approx: bool
     missing_time_kills: int
+    attacker_none_count: int
+    attacker_id_sample: dict[str, str | None]
 
 
 def _period_to_limit(period: str) -> int:
@@ -92,17 +95,31 @@ def _safe_float(value: Any) -> float | None:
         return None
 
 
-def normalize_steam_id(value: Any) -> str | None:
+def normalize_steam_id_to_64(value: Any) -> str | None:
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return None
-    if isinstance(value, int):
-        return str(value) if value > 0 else None
+    if isinstance(value, (int, float)):
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            return None
+        if parsed <= 0:
+            return None
+        steam_base = 76561197960265728
+        if parsed >= steam_base:
+            return str(parsed)
+        return str(steam_base + parsed)
     value_str = str(value).strip()
     if not value_str:
         return None
     if value_str.isdigit():
         parsed = int(value_str)
-        return str(parsed) if parsed > 0 else None
+        if parsed <= 0:
+            return None
+        steam_base = 76561197960265728
+        if parsed >= steam_base:
+            return str(parsed)
+        return str(steam_base + parsed)
 
     upper_value = value_str.upper()
     steam_base = 76561197960265728
@@ -113,7 +130,8 @@ def normalize_steam_id(value: Any) -> str | None:
             account_int = int(account)
             if auth_int < 0 or account_int < 0:
                 return None
-            steam_id = steam_base + (account_int * 2) + auth_int
+            account_id = (account_int * 2) + auth_int
+            steam_id = steam_base + account_id
             return str(steam_id)
         except (ValueError, IndexError):
             return None
@@ -136,10 +154,14 @@ def normalize_steam_id(value: Any) -> str | None:
 
 
 def _normalize_steam_id_int(value: Any) -> int | None:
-    normalized = normalize_steam_id(value)
+    normalized = normalize_steam_id_to_64(value)
     if normalized is None:
         return None
     return _safe_int(normalized)
+
+
+def normalize_steam_id(value: Any) -> str | None:
+    return normalize_steam_id_to_64(value)
 
 
 def discover_demo_files(profile, period: str, demos_dir: Path | None = None) -> list[Path]:
@@ -262,7 +284,7 @@ def _extract_player_round_sides(demo: Demo, target_steam_id: str) -> dict[int, s
     if not steamid_col or not round_col or not side_col:
         return {}
 
-    normalized = normalize_steam_id(target_steam_id)
+    normalized = normalize_steam_id_to_64(target_steam_id)
     if normalized is None:
         return {}
     target_id = int(normalized)
@@ -285,6 +307,12 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
     demo.parse()
 
     tick_rate = _tick_rate_from_demo(demo)
+    tick_rate_approx = True
+    if getattr(demo, "tickrate", None) or getattr(demo, "tick_rate", None) or getattr(demo, "tickRate", None):
+        tick_rate_approx = False
+    header = getattr(demo, "header", None) or {}
+    if header.get("tickrate") or header.get("tick_rate") or header.get("tickRate"):
+        tick_rate_approx = False
 
     rounds_df = demo.rounds.to_pandas() if getattr(demo, "rounds", None) is not None else None
     round_start_ticks, round_start_times, round_winners, rounds_in_demo = _build_round_meta(rounds_df)
@@ -295,8 +323,11 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
 
     kills: list[dict[str, Any]] = []
     missing_time_kills = 0
+    attacker_none_count = 0
+    attacker_id_sample: dict[str, str | None] = {"attacker": None, "victim": None}
     if kills_df is not None and not kills_df.empty:
         round_col = _pick_column(kills_df, ["round", "round_num", "round_number"])
+        tick_col = _pick_column(kills_df, ["tick", "tick_num", "ticks"])
         attacker_col = _pick_column(kills_df, ["attacker_steamid", "killer_steamid", "attackerSteamID", "killerSteamID"])
         victim_col = _pick_column(kills_df, ["victim_steamid", "victimSteamID"])
         assister_col = _pick_column(kills_df, ["assister_steamid", "assistant_steamid", "assisterSteamID", "assistantSteamID"])
@@ -307,9 +338,25 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
             round_number = _safe_int(row.get(round_col)) if round_col else None
             if round_number is not None:
                 rounds_in_demo.add(round_number)
-            t_round = _round_time_seconds(row, round_number, round_start_ticks, round_start_times, tick_rate)
+            tick_value = _safe_int(row.get(tick_col)) if tick_col else None
+            t_round = None
+            if round_number is not None and tick_value is not None:
+                start_tick = round_start_ticks.get(round_number)
+                if start_tick is not None and tick_rate:
+                    t_round = (tick_value - start_tick) / tick_rate
+            if t_round is None:
+                t_round = _round_time_seconds(row, round_number, round_start_ticks, round_start_times, tick_rate)
             if t_round is None:
                 missing_time_kills += 1
+            attacker_steam_id = normalize_steam_id_to_64(row.get(attacker_col)) if attacker_col else None
+            victim_steam_id = normalize_steam_id_to_64(row.get(victim_col)) if victim_col else None
+            assister_steam_id = normalize_steam_id_to_64(row.get(assister_col)) if assister_col else None
+            if attacker_steam_id is None:
+                attacker_none_count += 1
+            if attacker_id_sample["attacker"] is None and attacker_steam_id:
+                attacker_id_sample["attacker"] = attacker_steam_id
+            if attacker_id_sample["victim"] is None and victim_steam_id:
+                attacker_id_sample["victim"] = victim_steam_id
             attacker_id = _normalize_steam_id_int(row.get(attacker_col)) if attacker_col else None
             victim_id = _normalize_steam_id_int(row.get(victim_col)) if victim_col else None
             assister_id = _normalize_steam_id_int(row.get(assister_col)) if assister_col else None
@@ -320,9 +367,9 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
                     "attacker": attacker_id,
                     "victim": victim_id,
                     "assister": assister_id,
-                    "attacker_steam_id": normalize_steam_id(row.get(attacker_col)) if attacker_col else None,
-                    "victim_steam_id": normalize_steam_id(row.get(victim_col)) if victim_col else None,
-                    "assister_steam_id": normalize_steam_id(row.get(assister_col)) if assister_col else None,
+                    "attacker_steam_id": attacker_steam_id,
+                    "victim_steam_id": victim_steam_id,
+                    "assister_steam_id": assister_steam_id,
                     "attacker_side": _normalize_side(row.get(attacker_side_col)) if attacker_side_col else None,
                     "victim_side": _normalize_side(row.get(victim_side_col)) if victim_side_col else None,
                 }
@@ -358,8 +405,8 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
                     "time": t_round,
                     "thrower": thrower_id,
                     "blinded": blinded_id,
-                    "thrower_steam_id": normalize_steam_id(row.get(thrower_col)) if thrower_col else None,
-                    "blinded_steam_id": normalize_steam_id(row.get(blinded_col)) if blinded_col else None,
+                    "thrower_steam_id": normalize_steam_id_to_64(row.get(thrower_col)) if thrower_col else None,
+                    "blinded_steam_id": normalize_steam_id_to_64(row.get(blinded_col)) if blinded_col else None,
                     "duration": _safe_float(row.get(duration_col)) if duration_col else None,
                     "thrower_side": thrower_side,
                     "blinded_side": blinded_side,
@@ -401,8 +448,8 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
                     "time": t_round,
                     "attacker": _normalize_steam_id_int(row.get(attacker_col)) if attacker_col else None,
                     "victim": _normalize_steam_id_int(row.get(victim_col)) if victim_col else None,
-                    "attacker_steam_id": normalize_steam_id(row.get(attacker_col)) if attacker_col else None,
-                    "victim_steam_id": normalize_steam_id(row.get(victim_col)) if victim_col else None,
+                    "attacker_steam_id": normalize_steam_id_to_64(row.get(attacker_col)) if attacker_col else None,
+                    "victim_steam_id": normalize_steam_id_to_64(row.get(victim_col)) if victim_col else None,
                     "damage": float(damage_amount),
                     "kind": kind,
                 }
@@ -418,7 +465,10 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
         target_round_sides=target_round_sides,
         rounds_in_demo=rounds_in_demo,
         tick_rate=tick_rate,
+        tick_rate_approx=tick_rate_approx,
         missing_time_kills=missing_time_kills,
+        attacker_none_count=attacker_none_count,
+        attacker_id_sample=attacker_id_sample,
     )
 
 
@@ -522,6 +572,7 @@ def aggregate_player_features(
     target_steam_id: str,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
     target_id = _normalize_steam_id_int(target_steam_id)
+    target_steam_id64 = normalize_steam_id_to_64(target_steam_id)
     events: list[dict[str, Any]] = []
     rounds_seen: set[tuple[int, int]] = set()
     tick_rate = 64.0
@@ -530,7 +581,7 @@ def aggregate_player_features(
     player_assists = 0
     player_utility_damage_total = 0.0
 
-    if target_id is None:
+    if target_id is None or target_steam_id64 is None:
         return [], {"rounds": None, "tick_rate": tick_rate}, {
             "player_kills": 0,
             "player_deaths": 0,
@@ -576,7 +627,7 @@ def aggregate_player_features(
                 later = round_kills_sorted[idx + 1 :]
                 is_first_duel = first_kill is not None and kill is first_kill
 
-                if kill.get("attacker") == target_id:
+                if kill.get("attacker_steam_id") == target_steam_id64:
                     player_kills += 1
                     round_events.append(
                         {
@@ -589,7 +640,7 @@ def aggregate_player_features(
                         }
                     )
 
-                if kill.get("victim") == target_id:
+                if kill.get("victim_steam_id") == target_steam_id64:
                     player_deaths += 1
                     round_events.append(
                         {
@@ -601,7 +652,7 @@ def aggregate_player_features(
                         }
                     )
 
-                if kill.get("assister") == target_id:
+                if kill.get("assister_steam_id") == target_steam_id64:
                     player_assists += 1
                     round_events.append(
                         {
@@ -638,7 +689,7 @@ def aggregate_player_features(
                 )
 
             for dmg in utility_by_round.get(round_number, []):
-                if dmg.get("attacker") != target_id:
+                if dmg.get("attacker_steam_id") != target_steam_id64:
                     continue
                 round_events.append(
                     {
@@ -759,6 +810,8 @@ def get_or_build_demo_features(
         "flash_events_count": 0,
         "util_damage_events_count": 0,
         "missing_time_kills": 0,
+        "attacker_none_count": 0,
+        "attacker_id_sample": {"attacker": None, "victim": None},
         "player_kills": 0,
         "player_deaths": 0,
         "player_assists": 0,
@@ -805,6 +858,11 @@ def get_or_build_demo_features(
         debug["util_damage_events_count"] += len(parsed.utility_damage)
         debug["rounds_count"] += len(parsed.rounds_in_demo)
         debug["missing_time_kills"] += parsed.missing_time_kills
+        debug["attacker_none_count"] += parsed.attacker_none_count
+        if parsed.attacker_id_sample.get("attacker") and not debug["attacker_id_sample"].get("attacker"):
+            debug["attacker_id_sample"]["attacker"] = parsed.attacker_id_sample["attacker"]
+        if parsed.attacker_id_sample.get("victim") and not debug["attacker_id_sample"].get("victim"):
+            debug["attacker_id_sample"]["victim"] = parsed.attacker_id_sample["victim"]
         if progress_callback:
             span = max(progress_end - progress_start, 1)
             progress = progress_start + int((index / max(demos_count, 1)) * span)
