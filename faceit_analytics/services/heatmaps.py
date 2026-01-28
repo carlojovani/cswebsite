@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from io import BytesIO
 import hashlib
+import os
 from pathlib import Path
 import time
+from uuid import uuid4
 from typing import Iterable, Sequence
 
 import numpy as np
 from django.conf import settings
-from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.db import transaction
 from django.utils import timezone
@@ -17,20 +17,20 @@ from matplotlib import cm
 
 from faceit_analytics import analyzer
 from faceit_analytics.constants import ANALYTICS_VERSION
-from faceit_analytics.models import AnalyticsAggregate, HeatmapAggregate
+from faceit_analytics.models import AnalyticsAggregate, HeatmapAggregate, heatmap_upload_to
 from users.models import PlayerProfile
 
 DEFAULT_MAPS: Iterable[str] = ("de_mirage",)
 HEATMAP_OUTPUT_SIZE = int(getattr(settings, "HEATMAP_OUTPUT_SIZE", 768))
-HEATMAP_UPSCALE_FILTER = str(getattr(settings, "HEATMAP_UPSCALE_FILTER", "LANCZOS")).upper()
+HEATMAP_UPSCALE_FILTER = str(getattr(settings, "HEATMAP_UPSCALE_FILTER", "BICUBIC")).upper()
 HEATMAP_BLUR_FACTOR = float(
-    getattr(settings, "HEATMAP_BLUR_FACTOR", getattr(settings, "HEATMAP_BLUR_RADIUS", 1.0))
+    getattr(settings, "HEATMAP_BLUR_FACTOR", getattr(settings, "HEATMAP_BLUR_RADIUS", 0.6))
 )
 HEATMAP_PERCENTILE_CLIP = float(
     getattr(settings, "HEATMAP_PERCENTILE_CLIP", getattr(settings, "HEATMAP_CLIP_PCT", 99))
 )
 HEATMAP_GAMMA = float(getattr(settings, "HEATMAP_GAMMA", 0.85))
-HEATMAP_ALPHA = float(getattr(settings, "HEATMAP_ALPHA", 0.55))
+HEATMAP_ALPHA = float(getattr(settings, "HEATMAP_ALPHA", 0.7))
 
 
 def _period_to_limit(period: str) -> int:
@@ -154,11 +154,25 @@ def _get_resample_filter(filter_name: str | None) -> int:
 
 def _build_heatmap_filename(aggregate: HeatmapAggregate, grid_array: np.ndarray) -> str:
     digest = hashlib.sha256(grid_array.tobytes()).hexdigest()[:8]
-    timestamp = int(time.time())
+    timestamp = time.time_ns()
     return (
-        f"heatmap_{aggregate.analytics_version}_res{aggregate.resolution}_"
+        f"heatmap_{aggregate.analytics_version}_{aggregate.metric}_res{aggregate.resolution}_"
         f"out{HEATMAP_OUTPUT_SIZE}_{digest}_{timestamp}.png"
     )
+
+
+def _atomic_write_png(final_path: Path, render_callable) -> None:
+    final_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = final_path.with_name(f"{final_path.name}.tmp.{uuid4().hex}")
+    try:
+        render_callable(tmp_path)
+        os.replace(tmp_path, final_path)
+    finally:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
 
 
 def ensure_heatmap_image(
@@ -182,11 +196,16 @@ def ensure_heatmap_image(
     media_root = Path(getattr(settings, "MEDIA_ROOT", "media"))
     media_root.mkdir(parents=True, exist_ok=True)
 
-    cmap_name = {
-        AnalyticsAggregate.SIDE_CT: analyzer.CMAP_CT,
-        AnalyticsAggregate.SIDE_T: analyzer.CMAP_T,
-        AnalyticsAggregate.SIDE_ALL: analyzer.CMAP_ALL,
-    }.get(aggregate.side, analyzer.CMAP_ALL)
+    if aggregate.metric == HeatmapAggregate.METRIC_KILLS:
+        cmap_name = analyzer.CMAP_KILLS
+    elif aggregate.metric == HeatmapAggregate.METRIC_DEATHS:
+        cmap_name = analyzer.CMAP_DEATHS
+    else:
+        cmap_name = {
+            AnalyticsAggregate.SIDE_CT: analyzer.CMAP_CT,
+            AnalyticsAggregate.SIDE_T: analyzer.CMAP_T,
+            AnalyticsAggregate.SIDE_ALL: analyzer.CMAP_ALL,
+        }.get(aggregate.side, analyzer.CMAP_ALL)
 
     heatmap_image = render_heatmap_image(
         aggregate.grid,
@@ -220,13 +239,16 @@ def ensure_heatmap_image(
     else:
         composite = heatmap_image
 
-    buffer = BytesIO()
-    composite.save(buffer, format="PNG", optimize=True)
-    buffer_value = buffer.getvalue()
-
     grid_array = np.array(aggregate.grid, dtype=np.float32)
     filename = _build_heatmap_filename(aggregate, grid_array)
-    aggregate.image.save(filename, ContentFile(buffer_value), save=False)
+    relative_path = heatmap_upload_to(aggregate, filename)
+    final_path = media_root / relative_path
+
+    def _render(path: Path) -> None:
+        composite.save(path, format="PNG", optimize=True)
+
+    _atomic_write_png(final_path, _render)
+    aggregate.image.name = relative_path
     aggregate.updated_at = timezone.now()
     aggregate.save(update_fields=["image", "updated_at"])
     return aggregate
@@ -237,6 +259,7 @@ def _collect_points_from_cache(
     map_name: str,
     period: str,
     side: str,
+    metric: str,
 ) -> tuple[list[tuple[float, float, float]], tuple[int, int]]:
     media_root = Path(getattr(settings, "MEDIA_ROOT", "media"))
     demos_dir = media_root / "local_demos" / steamid64 / map_name
@@ -268,11 +291,16 @@ def _collect_points_from_cache(
         )
 
     points: list[tuple[float, float, float]] = []
-    array_key = {
-        AnalyticsAggregate.SIDE_ALL: "presence_all_px",
-        AnalyticsAggregate.SIDE_CT: "presence_ct_px",
-        AnalyticsAggregate.SIDE_T: "presence_t_px",
-    }.get(side, "presence_all_px")
+    if metric == HeatmapAggregate.METRIC_KILLS:
+        array_key = "kills_px"
+    elif metric == HeatmapAggregate.METRIC_DEATHS:
+        array_key = "deaths_px"
+    else:
+        array_key = {
+            AnalyticsAggregate.SIDE_ALL: "presence_all_px",
+            AnalyticsAggregate.SIDE_CT: "presence_ct_px",
+            AnalyticsAggregate.SIDE_T: "presence_t_px",
+        }.get(side, "presence_all_px")
 
     for cache_path in cache_paths:
         if not cache_path.exists():
@@ -291,6 +319,7 @@ def _collect_points_from_cache(
 def get_or_build_heatmap(
     profile_id: int,
     map_name: str,
+    metric: str,
     side: str,
     period: str,
     version: str = ANALYTICS_VERSION,
@@ -301,6 +330,7 @@ def get_or_build_heatmap(
     aggregate = HeatmapAggregate.objects.filter(
         profile_id=profile_id,
         map_name=map_name,
+        metric=metric,
         side=side,
         period=period,
         analytics_version=version,
@@ -315,13 +345,14 @@ def get_or_build_heatmap(
     if not steamid64:
         raise ValueError("SteamID64 is missing on player profile")
 
-    points, radar_size = _collect_points_from_cache(steamid64, map_name, period, side)
+    points, radar_size = _collect_points_from_cache(steamid64, map_name, period, side, metric)
     bounds = (0.0, 0.0, float(radar_size[0] or 1), float(radar_size[1] or 1))
     grid, max_value = build_heatmap_grid(points, resolution=resolution, bounds=bounds)
 
     aggregate, _ = HeatmapAggregate.objects.update_or_create(
         profile_id=profile_id,
         map_name=map_name,
+        metric=metric,
         side=side,
         period=period,
         analytics_version=version,

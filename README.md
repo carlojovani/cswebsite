@@ -43,6 +43,20 @@ celery -A backend worker -l info
 4. `GET /api/analytics/jobs/<job_id>` будет возвращать переходы `PENDING -> RUNNING -> SUCCESS` и рост `progress` до 100.
 5. После `SUCCESS` интерфейс обновится и покажет результаты.
 
+## Heatmap API (manual)
+
+Пример запроса для обычной heatmap (kills):
+
+```
+/api/heatmaps/1?map=de_mirage&side=ALL&period=last_20&v=v2&res=64&metric=kills
+```
+
+Пример запроса для deaths с принудительной перегенерацией PNG:
+
+```
+/api/heatmaps/1?map=de_mirage&side=ALL&period=last_20&v=v2&res=64&metric=deaths&force=1
+```
+
 ## Демки для расширенной аналитики
 
 По умолчанию демки ищутся в `BASE_DIR/demos/<steam_id>/` (steam_id из PlayerProfile).

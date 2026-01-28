@@ -33,16 +33,24 @@ class AnalyticsAggregate(models.Model):
 def heatmap_upload_to(instance: "HeatmapAggregate", filename: str) -> str:
     return (
         "heatmaps/"
-        f"{instance.profile_id}/{instance.map_name}/{instance.side}/"
+        f"{instance.profile_id}/{instance.map_name}/{instance.metric}/{instance.side}/"
         f"{instance.period}/{filename}"
     )
 
 
 class HeatmapAggregate(models.Model):
+    METRIC_KILLS = "kills"
+    METRIC_DEATHS = "deaths"
+    METRIC_CHOICES = (
+        (METRIC_KILLS, "Kills"),
+        (METRIC_DEATHS, "Deaths"),
+    )
+
     profile = models.ForeignKey(PlayerProfile, on_delete=models.CASCADE, related_name="heatmap_aggregates")
     map_name = models.CharField(max_length=64)
     side = models.CharField(max_length=3, choices=AnalyticsAggregate.SIDE_CHOICES, default=AnalyticsAggregate.SIDE_ALL)
     period = models.CharField(max_length=20)
+    metric = models.CharField(max_length=10, choices=METRIC_CHOICES, default=METRIC_KILLS)
     analytics_version = models.CharField(max_length=12, default="v1")
     resolution = models.PositiveSmallIntegerField(default=64)
     grid = models.JSONField(default=list)
@@ -52,10 +60,21 @@ class HeatmapAggregate(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ("profile", "map_name", "side", "period", "analytics_version", "resolution")
+        unique_together = (
+            "profile",
+            "map_name",
+            "metric",
+            "side",
+            "period",
+            "analytics_version",
+            "resolution",
+        )
 
     def __str__(self) -> str:
-        return f"HeatmapAggregate({self.profile_id}, {self.map_name}, {self.side}, {self.period})"
+        return (
+            f"HeatmapAggregate({self.profile_id}, {self.map_name}, {self.metric}, "
+            f"{self.side}, {self.period})"
+        )
 
 
 class ProcessingJob(models.Model):

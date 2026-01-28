@@ -10,6 +10,7 @@ DEFAULT_TTL_SECONDS = 60 * 10
 class HeatmapKeyParts:
     profile_id: int
     map_name: str
+    metric: str
     side: str
     period: str
     version: str
@@ -23,7 +24,7 @@ def profile_metrics_key(profile_id: int, period: str, version: str) -> str:
 def heatmap_meta_key(parts: HeatmapKeyParts) -> str:
     return (
         "heatmap_meta:"
-        f"{parts.profile_id}:{parts.map_name}:{parts.side}:"
+        f"{parts.profile_id}:{parts.map_name}:{parts.metric}:{parts.side}:"
         f"{parts.period}:{parts.version}:{parts.resolution}"
     )
 
@@ -31,7 +32,7 @@ def heatmap_meta_key(parts: HeatmapKeyParts) -> str:
 def heatmap_image_url_key(parts: HeatmapKeyParts) -> str:
     return (
         "heatmap_image_url:"
-        f"{parts.profile_id}:{parts.map_name}:{parts.side}:"
+        f"{parts.profile_id}:{parts.map_name}:{parts.metric}:{parts.side}:"
         f"{parts.period}:{parts.version}:{parts.resolution}"
     )
 

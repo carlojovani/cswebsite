@@ -489,6 +489,7 @@
                      data-period="{{ analytics_period|default:'last_20' }}"
                      data-version="{{ analytics_version|default:'v2' }}"
                      data-resolution="64"
+                     data-metric="kills"
                      data-can-trigger="{% if can_trigger_analytics %}1{% else %}0{% endif %}">
                     <div class="heatmaps-header">
                         <div>
@@ -498,6 +499,14 @@
                                 <select id="hm-map" class="heatmaps-select">
                                     <option value="de_mirage">de_mirage</option>
                                 </select>
+                            </div>
+                            <div class="heatmaps-tabs" data-group="metric">
+                                <button type="button" class="hm-tab active" data-group="metric" data-value="kills">
+                                    Kills
+                                </button>
+                                <button type="button" class="hm-tab" data-group="metric" data-value="deaths">
+                                    Deaths
+                                </button>
                             </div>
                             <div class="heatmaps-tabs heatmaps-tabs--secondary" data-group="side">
                                 <button type="button" class="hm-tab active" data-group="side" data-value="ALL">All</button>
@@ -511,6 +520,12 @@
                     <div id="hm-spinner" class="heatmaps-spinner" aria-hidden="true"></div>
                     <div class="heatmaps-body">
                         <img id="hm-img" class="heatmap-img" alt="heatmap" loading="lazy" />
+                        <div class="heatmaps-actions">
+                            <button id="hm-regenerate" type="button" class="heatmaps-btn">
+                                Обновить картинку
+                            </button>
+                            <span id="hm-regenerate-status" class="heatmaps-meta heatmaps-meta--inline" aria-live="polite"></span>
+                        </div>
                     </div>
                 </div>
 
@@ -1105,6 +1120,10 @@
         font-size: 0.95rem;
     }
 
+    .heatmaps-meta--inline {
+        margin: 0;
+    }
+
     .heatmaps-spinner {
         width: 28px;
         height: 28px;
@@ -1125,6 +1144,30 @@
         border-radius: 12px;
         border: 1px solid #e9ecef;
         background: #fff;
+    }
+
+    .heatmaps-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-top: 0.75rem;
+        flex-wrap: wrap;
+    }
+
+    .heatmaps-btn {
+        background: #1f5cff;
+        border: none;
+        color: #fff;
+        font-weight: 600;
+        padding: 0.45rem 0.85rem;
+        border-radius: 10px;
+        cursor: pointer;
+        transition: opacity 0.2s ease;
+    }
+
+    .heatmaps-btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
     }
 
     .heatmap-img {
@@ -1390,13 +1433,17 @@
         const status = document.getElementById("hm-status");
         const img = document.getElementById("hm-img");
         const sideTabs = Array.from(document.querySelectorAll('.hm-tab[data-group="side"]'));
+        const metricTabs = Array.from(document.querySelectorAll('.hm-tab[data-group="metric"]'));
         const mapSelect = document.getElementById("hm-map");
         const spinner = document.getElementById("hm-spinner");
+        const regenerateBtn = document.getElementById("hm-regenerate");
+        const regenerateStatus = document.getElementById("hm-regenerate-status");
         const heatmapProfileId = (root?.dataset?.profileId || "").trim();
         const defaultMap = (root?.dataset?.map || "de_mirage").trim() || "de_mirage";
         const period = (root?.dataset?.period || "last_20").trim() || "last_20";
         const version = (root?.dataset?.version || "v2").trim() || "v2";
         const resolution = (root?.dataset?.resolution || "64").trim() || "64";
+        const defaultMetric = (root?.dataset?.metric || "kills").trim().toLowerCase() || "kills";
         const canTrigger = (root?.dataset?.canTrigger || "0").trim() === "1";
 
         function setActive(tabs, value) {
@@ -1414,6 +1461,7 @@
 
         let currentSide = "ALL";
         let currentMap = defaultMap;
+        let currentMetric = defaultMetric;
         let pollingTimer = null;
         let pollAttempts = 0;
         const maxPollAttempts = 10;
@@ -1423,6 +1471,14 @@
                 spinner.classList.toggle("is-active", isLoading);
                 spinner.setAttribute("aria-hidden", isLoading ? "false" : "true");
             }
+        }
+
+        function setRegenerating(isRegenerating) {
+            if (!regenerateBtn || !regenerateStatus) {
+                return;
+            }
+            regenerateBtn.disabled = isRegenerating;
+            regenerateStatus.textContent = isRegenerating ? "Generating…" : "";
         }
 
         function setMissingMessage() {
@@ -1438,7 +1494,7 @@
             pollingTimer = null;
         }
 
-        async function fetchHeatmap() {
+        async function fetchHeatmap({ force = false } = {}) {
             clearPolling();
             pollAttempts = 0;
             status.textContent = "Загрузка тепловой карты…";
@@ -1447,22 +1503,30 @@
 
             const apiUrl = `/api/heatmaps/${encodeURIComponent(heatmapProfileId)}` +
                 `?map=${encodeURIComponent(currentMap)}` +
+                `&metric=${encodeURIComponent(currentMetric)}` +
                 `&side=${encodeURIComponent(currentSide)}` +
                 `&period=${encodeURIComponent(period)}` +
                 `&v=${encodeURIComponent(version)}` +
-                `&res=${encodeURIComponent(resolution)}`;
+                `&res=${encodeURIComponent(resolution)}` +
+                (force ? "&force=1" : "");
 
             try {
                 const r = await fetch(apiUrl, { headers: { Accept: "application/json" } });
                 if (!r.ok) {
                     status.textContent = "Не удалось загрузить heatmap.";
+                    if (force) {
+                        alert("Не удалось обновить картинку.");
+                    }
                     setLoading(false);
                     return;
                 }
                 const data = await r.json();
                 if (data.status === "ready" && data.image_url) {
                     img.style.display = "block";
-                    img.src = data.image_url;
+                    const cacheBusted = force
+                        ? `${data.image_url}${data.image_url.includes("?") ? "&" : "?"}cb=${Date.now()}`
+                        : data.image_url;
+                    img.src = cacheBusted;
                     status.textContent = "";
                     setLoading(false);
                     return;
@@ -1480,12 +1544,19 @@
                     return;
                 }
                 setMissingMessage();
+                if (force) {
+                    alert("Не удалось обновить картинку.");
+                }
             } catch (e) {
                 status.textContent = "Ошибка при загрузке heatmap.";
+                if (force) {
+                    alert("Не удалось обновить картинку.");
+                }
             } finally {
                 if (status.textContent !== "Heatmap обрабатывается…") {
                     setLoading(false);
                 }
+                setRegenerating(false);
             }
         }
 
@@ -1497,6 +1568,14 @@
             })
         );
 
+        metricTabs.forEach((t) =>
+            t.addEventListener("click", () => {
+                currentMetric = t.dataset.value;
+                setActive(metricTabs, currentMetric);
+                fetchHeatmap();
+            })
+        );
+
         if (mapSelect) {
             mapSelect.addEventListener("change", () => {
                 currentMap = mapSelect.value;
@@ -1504,7 +1583,21 @@
             });
         }
 
+        if (regenerateBtn) {
+            regenerateBtn.addEventListener("click", async () => {
+                setRegenerating(true);
+                status.textContent = "Перегенерация heatmap…";
+                try {
+                    await fetchHeatmap({ force: true });
+                } catch (e) {
+                    alert("Не удалось обновить картинку.");
+                    setRegenerating(false);
+                }
+            });
+        }
+
         setActive(sideTabs, currentSide);
+        setActive(metricTabs, currentMetric);
         fetchHeatmap();
     });
 </script>

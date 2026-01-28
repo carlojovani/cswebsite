@@ -5,7 +5,7 @@ from django.utils import timezone
 
 from faceit_analytics.cache_keys import HeatmapKeyParts, heatmap_image_url_key, heatmap_meta_key, profile_metrics_key
 from faceit_analytics.constants import ANALYTICS_VERSION
-from faceit_analytics.models import AnalyticsAggregate, ProcessingJob
+from faceit_analytics.models import AnalyticsAggregate, HeatmapAggregate, ProcessingJob
 from faceit_analytics.services.aggregates import build_metrics, enrich_metrics_with_role_features
 from faceit_analytics.services.demo_events import get_or_build_demo_features
 from faceit_analytics.services.heatmaps import DEFAULT_MAPS, get_or_build_heatmap
@@ -56,28 +56,32 @@ def build_heatmaps(
     progress_end: int = 100,
 ) -> None:
     maps = list(DEFAULT_MAPS)
+    metrics = [HeatmapAggregate.METRIC_KILLS, HeatmapAggregate.METRIC_DEATHS]
     sides = [
         AnalyticsAggregate.SIDE_ALL,
         AnalyticsAggregate.SIDE_CT,
         AnalyticsAggregate.SIDE_T,
     ]
-    total = max(len(maps) * len(sides), 1)
+    total = max(len(maps) * len(sides) * len(metrics), 1)
     step_size = max(progress_end - progress_start, 1) / total
     counter = 0
     _update_job(job, progress=progress_start)
     for map_name in maps:
         for side in sides:
-            get_or_build_heatmap(
-                profile_id=profile.id,
-                map_name=map_name,
-                side=side,
-                period=period,
-                resolution=resolution,
-                version=ANALYTICS_VERSION,
-                force_rebuild=force_rebuild,
-            )
-            counter += 1
-            _update_job(job, progress=min(int(progress_start + step_size * counter), progress_end))
+            for metric in metrics:
+                get_or_build_heatmap(
+                    profile_id=profile.id,
+                    map_name=map_name,
+                    metric=metric,
+                    side=side,
+                    period=period,
+                    resolution=resolution,
+                    version=ANALYTICS_VERSION,
+                    force_rebuild=force_rebuild,
+                )
+                counter += 1
+                _update_job(job, progress=min(int(progress_start + step_size * counter), progress_end))
+
 
 def _update_job(job: ProcessingJob, **fields) -> None:
     for key, value in fields.items():
@@ -94,16 +98,21 @@ def _invalidate_cache(profile_id: int, period: str, resolution: int) -> None:
                 AnalyticsAggregate.SIDE_CT,
                 AnalyticsAggregate.SIDE_T,
             ):
-                parts = HeatmapKeyParts(
-                    profile_id=profile_id,
-                    map_name=map_name,
-                    side=side,
-                    period=period,
-                    version=ANALYTICS_VERSION,
-                    resolution=resolution,
-                )
-                cache.delete(heatmap_meta_key(parts))
-                cache.delete(heatmap_image_url_key(parts))
+                for metric in (
+                    HeatmapAggregate.METRIC_KILLS,
+                    HeatmapAggregate.METRIC_DEATHS,
+                ):
+                    parts = HeatmapKeyParts(
+                        profile_id=profile_id,
+                        map_name=map_name,
+                        metric=metric,
+                        side=side,
+                        period=period,
+                        version=ANALYTICS_VERSION,
+                        resolution=resolution,
+                    )
+                    cache.delete(heatmap_meta_key(parts))
+                    cache.delete(heatmap_image_url_key(parts))
     except Exception:
         pass
 
