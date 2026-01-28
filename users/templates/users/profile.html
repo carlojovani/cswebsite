@@ -231,30 +231,28 @@
                      data-can-trigger="{% if can_trigger_analytics %}1{% else %}0{% endif %}">
                     <div class="analytics-header">
                         <h3>Аналитика</h3>
-                        {% if can_trigger_analytics %}
-                            <div class="analytics-actions">
-                                <form method="post" action="{% url 'analyze_profile' player_profile.id %}">
-                                    {% csrf_token %}
-                                    <input type="hidden" name="force_heatmaps" value="1">
-                                    <button type="submit"
-                                            id="analytics-start"
-                                            class="btn btn-update"
-                                            {% if analytics_job_active %}disabled{% endif %}>
-                                        {{ analytics_button_label }}
-                                    </button>
-                                </form>
-                                <form method="post" action="{% url 'analyze_profile' player_profile.id %}">
-                                    {% csrf_token %}
-                                    <input type="hidden" name="force" value="1">
-                                    <input type="hidden" name="force_heatmaps" value="1">
-                                    <button type="submit"
-                                            class="btn btn-link"
-                                            {% if analytics_job_active %}disabled{% endif %}>
-                                        Полный пересчет
-                                    </button>
-                                </form>
-                            </div>
-                        {% endif %}
+                        <div class="analytics-actions">
+                            <form method="post" action="{% url 'analyze_profile' player_profile.id %}">
+                                {% csrf_token %}
+                                <input type="hidden" name="force_heatmaps" value="1">
+                                <button type="submit"
+                                        id="analytics-start"
+                                        class="btn btn-update"
+                                        {% if analytics_job_active or not can_trigger_analytics %}disabled{% endif %}>
+                                    {{ analytics_button_label }}
+                                </button>
+                            </form>
+                            <form method="post" action="{% url 'analyze_profile' player_profile.id %}">
+                                {% csrf_token %}
+                                <input type="hidden" name="force" value="1">
+                                <input type="hidden" name="force_heatmaps" value="1">
+                                <button type="submit"
+                                        class="btn btn-link"
+                                        {% if analytics_job_active or not can_trigger_analytics %}disabled{% endif %}>
+                                    Полный пересчет
+                                </button>
+                            </form>
+                        </div>
                     </div>
                     <div id="analytics-status" class="analytics-meta">
                         {% if analytics_job %}
@@ -522,7 +520,7 @@
                         <img id="hm-img" class="heatmap-img" alt="heatmap" loading="lazy" />
                         <div class="heatmaps-actions">
                             <button id="hm-regenerate" type="button" class="heatmaps-btn">
-                                Обновить картинку
+                                Обновить изображение
                             </button>
                             <span id="hm-regenerate-status" class="heatmaps-meta heatmaps-meta--inline" aria-live="polite"></span>
                         </div>
@@ -1443,7 +1441,7 @@
         const period = (root?.dataset?.period || "last_20").trim() || "last_20";
         const version = (root?.dataset?.version || "v2").trim() || "v2";
         const resolution = (root?.dataset?.resolution || "64").trim() || "64";
-        const defaultMetric = (root?.dataset?.metric || "kills").trim().toLowerCase() || "kills";
+        const defaultKind = (root?.dataset?.metric || "kills").trim().toLowerCase() || "kills";
         const canTrigger = (root?.dataset?.canTrigger || "0").trim() === "1";
 
         function setActive(tabs, value) {
@@ -1461,10 +1459,11 @@
 
         let currentSide = "ALL";
         let currentMap = defaultMap;
-        let currentMetric = defaultMetric;
+        let currentKind = defaultKind;
         let pollingTimer = null;
         let pollAttempts = 0;
         const maxPollAttempts = 10;
+        const regenerateLabel = regenerateBtn ? regenerateBtn.textContent.trim() : "";
 
         function setLoading(isLoading) {
             if (spinner) {
@@ -1478,7 +1477,10 @@
                 return;
             }
             regenerateBtn.disabled = isRegenerating;
-            regenerateStatus.textContent = isRegenerating ? "Generating…" : "";
+            regenerateStatus.textContent = isRegenerating ? "Обновляю…" : "";
+            if (regenerateBtn) {
+                regenerateBtn.textContent = isRegenerating ? "Обновляю…" : regenerateLabel;
+            }
         }
 
         function setMissingMessage() {
@@ -1500,10 +1502,11 @@
             status.textContent = "Загрузка тепловой карты…";
             setLoading(true);
             img.style.display = "none";
+            let waitingForImage = false;
 
             const apiUrl = `/api/heatmaps/${encodeURIComponent(heatmapProfileId)}` +
                 `?map=${encodeURIComponent(currentMap)}` +
-                `&metric=${encodeURIComponent(currentMetric)}` +
+                `&kind=${encodeURIComponent(currentKind)}` +
                 `&side=${encodeURIComponent(currentSide)}` +
                 `&period=${encodeURIComponent(period)}` +
                 `&v=${encodeURIComponent(version)}` +
@@ -1526,9 +1529,21 @@
                     const cacheBusted = force
                         ? `${data.image_url}${data.image_url.includes("?") ? "&" : "?"}cb=${Date.now()}`
                         : data.image_url;
+                    waitingForImage = true;
+                    img.onload = () => {
+                        status.textContent = "";
+                        setLoading(false);
+                        setRegenerating(false);
+                    };
+                    img.onerror = () => {
+                        status.textContent = "Не удалось загрузить изображение.";
+                        setLoading(false);
+                        setRegenerating(false);
+                        if (force) {
+                            alert("Не удалось обновить картинку.");
+                        }
+                    };
                     img.src = cacheBusted;
-                    status.textContent = "";
-                    setLoading(false);
                     return;
                 }
                 if (data.status === "processing") {
@@ -1553,10 +1568,12 @@
                     alert("Не удалось обновить картинку.");
                 }
             } finally {
-                if (status.textContent !== "Heatmap обрабатывается…") {
+                if (!waitingForImage && status.textContent !== "Heatmap обрабатывается…") {
                     setLoading(false);
                 }
-                setRegenerating(false);
+                if (!waitingForImage && status.textContent !== "") {
+                    setRegenerating(false);
+                }
             }
         }
 
@@ -1570,8 +1587,8 @@
 
         metricTabs.forEach((t) =>
             t.addEventListener("click", () => {
-                currentMetric = t.dataset.value;
-                setActive(metricTabs, currentMetric);
+                currentKind = t.dataset.value;
+                setActive(metricTabs, currentKind);
                 fetchHeatmap();
             })
         );
@@ -1586,7 +1603,7 @@
         if (regenerateBtn) {
             regenerateBtn.addEventListener("click", async () => {
                 setRegenerating(true);
-                status.textContent = "Перегенерация heatmap…";
+                status.textContent = "Обновляю изображение…";
                 try {
                     await fetchHeatmap({ force: true });
                 } catch (e) {
@@ -1597,7 +1614,7 @@
         }
 
         setActive(sideTabs, currentSide);
-        setActive(metricTabs, currentMetric);
+        setActive(metricTabs, currentKind);
         fetchHeatmap();
     });
 </script>
