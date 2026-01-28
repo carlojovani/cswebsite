@@ -1,6 +1,8 @@
 import tempfile
 from pathlib import Path
 
+import numpy as np
+
 from faceit_analytics.services import demo_events
 
 
@@ -81,3 +83,63 @@ def test_flash_assist_matching():
         }
     ]
     assert demo_events._has_flash_assist(kill, flashes_short, target_id, target_side) is False
+
+
+def test_normalize_steamid64_scientific():
+    assert demo_events.normalize_steamid64("76561198016259349") == 76561198016259349
+    value = 7.6561198016259349e16
+    assert demo_events.normalize_steamid64(value) == int(round(value))
+
+
+def test_safe_json_converts_numpy():
+    payload = {"steamid": np.uint64(76561198016259349), "value": np.nan}
+    result = demo_events.safe_json(payload)
+    assert result["steamid"] == 76561198016259349
+    assert result["value"] is None
+
+
+def test_name_fallback_matching():
+    target_id = 76561198016259349
+    parsed = demo_events.ParsedDemoEvents(
+        kills=[
+            {
+                "round": 1,
+                "time": 10.0,
+                "tick": 100,
+                "attacker_steamid64": 111,
+                "victim_steamid64": target_id,
+                "attacker_name": "Other",
+                "victim_name": "Player",
+                "attacker_side": "T",
+                "victim_side": "CT",
+            },
+            {
+                "round": 1,
+                "time": 20.0,
+                "tick": 200,
+                "attacker_steamid64": target_id + 5,
+                "victim_steamid64": 222,
+                "attacker_name": "Player",
+                "victim_name": "Enemy",
+                "attacker_side": "CT",
+                "victim_side": "T",
+            },
+        ],
+        flashes=[],
+        utility_damage=[],
+        flash_events_count=0,
+        round_winners={},
+        target_round_sides={},
+        rounds_in_demo={1},
+        tick_rate=128.0,
+        tick_rate_approx=False,
+        missing_time_kills=0,
+        attacker_none_count=0,
+        attacker_id_sample={"attacker": None, "victim": None},
+        debug={},
+    )
+
+    _, _, debug = demo_events.aggregate_player_features([parsed], str(target_id))
+    assert debug["player_kills"] == 1
+    assert debug["player_deaths"] == 1
+    assert debug["target_name"] == "Player"

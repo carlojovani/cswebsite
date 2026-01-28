@@ -45,8 +45,9 @@ celery -A backend worker -l info
 
 ## Демки для расширенной аналитики
 
-По умолчанию демки ищутся в `BASE_DIR/demos/<profile_id>/`. Можно использовать папку
-`BASE_DIR/demos/<faceit_nickname>/`, если так удобнее. Поддерживаются локальные `.dem` файлы.
+По умолчанию демки ищутся в `BASE_DIR/demos/<steam_id>/` (steam_id из PlayerProfile).
+Можно использовать папку `BASE_DIR/demos/<faceit_nickname>/`, если так удобнее.
+Поддерживаются локальные `.dem` файлы.
 
 ### Smoke-check парсинга демо
 
