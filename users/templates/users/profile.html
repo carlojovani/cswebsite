@@ -261,13 +261,197 @@
                     {% endif %}
                     {% if analytics_aggregates %}
                         <div class="analytics-metrics">
-                            {% for key, value in analytics_aggregates.0.metrics_json.items %}
+                            {% for key, value in analytics_simple_metrics.items %}
                                 <div class="analytics-metric">
                                     <span class="metric-label">{{ key }}</span>
                                     <strong class="metric-value">{{ value }}</strong>
                                 </div>
+                            {% empty %}
+                                <div class="analytics-metric">
+                                    <span class="metric-label">Metrics</span>
+                                    <strong class="metric-value">Нет данных</strong>
+                                </div>
                             {% endfor %}
                         </div>
+                    {% endif %}
+                </div>
+
+                <div class="analytics-card role-fingerprint-card">
+                    <div class="analytics-header">
+                        <h3>Role fingerprint</h3>
+                    </div>
+                    {% if analytics_metrics.role_fingerprint %}
+                        <div class="role-tags">
+                            {% for tag in analytics_metrics.role_fingerprint.tags %}
+                                <span class="role-chip">{{ tag }}</span>
+                            {% empty %}
+                                <span class="role-chip role-chip--empty">Not enough data</span>
+                            {% endfor %}
+                            {% if analytics_metrics.role_fingerprint.approx %}
+                                <span class="role-chip role-chip--approx">approx</span>
+                            {% endif %}
+                        </div>
+                        <div class="role-summary">
+                            {{ analytics_metrics.role_fingerprint.summary }}
+                        </div>
+                        <div class="role-metrics-grid">
+                            <div class="role-metric">
+                                <span>First duel / round</span>
+                                <strong>
+                                    {% if analytics_metrics.role_fingerprint.metrics.first_duel_attempts_per_round.value != None %}
+                                        {{ analytics_metrics.role_fingerprint.metrics.first_duel_attempts_per_round.value|floatformat:2 }}
+                                    {% else %}
+                                        not enough data
+                                    {% endif %}
+                                </strong>
+                            </div>
+                            <div class="role-metric">
+                                <span>First duel success</span>
+                                <strong>
+                                    {% if analytics_metrics.role_fingerprint.metrics.first_duel_success_rate.value != None %}
+                                        {{ analytics_metrics.role_fingerprint.metrics.first_duel_success_rate.value|floatformat:2 }}
+                                    {% else %}
+                                        not enough data
+                                    {% endif %}
+                                </strong>
+                            </div>
+                            <div class="role-metric">
+                                <span>Trade kill rate</span>
+                                <strong>
+                                    {% if analytics_metrics.role_fingerprint.metrics.trade_kill_rate.value != None %}
+                                        {{ analytics_metrics.role_fingerprint.metrics.trade_kill_rate.value|floatformat:2 }}
+                                    {% else %}
+                                        not enough data
+                                    {% endif %}
+                                </strong>
+                            </div>
+                            <div class="role-metric">
+                                <span>Traded death rate</span>
+                                <strong>
+                                    {% if analytics_metrics.role_fingerprint.metrics.traded_death_rate.value != None %}
+                                        {{ analytics_metrics.role_fingerprint.metrics.traded_death_rate.value|floatformat:2 }}
+                                    {% else %}
+                                        not enough data
+                                    {% endif %}
+                                </strong>
+                            </div>
+                            <div class="role-metric">
+                                <span>Clutch win rate</span>
+                                <strong>
+                                    {% if analytics_metrics.role_fingerprint.metrics.clutch_win_rate.value != None %}
+                                        {{ analytics_metrics.role_fingerprint.metrics.clutch_win_rate.value|floatformat:2 }}
+                                    {% else %}
+                                        not enough data
+                                    {% endif %}
+                                </strong>
+                            </div>
+                            <div class="role-metric">
+                                <span>Flash assists / round</span>
+                                <strong>
+                                    {% if analytics_metrics.role_fingerprint.metrics.flash_assists_per_round.value != None %}
+                                        {{ analytics_metrics.role_fingerprint.metrics.flash_assists_per_round.value|floatformat:2 }}
+                                    {% else %}
+                                        not enough data
+                                    {% endif %}
+                                </strong>
+                            </div>
+                        </div>
+                    {% else %}
+                        <div class="analytics-empty">Not enough data</div>
+                    {% endif %}
+                </div>
+
+                <div class="analytics-card utility-iq-card">
+                    <div class="analytics-header">
+                        <h3>Utility IQ</h3>
+                    </div>
+                    {% if analytics_metrics.utility_iq %}
+                        <div class="utility-score">
+                            <span>Score</span>
+                            <strong>
+                                {% if analytics_metrics.utility_iq.score != None %}
+                                    {{ analytics_metrics.utility_iq.score }}
+                                {% else %}
+                                    not enough data
+                                {% endif %}
+                            </strong>
+                            {% if analytics_metrics.utility_iq.approx %}
+                                <span class="role-chip role-chip--approx">approx</span>
+                            {% endif %}
+                        </div>
+                        <div class="utility-breakdown">
+                            <div>
+                                <span>Flash assists / round</span>
+                                <strong>
+                                    {% if analytics_metrics.utility_iq.breakdown.flash_assists_per_round.value != None %}
+                                        {{ analytics_metrics.utility_iq.breakdown.flash_assists_per_round.value|floatformat:2 }}
+                                    {% else %}
+                                        not enough data
+                                    {% endif %}
+                                </strong>
+                            </div>
+                            <div>
+                                <span>Utility damage / round</span>
+                                <strong>
+                                    {% if analytics_metrics.utility_iq.breakdown.utility_damage_per_round.value != None %}
+                                        {{ analytics_metrics.utility_iq.breakdown.utility_damage_per_round.value|floatformat:2 }}
+                                    {% else %}
+                                        not enough data
+                                    {% endif %}
+                                </strong>
+                            </div>
+                            <div>
+                                <span>Friendly flash rate</span>
+                                <strong>
+                                    {% if analytics_metrics.utility_iq.breakdown.friendly_flash_rate.value != None %}
+                                        {{ analytics_metrics.utility_iq.breakdown.friendly_flash_rate.value|floatformat:2 }}
+                                    {% else %}
+                                        not enough data
+                                    {% endif %}
+                                </strong>
+                            </div>
+                        </div>
+                    {% else %}
+                        <div class="analytics-empty">Not enough data</div>
+                    {% endif %}
+                </div>
+
+                <div class="analytics-card timing-control-card">
+                    <div class="analytics-header">
+                        <h3>Timing control</h3>
+                    </div>
+                    {% if analytics_metrics.timing_slices %}
+                        <table class="timing-table">
+                            <thead>
+                                <tr>
+                                    <th>Window</th>
+                                    <th>Contacts</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for bucket in analytics_metrics.timing_slices.buckets %}
+                                    <tr>
+                                        <td>{{ bucket.label }}</td>
+                                        <td>
+                                            {% if bucket.value != None %}
+                                                {{ bucket.value|floatformat:1 }}%
+                                            {% else %}
+                                                not enough data
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                {% empty %}
+                                    <tr>
+                                        <td colspan="2">not enough data</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                        {% if analytics_metrics.timing_slices.approx %}
+                            <div class="analytics-approx">approx</div>
+                        {% endif %}
+                    {% else %}
+                        <div class="analytics-empty">Not enough data</div>
                     {% endif %}
                 </div>
 
@@ -276,7 +460,7 @@
                      data-profile-id="{{ player_profile.id }}"
                      data-map="de_mirage"
                      data-period="{{ analytics_period|default:'last_20' }}"
-                     data-version="v1"
+                     data-version="{{ analytics_version|default:'v2' }}"
                      data-resolution="64"
                      data-can-trigger="{% if can_trigger_analytics %}1{% else %}0{% endif %}">
                     <div class="heatmaps-header">
@@ -713,6 +897,112 @@
         color: #1d2939;
     }
 
+    .analytics-empty {
+        margin-top: 1rem;
+        color: #6c757d;
+    }
+
+    .role-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-top: 1rem;
+    }
+
+    .role-chip {
+        padding: 0.3rem 0.75rem;
+        border-radius: 999px;
+        background: #4cc9f0;
+        color: #fff;
+        font-size: 0.85rem;
+        font-weight: 600;
+    }
+
+    .role-chip--empty {
+        background: #adb5bd;
+    }
+
+    .role-chip--approx {
+        background: #f59f00;
+    }
+
+    .role-summary {
+        margin-top: 0.75rem;
+        color: #495057;
+        font-size: 0.95rem;
+    }
+
+    .role-metrics-grid {
+        margin-top: 1rem;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 0.75rem;
+    }
+
+    .role-metric {
+        padding: 0.75rem 1rem;
+        background: #fff;
+        border-radius: 10px;
+        border: 1px solid #e9ecef;
+    }
+
+    .role-metric span {
+        display: block;
+        color: #6c757d;
+        font-size: 0.85rem;
+    }
+
+    .utility-score {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-top: 1rem;
+    }
+
+    .utility-score strong {
+        font-size: 1.4rem;
+    }
+
+    .utility-breakdown {
+        margin-top: 1rem;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 0.75rem;
+    }
+
+    .utility-breakdown div {
+        padding: 0.75rem 1rem;
+        background: #fff;
+        border-radius: 10px;
+        border: 1px solid #e9ecef;
+    }
+
+    .utility-breakdown span {
+        display: block;
+        color: #6c757d;
+        font-size: 0.85rem;
+    }
+
+    .timing-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 1rem;
+    }
+
+    .timing-table th,
+    .timing-table td {
+        padding: 0.6rem 0.75rem;
+        border-bottom: 1px solid #e9ecef;
+        text-align: left;
+    }
+
+    .analytics-approx {
+        margin-top: 0.5rem;
+        color: #f59f00;
+        font-size: 0.85rem;
+        font-weight: 600;
+    }
+
     .heatmaps-header {
         display: flex;
         justify-content: space-between;
@@ -1078,7 +1368,7 @@
         const heatmapProfileId = (root?.dataset?.profileId || "").trim();
         const defaultMap = (root?.dataset?.map || "de_mirage").trim() || "de_mirage";
         const period = (root?.dataset?.period || "last_20").trim() || "last_20";
-        const version = (root?.dataset?.version || "v1").trim() || "v1";
+        const version = (root?.dataset?.version || "v2").trim() || "v2";
         const resolution = (root?.dataset?.resolution || "64").trim() || "64";
         const canTrigger = (root?.dataset?.canTrigger || "0").trim() === "1";
 
