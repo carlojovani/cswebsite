@@ -45,21 +45,36 @@ def enrich_metrics_with_role_features(
     *,
     demo_features: dict | None = None,
 ) -> AnalyticsAggregate:
+    demo_features_debug = None
+    demo_features_approx = False
     if demo_features:
         timing_slices = demo_features.get("timing_slices")
         role_fingerprint = demo_features.get("role_fingerprint")
         utility_iq = demo_features.get("utility_iq")
+        demo_features_debug = demo_features.get("debug")
+        if demo_features.get("insufficient_rounds"):
+            demo_features_approx = True
+            if role_fingerprint is not None:
+                role_fingerprint["approx"] = True
+            if utility_iq is not None:
+                utility_iq["approx"] = True
+            if timing_slices is not None:
+                timing_slices["approx"] = True
     else:
         events, positions, meta = adapt_feature_inputs(profile, period)
         timing_slices = compute_timing_slices(events, meta)
         meta = {**meta, "timing_slices": timing_slices}
         role_fingerprint = compute_role_fingerprint(events, positions, meta)
         utility_iq = compute_utility_iq(events, meta)
+        demo_features_debug = {"reason": "demo_features_missing"}
+        demo_features_approx = True
 
     metrics = aggregate.metrics_json or {}
     metrics["role_fingerprint"] = role_fingerprint
     metrics["utility_iq"] = utility_iq
     metrics["timing_slices"] = timing_slices
+    metrics["demo_features_debug"] = demo_features_debug
+    metrics["demo_features_approx"] = demo_features_approx
     aggregate.metrics_json = metrics
     aggregate.save(update_fields=["metrics_json", "updated_at"])
     return aggregate

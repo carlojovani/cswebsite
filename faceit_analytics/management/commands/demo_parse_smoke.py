@@ -5,7 +5,7 @@ import json
 from django.core.management.base import BaseCommand
 
 from faceit_analytics.constants import ANALYTICS_VERSION
-from faceit_analytics.services.demo_events import get_or_build_demo_features
+from faceit_analytics.services.demo_events import get_or_build_demo_features, safe_json
 from users.models import PlayerProfile
 
 
@@ -30,18 +30,23 @@ class Command(BaseCommand):
             force_rebuild=force,
         )
         debug = payload.get("debug") or {}
-        debug["steamid64_eq_counts"] = {
-            "kills": debug.get("player_kills", 0),
-            "deaths": debug.get("player_deaths", 0),
-            "assists": debug.get("player_assists", 0),
-        }
-
         output = {
             "profile_id": profile_id,
             "period": period,
+            "demos_count": payload.get("demos_count"),
+            "rounds_count": debug.get("rounds_count"),
+            "kills_events_count": debug.get("kills_events_count"),
+            "flash_events_count": debug.get("flash_events_count"),
+            "util_damage_events_count": debug.get("util_damage_events_count"),
+            "missing_time_kills": debug.get("missing_time_kills"),
+            "target_kills": debug.get("player_kills"),
+            "target_deaths": debug.get("player_deaths"),
+            "target_assists": debug.get("player_assists"),
+            "target_name": debug.get("target_name"),
             "debug": debug,
             "role_fingerprint": payload.get("role_fingerprint"),
             "utility_iq": payload.get("utility_iq"),
             "timing_slices": payload.get("timing_slices"),
+            "sample_event": debug.get("kill_event_sample"),
         }
-        self.stdout.write(json.dumps(output, ensure_ascii=False, indent=2))
+        self.stdout.write(json.dumps(safe_json(output), ensure_ascii=False, indent=2))

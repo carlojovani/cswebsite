@@ -36,5 +36,5 @@ def heatmap_image_url_key(parts: HeatmapKeyParts) -> str:
     )
 
 
-def demo_features_key(profile_id: int, period: str, version: str, demo_set_hash: str) -> str:
+def demo_features_key(profile_id: int, period: str, demo_set_hash: str, version: str) -> str:
     return f"demo_features:{profile_id}:{period}:{version}:{demo_set_hash}"
