@@ -108,7 +108,6 @@ def compute_role_fingerprint(
     meta: dict[str, Any],
 ) -> dict[str, Any]:
     rounds = _round_count(events, meta)
-    approx = False
 
     first_duel_attempts = sum(1 for event in events if _is_first_duel_attempt(event))
     first_duel_wins = sum(1 for event in events if _is_first_duel_win(event))
@@ -116,12 +115,10 @@ def compute_role_fingerprint(
         first_duel_attempts_per_round = FeatureValue(first_duel_attempts / rounds)
     else:
         first_duel_attempts_per_round = FeatureValue(None, approx=True)
-        approx = True
 
     first_duel_success_rate = _safe_divide(first_duel_wins, first_duel_attempts)
     if first_duel_attempts == 0:
         first_duel_success = FeatureValue(None, approx=True)
-        approx = True
     else:
         first_duel_success = FeatureValue(first_duel_success_rate)
 
@@ -130,17 +127,14 @@ def compute_role_fingerprint(
         first_contact_rate = FeatureValue(first_contact_events / rounds)
     elif rounds:
         first_contact_rate = FeatureValue(first_duel_attempts_per_round.value, approx=True)
-        approx = True
     else:
         first_contact_rate = FeatureValue(None, approx=True)
-        approx = True
 
     trade_kills = sum(1 for event in events if _is_trade_kill(event))
     total_kills = sum(1 for event in events if _get_event_type(event) == "kill")
     trade_kill_rate = _safe_divide(trade_kills, total_kills)
     if total_kills == 0:
         trade_kill = FeatureValue(None, approx=True)
-        approx = True
     else:
         trade_kill = FeatureValue(trade_kill_rate)
 
@@ -149,7 +143,6 @@ def compute_role_fingerprint(
     traded_death_rate = _safe_divide(traded_deaths, total_deaths)
     if total_deaths == 0:
         traded_death = FeatureValue(None, approx=True)
-        approx = True
     else:
         traded_death = FeatureValue(traded_death_rate)
 
@@ -160,7 +153,6 @@ def compute_role_fingerprint(
     if rounds is None or clutch_ops == 0:
         clutch_ops_value = FeatureValue(None, approx=True)
         clutch_win_value = FeatureValue(None, approx=True)
-        approx = True
     else:
         clutch_ops_value = FeatureValue(clutch_opportunities_rate)
         clutch_win_value = FeatureValue(clutch_win_rate)
@@ -172,7 +164,6 @@ def compute_role_fingerprint(
         flash_assists_per_round = FeatureValue(flash_assists / rounds)
     else:
         flash_assists_per_round = FeatureValue(None, approx=True)
-        approx = True
 
     utility_damage = sum(
         float(event.get("utility_damage") or event.get("nade_damage") or 0) for event in events
@@ -181,7 +172,6 @@ def compute_role_fingerprint(
         utility_damage_per_round = FeatureValue(utility_damage / rounds)
     else:
         utility_damage_per_round = FeatureValue(None, approx=True)
-        approx = True
 
     friendly_flash_count = sum(
         1 for event in events if _flagged(event, "is_friendly_flash", "friendly_flash")
@@ -195,7 +185,6 @@ def compute_role_fingerprint(
     friendly_flash_rate = _safe_divide(friendly_flash_count, total_flash_events)
     if total_flash_events == 0:
         friendly_flash = FeatureValue(None, approx=True)
-        approx = True
     else:
         friendly_flash = FeatureValue(friendly_flash_rate)
 
@@ -213,19 +202,19 @@ def compute_role_fingerprint(
     }
 
     tags = _build_role_tags(metrics, meta)
-    summary = _build_role_summary(metrics, tags)
+    summary = _build_role_summary(metrics, tags, meta)
+    overall_approx = all(m["approx"] for m in metrics.values())
 
     return {
         "metrics": metrics,
         "tags": tags,
         "summary": summary,
-        "approx": approx or any(m["approx"] for m in metrics.values()),
+        "approx": overall_approx,
     }
 
 
 def compute_utility_iq(events: list[dict[str, Any]], meta: dict[str, Any]) -> dict[str, Any]:
     rounds = _round_count(events, meta)
-    approx = False
 
     flash_assists = sum(
         1 for event in events if _flagged(event, "is_flash_assist") or _get_event_type(event) == "flash_assist"
@@ -234,7 +223,6 @@ def compute_utility_iq(events: list[dict[str, Any]], meta: dict[str, Any]) -> di
         flash_assists_per_round = FeatureValue(flash_assists / rounds)
     else:
         flash_assists_per_round = FeatureValue(None, approx=True)
-        approx = True
 
     utility_damage = sum(
         float(event.get("utility_damage") or event.get("nade_damage") or 0) for event in events
@@ -243,7 +231,6 @@ def compute_utility_iq(events: list[dict[str, Any]], meta: dict[str, Any]) -> di
         utility_damage_per_round = FeatureValue(utility_damage / rounds)
     else:
         utility_damage_per_round = FeatureValue(None, approx=True)
-        approx = True
 
     friendly_flash_count = sum(
         1 for event in events if _flagged(event, "is_friendly_flash", "friendly_flash")
@@ -257,7 +244,6 @@ def compute_utility_iq(events: list[dict[str, Any]], meta: dict[str, Any]) -> di
     friendly_flash_rate = _safe_divide(friendly_flash_count, total_flash_events)
     if total_flash_events == 0:
         friendly_flash = FeatureValue(None, approx=True)
-        approx = True
     else:
         friendly_flash = FeatureValue(friendly_flash_rate)
 
@@ -266,8 +252,7 @@ def compute_utility_iq(events: list[dict[str, Any]], meta: dict[str, Any]) -> di
         utility_damage_per_round.value,
         friendly_flash.value,
     )
-    if score is None:
-        approx = True
+    approx = score is None
 
     return {
         "score": score,
@@ -301,6 +286,8 @@ def compute_timing_slices(
     }
     total = 0
     for event in events:
+        if event.get("exclude_from_timing"):
+            continue
         if not _is_contact_event(event):
             continue
         event_time = _get_event_time_seconds(event, meta)
@@ -325,6 +312,7 @@ def compute_timing_slices(
         ]
         return {"buckets": buckets, "approx": True}
 
+    # Buckets are normalized by total contact events with known round times.
     buckets = [
         {"label": "0-20", "value": (counts["0-20"] / total) * 100, "approx": False},
         {"label": "20-40", "value": (counts["20-40"] / total) * 100, "approx": False},
@@ -395,19 +383,42 @@ def _build_role_tags(metrics: dict[str, dict[str, Any]], meta: dict[str, Any]) -
     return tags[:5]
 
 
-def _build_role_summary(metrics: dict[str, dict[str, Any]], tags: list[str]) -> str:
-    if not tags:
+def _build_role_summary(metrics: dict[str, dict[str, Any]], tags: list[str], meta: dict[str, Any]) -> str:
+    rounds = meta.get("rounds")
+    min_rounds_required = meta.get("min_rounds_required")
+    minimal_contacts = meta.get("minimal_contacts")
+    player_kills = meta.get("player_kills")
+    player_deaths = meta.get("player_deaths")
+    contacts = None
+    if player_kills is not None and player_deaths is not None:
+        contacts = int(player_kills) + int(player_deaths)
+
+    insufficient_rounds = False
+    if min_rounds_required is not None:
+        if rounds is None or rounds < int(min_rounds_required):
+            insufficient_rounds = True
+    insufficient_contacts = (
+        minimal_contacts is not None and contacts is not None and contacts < int(minimal_contacts)
+    )
+
+    if insufficient_rounds or insufficient_contacts:
         return "Not enough data to build a stable role fingerprint."
 
-    primary = tags[0]
-    second = tags[1] if len(tags) > 1 else None
-    summary = f"{primary} tendencies"
-    if second:
-        summary += f" with {second.lower()} patterns"
-    summary += "."
+    if not tags:
+        summary = "Role profile is developing based on available contacts."
+    else:
+        primary = tags[0]
+        second = tags[1] if len(tags) > 1 else None
+        summary = f"{primary} tendencies"
+        if second:
+            summary += f" with {second.lower()} patterns"
+        summary += "."
 
     first_duel_success = metrics.get("first_duel_success_rate", {}).get("value")
     if first_duel_success is not None:
         summary += f" First-duel success rate is {first_duel_success:.0%}."
+
+    if meta.get("flash_events_count") == 0:
+        summary += " Note: no flash events detected, so flash-related metrics may be missing."
 
     return summary
