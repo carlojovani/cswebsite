@@ -34,7 +34,7 @@ def heatmap_upload_to(instance: "HeatmapAggregate", filename: str) -> str:
     return (
         "heatmaps/"
         f"{instance.profile_id}/{instance.map_name}/{instance.side}/"
-        f"{instance.period}/{instance.analytics_version}.png"
+        f"{instance.period}/{filename}"
     )
 
 

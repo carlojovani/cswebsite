@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+from io import BytesIO
+import hashlib
 from pathlib import Path
+import time
 from typing import Iterable, Sequence
 
 import numpy as np
 from django.conf import settings
-from django.core.files import File
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 from django.db import transaction
 from django.utils import timezone
 from PIL import Image, ImageFilter
+from matplotlib import cm
 
 from faceit_analytics import analyzer
 from faceit_analytics.constants import ANALYTICS_VERSION
@@ -16,8 +21,11 @@ from faceit_analytics.models import AnalyticsAggregate, HeatmapAggregate
 from users.models import PlayerProfile
 
 DEFAULT_MAPS: Iterable[str] = ("de_mirage",)
-HEATMAP_OUTPUT_SIZE = int(getattr(settings, "HEATMAP_OUTPUT_SIZE", 1024))
-HEATMAP_BLUR_FACTOR = float(getattr(settings, "HEATMAP_BLUR_FACTOR", 1.2))
+HEATMAP_OUTPUT_SIZE = int(getattr(settings, "HEATMAP_OUTPUT_SIZE", 768))
+HEATMAP_UPSCALE_FILTER = str(getattr(settings, "HEATMAP_UPSCALE_FILTER", "LANCZOS")).upper()
+HEATMAP_BLUR_RADIUS = float(getattr(settings, "HEATMAP_BLUR_RADIUS", 1.2))
+HEATMAP_CLIP_PCT = float(getattr(settings, "HEATMAP_CLIP_PCT", 99.5))
+HEATMAP_GAMMA = float(getattr(settings, "HEATMAP_GAMMA", 0.9))
 
 
 def _period_to_limit(period: str) -> int:
@@ -69,29 +77,45 @@ def build_heatmap_grid(
 def render_heatmap_image(
     grid: list[list[float]],
     *,
-    max_value: float | None = None,
     output_size: int | None = None,
-    blur_factor: float | None = None,
+    blur_radius: float | None = None,
+    clip_pct: float | None = None,
+    gamma: float | None = None,
+    upscale_filter: str | None = None,
+    cmap_name: str = analyzer.CMAP_ALL,
 ) -> Image.Image:
     height = len(grid)
     width = len(grid[0]) if grid else 0
     if not width or not height:
         raise ValueError("Grid is empty")
 
-    flat = [value for row in grid for value in row]
-    peak = max_value if max_value is not None else max(flat) if flat else 1.0
-    if peak <= 0:
-        peak = 1.0
-    normalized = [int(min(value / peak, 1.0) * 255) for value in flat]
+    arr = np.array(grid, dtype=np.float32)
+    arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+    positive = arr[arr > 0]
+    clip_value = np.percentile(positive, clip_pct or HEATMAP_CLIP_PCT) if positive.size else float(arr.max())
+    if not clip_value or clip_value <= 0:
+        clip_value = 1.0
+    arr = np.clip(arr, 0, clip_value) / clip_value
 
-    image = Image.new("L", (width, height))
-    image.putdata(normalized)
+    gamma_value = gamma if gamma is not None else HEATMAP_GAMMA
+    if gamma_value and gamma_value > 0:
+        arr = arr ** gamma_value
+
+    cmap = cm.get_cmap(cmap_name)
+    rgba = cmap(arr)
+    alpha = np.clip(arr, 0, 1)
+    rgba[:, :, 3] = alpha
+    rgb_bytes = (rgba[:, :, :3] * 255).astype(np.uint8)
+    alpha_bytes = (rgba[:, :, 3] * 255).astype(np.uint8)
+    out = np.dstack([rgb_bytes, alpha_bytes])
+    image = Image.fromarray(out, mode="RGBA")
 
     target_size = max(output_size or HEATMAP_OUTPUT_SIZE, 1)
     if target_size != width or target_size != height:
-        image = image.resize((target_size, target_size), Image.Resampling.BICUBIC)
+        resample = _get_resample_filter(upscale_filter)
+        image = image.resize((target_size, target_size), resample=resample)
 
-    blur_radius = max(blur_factor if blur_factor is not None else HEATMAP_BLUR_FACTOR, 0)
+    blur_radius = max(blur_radius if blur_radius is not None else HEATMAP_BLUR_RADIUS, 0)
     if blur_radius:
         image = image.filter(ImageFilter.GaussianBlur(blur_radius))
     return image
@@ -100,11 +124,100 @@ def render_heatmap_image(
 def render_heatmap_png(
     grid: list[list[float]],
     output_path: Path,
-    max_value: float | None = None,
 ) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    image = render_heatmap_image(grid, max_value=max_value)
+    image = render_heatmap_image(grid)
     image.save(output_path, format="PNG")
+
+
+def _get_resample_filter(filter_name: str | None) -> int:
+    name = (filter_name or HEATMAP_UPSCALE_FILTER).upper()
+    return {
+        "NEAREST": Image.Resampling.NEAREST,
+        "BILINEAR": Image.Resampling.BILINEAR,
+        "BICUBIC": Image.Resampling.BICUBIC,
+        "LANCZOS": Image.Resampling.LANCZOS,
+    }.get(name, Image.Resampling.LANCZOS)
+
+
+def _build_heatmap_filename(aggregate: HeatmapAggregate, grid_array: np.ndarray) -> str:
+    digest = hashlib.sha256(grid_array.tobytes()).hexdigest()[:8]
+    timestamp = int(time.time())
+    return (
+        f"heatmap_{aggregate.analytics_version}_res{aggregate.resolution}_"
+        f"out{HEATMAP_OUTPUT_SIZE}_{digest}_{timestamp}.png"
+    )
+
+
+def ensure_heatmap_image(
+    aggregate: HeatmapAggregate,
+    *,
+    radar_path: Path | None = None,
+    force: bool = False,
+) -> HeatmapAggregate:
+    storage = aggregate.image.storage if aggregate.image else default_storage
+    if aggregate.image and aggregate.image.name:
+        if not storage.exists(aggregate.image.name):
+            aggregate.image = None
+            force = True
+
+    if aggregate.image and not force:
+        return aggregate
+
+    if not aggregate.grid:
+        return aggregate
+
+    media_root = Path(getattr(settings, "MEDIA_ROOT", "media"))
+    media_root.mkdir(parents=True, exist_ok=True)
+
+    cmap_name = {
+        AnalyticsAggregate.SIDE_CT: analyzer.CMAP_CT,
+        AnalyticsAggregate.SIDE_T: analyzer.CMAP_T,
+        AnalyticsAggregate.SIDE_ALL: analyzer.CMAP_ALL,
+    }.get(aggregate.side, analyzer.CMAP_ALL)
+
+    heatmap_image = render_heatmap_image(
+        aggregate.grid,
+        output_size=HEATMAP_OUTPUT_SIZE,
+        blur_radius=HEATMAP_BLUR_RADIUS,
+        clip_pct=HEATMAP_CLIP_PCT,
+        gamma=HEATMAP_GAMMA,
+        upscale_filter=HEATMAP_UPSCALE_FILTER,
+        cmap_name=cmap_name,
+    )
+
+    radar_image = None
+    if radar_path:
+        try:
+            radar_image = Image.open(radar_path).convert("RGBA")
+        except OSError:
+            radar_image = None
+    if radar_image is None:
+        try:
+            radar_image, _meta, _radar_name = analyzer.load_radar_and_meta(aggregate.map_name)
+            radar_image = radar_image.convert("RGBA")
+        except Exception:
+            radar_image = None
+
+    if radar_image is not None:
+        radar_image = radar_image.resize(
+            (heatmap_image.width, heatmap_image.height),
+            resample=_get_resample_filter(HEATMAP_UPSCALE_FILTER),
+        )
+        composite = Image.alpha_composite(radar_image, heatmap_image)
+    else:
+        composite = heatmap_image
+
+    buffer = BytesIO()
+    composite.save(buffer, format="PNG", optimize=True)
+    buffer_value = buffer.getvalue()
+
+    grid_array = np.array(aggregate.grid, dtype=np.float32)
+    filename = _build_heatmap_filename(aggregate, grid_array)
+    aggregate.image.save(filename, ContentFile(buffer_value), save=False)
+    aggregate.updated_at = timezone.now()
+    aggregate.save(update_fields=["image", "updated_at"])
+    return aggregate
 
 
 def _collect_points_from_cache(
@@ -181,8 +294,8 @@ def get_or_build_heatmap(
         analytics_version=version,
         resolution=resolution,
     ).first()
-    if aggregate and aggregate.image and not force_rebuild:
-        return aggregate
+    if aggregate and not force_rebuild:
+        return ensure_heatmap_image(aggregate)
 
     profile = PlayerProfile.objects.get(id=profile_id)
 
@@ -208,12 +321,4 @@ def get_or_build_heatmap(
         },
     )
 
-    media_root = Path(getattr(settings, "MEDIA_ROOT", "media"))
-    output_path = media_root / "heatmaps" / str(profile_id) / map_name / side / period
-    output_path = output_path / f"{version}.png"
-    render_heatmap_png(grid, output_path, max_value=max_value)
-
-    with output_path.open("rb") as image_file:
-        aggregate.image.save(output_path.name, File(image_file), save=True)
-
-    return aggregate
+    return ensure_heatmap_image(aggregate, force=True)
