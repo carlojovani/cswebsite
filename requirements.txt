@@ -1,10 +1,10 @@
 Django==4.2.8
 djangorestframework==3.14.0
-requests==2.31.0
+requests==2.32.3
 beautifulsoup4==4.12.3
 awpy==2.0.2
-pandas==2.2.2
-matplotlib==3.9.0
+pandas==3.0.0
+matplotlib==3.10.0
 python-dotenv==1.0.1
 celery==5.4.0
 redis==5.0.4
