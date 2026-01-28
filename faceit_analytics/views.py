@@ -3,7 +3,6 @@ from pathlib import Path
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
-from django.db import transaction
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.views.decorators.http import require_GET, require_POST
@@ -188,11 +187,15 @@ def start_analytics_processing(request, profile_id: int):
         requested_by=request.user,
     )
 
-    def _enqueue_job() -> None:
+    try:
         task = task_full_pipeline.delay(profile.id, job.id, period="last_20", resolution=64)
         ProcessingJob.objects.filter(id=job.id).update(celery_task_id=task.id)
-
-    transaction.on_commit(_enqueue_job)
+    except Exception:
+        ProcessingJob.objects.filter(id=job.id).update(
+            status=ProcessingJob.STATUS_FAILED,
+            error="Worker/Redis недоступен",
+        )
+        return JsonResponse({"error": "Worker/Redis недоступен"}, status=503)
 
     return JsonResponse({"job_id": job.id, "status": job.status, "progress": job.progress})
 
@@ -205,12 +208,12 @@ def analytics_job_status(request, job_id: int):
         return JsonResponse({"error": "forbidden"}, status=403)
 
     status_map = {
-        ProcessingJob.STATUS_RUNNING: ProcessingJob.STATUS_PROCESSING,
-        ProcessingJob.STATUS_SUCCESS: ProcessingJob.STATUS_DONE,
+        ProcessingJob.STATUS_STARTED: ProcessingJob.STATUS_RUNNING,
+        ProcessingJob.STATUS_PROCESSING: ProcessingJob.STATUS_RUNNING,
+        ProcessingJob.STATUS_DONE: ProcessingJob.STATUS_SUCCESS,
     }
-    status = status_map.get(job.status, job.status)
     payload = {
-        "status": status,
+        "status": status_map.get(job.status, job.status),
         "progress": job.progress,
     }
     if job.error:
@@ -232,7 +235,10 @@ def profile_heatmaps(request, profile_id: int):
     period = request.GET.get("period", "last_20").strip() or "last_20"
     map_name = request.GET.get("map", "de_mirage").strip() or "de_mirage"
     cache_key = f"heatmap:{profile.id}:{period}:{map_name}"
-    cached = cache.get(cache_key)
+    try:
+        cached = cache.get(cache_key)
+    except Exception:
+        cached = None
     if cached:
         return JsonResponse(cached)
 
@@ -258,5 +264,8 @@ def profile_heatmaps(request, profile_id: int):
         "map": map_name,
         "period": period,
     }
-    cache.set(cache_key, response, 120)
+    try:
+        cache.set(cache_key, response, 120)
+    except Exception:
+        pass
     return JsonResponse(response)

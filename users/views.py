@@ -242,7 +242,10 @@ def profile(request, user_id):
 
             period = "last_20"
             cache_key = f"agg:{player_profile.id}:{period}"
-            analytics_aggregates = cache.get(cache_key)
+            try:
+                analytics_aggregates = cache.get(cache_key)
+            except Exception:
+                analytics_aggregates = None
             if analytics_aggregates is None:
                 analytics_aggregates = list(
                     AnalyticsAggregate.objects.filter(
@@ -250,7 +253,10 @@ def profile(request, user_id):
                         period=period,
                     )
                 )
-                cache.set(cache_key, analytics_aggregates, 120)
+                try:
+                    cache.set(cache_key, analytics_aggregates, 120)
+                except Exception:
+                    pass
 
             context["analytics_period"] = period
             context["analytics_aggregates"] = analytics_aggregates
@@ -259,12 +265,33 @@ def profile(request, user_id):
                 profile=player_profile,
                 period=period,
             ).exists()
-            context["analytics_job"] = (
-                ProcessingJob.objects.filter(profile=player_profile)
+            analytics_job = (
+                ProcessingJob.objects.filter(
+                    profile=player_profile,
+                    job_type=ProcessingJob.JOB_FULL_PIPELINE,
+                )
                 .order_by("-created_at")
                 .first()
             )
+            context["analytics_job"] = analytics_job
+            context["analytics_job_active"] = bool(
+                analytics_job
+                and analytics_job.status
+                in (
+                    ProcessingJob.STATUS_PENDING,
+                    ProcessingJob.STATUS_RUNNING,
+                    ProcessingJob.STATUS_STARTED,
+                    ProcessingJob.STATUS_PROCESSING,
+                )
+            )
+            context["analytics_job_failed"] = bool(
+                analytics_job and analytics_job.status == ProcessingJob.STATUS_FAILED
+            )
             context["can_trigger_analytics"] = request.user == user or request.user.is_superuser
+            context["show_analytics_button"] = bool(
+                context["can_trigger_analytics"]
+                and (context["analytics_job_failed"] or not context["analytics_ready"])
+            )
         except PlayerProfile.DoesNotExist:
             messages.warning(request, 'Профиль игрока не найден.')
             context['player_profile'] = None

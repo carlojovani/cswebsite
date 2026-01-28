@@ -231,9 +231,13 @@
                      data-can-trigger="{% if can_trigger_analytics %}1{% else %}0{% endif %}">
                     <div class="analytics-header">
                         <h3>Аналитика</h3>
-                        {% if can_trigger_analytics %}
+                        {% if show_analytics_button %}
                             <button type="button" id="analytics-start" class="btn btn-update">
-                                Сгенерировать
+                                {% if analytics_job and analytics_job.status == "FAILED" %}
+                                    Повторить
+                                {% else %}
+                                    Сгенерировать
+                                {% endif %}
                             </button>
                         {% endif %}
                     </div>
@@ -241,10 +245,10 @@
                         {% if analytics_job %}
                             {% if analytics_job.status == "FAILED" %}
                                 Ошибка обработки аналитики.
-                            {% elif analytics_job.status == "DONE" or analytics_job.status == "SUCCESS" %}
+                            {% elif analytics_job.status == "SUCCESS" or analytics_job.status == "DONE" %}
                                 Аналитика готова.
                             {% else %}
-                                Аналитика в обработке…
+                                Аналитика в обработке… {{ analytics_job.progress }}%
                             {% endif %}
                         {% elif analytics_ready %}
                             Аналитика готова.
@@ -949,7 +953,7 @@
                 }
                 const data = await r.json();
                 currentJobStatus = data.status;
-                if (data.status === "DONE" || data.status === "SUCCESS") {
+                if (data.status === "SUCCESS") {
                     setAnalyticsStatus("Аналитика готова.");
                     window.location.reload();
                     return;
@@ -994,12 +998,21 @@
                         },
                         body: JSON.stringify({}),
                     });
-                    if (!r.ok) {
-                        setAnalyticsStatus("Не удалось запустить обработку.");
+                    let data = null;
+                    if (r.ok) {
+                        data = await r.json();
+                    } else {
+                        try {
+                            data = await r.json();
+                        } catch (e) {
+                            data = null;
+                        }
+                    }
+                    if (!r.ok || !data) {
+                        setAnalyticsStatus(data?.error || "Не удалось запустить обработку.");
                         analyticsStart.disabled = false;
                         return;
                     }
-                    const data = await r.json();
                     currentJobId = data.job_id;
                     currentJobStatus = data.status;
                     setAnalyticsStatus("Аналитика в обработке…");
