@@ -21,12 +21,39 @@ from .tasks import task_full_pipeline
 from users.models import PlayerProfile
 
 
-def _with_cache_buster(url: str | None, updated_at) -> str | None:
+def _with_cache_buster(url: str | None, version: int | None) -> str | None:
     if not url:
         return url
-    version = int(updated_at.timestamp()) if updated_at else int(time.time())
+    version = int(version if version is not None else time.time())
     separator = "&" if "?" in url else "?"
     return f"{url}{separator}v={version}"
+
+
+def to_jsonable(value):
+    try:
+        import numpy as np  # type: ignore
+    except Exception:  # pragma: no cover - optional dependency
+        np = None
+
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(key): to_jsonable(val) for key, val in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [to_jsonable(item) for item in value]
+    if np is not None:
+        if isinstance(value, np.generic):
+            return value.item()
+        if isinstance(value, np.ndarray):
+            return value.tolist()
+    if hasattr(value, "isoformat"):
+        try:
+            return value.isoformat()
+        except Exception:
+            pass
+    return str(value)
 
 
 @require_GET
@@ -248,6 +275,9 @@ def profile_heatmaps(request, profile_id: int):
     period = request.GET.get("period", "last_20").strip() or "last_20"
     map_name = request.GET.get("map", "de_mirage").strip() or "de_mirage"
     side = request.GET.get("side", AnalyticsAggregate.SIDE_ALL).strip().upper() or AnalyticsAggregate.SIDE_ALL
+    metric = request.GET.get("metric", HeatmapAggregate.METRIC_KILLS).strip().lower()
+    if metric not in {HeatmapAggregate.METRIC_KILLS, HeatmapAggregate.METRIC_DEATHS}:
+        metric = HeatmapAggregate.METRIC_KILLS
     if side not in {AnalyticsAggregate.SIDE_ALL, AnalyticsAggregate.SIDE_CT, AnalyticsAggregate.SIDE_T}:
         side = AnalyticsAggregate.SIDE_ALL
     version = request.GET.get("v", ANALYTICS_VERSION).strip() or ANALYTICS_VERSION
@@ -261,6 +291,7 @@ def profile_heatmaps(request, profile_id: int):
     parts = HeatmapKeyParts(
         profile_id=profile.id,
         map_name=map_name,
+        metric=metric,
         side=side,
         period=period,
         version=version,
@@ -283,12 +314,13 @@ def profile_heatmaps(request, profile_id: int):
                     if not default_storage.exists(storage_path):
                         cached = None
             if cached:
-                return JsonResponse(cached)
+                return JsonResponse(to_jsonable(cached))
 
     aggregate = HeatmapAggregate.objects.filter(
         profile=profile,
         period=period,
         map_name=map_name,
+        metric=metric,
         side=side,
         analytics_version=version,
         resolution=resolution,
@@ -299,6 +331,12 @@ def profile_heatmaps(request, profile_id: int):
         "image_url": None,
         "updated_at": None,
         "resolution": resolution,
+        "version": None,
+        "metric": metric,
+        "side": side,
+        "map": map_name,
+        "period": period,
+        "res": resolution,
     }
 
     if aggregate:
@@ -306,14 +344,20 @@ def profile_heatmaps(request, profile_id: int):
 
     if aggregate and aggregate.image:
         updated_at = aggregate.updated_at.isoformat() if aggregate.updated_at else None
-        image_url = _with_cache_buster(aggregate.image.url, aggregate.updated_at)
+        try:
+            file_version = int(Path(aggregate.image.path).stat().st_mtime)
+        except Exception:
+            file_version = int(time.time())
+        image_url = _with_cache_buster(aggregate.image.url, file_version)
         response.update(
             {
                 "status": "ready",
                 "image_url": image_url,
                 "updated_at": updated_at,
+                "version": file_version,
             }
         )
+        response = to_jsonable(response)
         try:
             cache.set(cache_key, response, DEFAULT_TTL_SECONDS)
             cache.set(heatmap_image_url_key(parts), image_url, DEFAULT_TTL_SECONDS)
@@ -338,8 +382,8 @@ def profile_heatmaps(request, profile_id: int):
     if job:
         response["status"] = "processing"
         try:
-            cache.set(cache_key, response, DEFAULT_TTL_SECONDS)
+            cache.set(cache_key, to_jsonable(response), DEFAULT_TTL_SECONDS)
         except Exception:
             pass
 
-    return JsonResponse(response)
+    return JsonResponse(to_jsonable(response))

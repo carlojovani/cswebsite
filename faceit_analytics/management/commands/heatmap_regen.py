@@ -13,6 +13,7 @@ class Command(BaseCommand):
         parser.add_argument("--period", default="last_20")
         parser.add_argument("--map", dest="map_name", default="de_mirage")
         parser.add_argument("--side", default=AnalyticsAggregate.SIDE_ALL)
+        parser.add_argument("--metric", default=HeatmapAggregate.METRIC_KILLS)
         parser.add_argument("--res", type=int, default=64)
         parser.add_argument("--force", action="store_true")
         parser.add_argument("--analytics-version", dest="analytics_version", default=ANALYTICS_VERSION)
@@ -22,6 +23,9 @@ class Command(BaseCommand):
         period = options["period"]
         map_name = options["map_name"]
         side = options["side"].upper()
+        metric = options["metric"].lower()
+        if metric not in {HeatmapAggregate.METRIC_KILLS, HeatmapAggregate.METRIC_DEATHS}:
+            metric = HeatmapAggregate.METRIC_KILLS
         resolution = options["res"]
         force = options["force"]
         version = options["analytics_version"]
@@ -29,6 +33,7 @@ class Command(BaseCommand):
         aggregates = HeatmapAggregate.objects.filter(
             profile_id=profile_id,
             map_name=map_name,
+            metric=metric,
             side=side,
             period=period,
             analytics_version=version,
@@ -38,6 +43,7 @@ class Command(BaseCommand):
             aggregate = get_or_build_heatmap(
                 profile_id=profile_id,
                 map_name=map_name,
+                metric=metric,
                 side=side,
                 period=period,
                 version=version,
