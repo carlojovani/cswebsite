@@ -1,4 +1,5 @@
 from pathlib import Path
+import time
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
@@ -14,8 +15,17 @@ from .analyzer import build_heatmaps
 from .demo_fetch import get_demo_dem_path
 from .faceit_client import FaceitClient
 from .models import AnalyticsAggregate, HeatmapAggregate, ProcessingJob
+from .services.heatmaps import ensure_heatmap_image
 from .tasks import task_full_pipeline
 from users.models import PlayerProfile
+
+
+def _with_cache_buster(url: str | None, updated_at) -> str | None:
+    if not url:
+        return url
+    version = int(updated_at.timestamp()) if updated_at else int(time.time())
+    separator = "&" if "?" in url else "?"
+    return f"{url}{separator}v={version}"
 
 
 @require_GET
@@ -256,12 +266,14 @@ def profile_heatmaps(request, profile_id: int):
         resolution=resolution,
     )
     cache_key = heatmap_meta_key(parts)
-    try:
-        cached = cache.get(cache_key)
-    except Exception:
-        cached = None
-    if cached:
-        return JsonResponse(cached)
+    force_regen = request.GET.get("force") == "1"
+    if not force_regen:
+        try:
+            cached = cache.get(cache_key)
+        except Exception:
+            cached = None
+        if cached:
+            return JsonResponse(cached)
 
     aggregate = HeatmapAggregate.objects.filter(
         profile=profile,
@@ -279,17 +291,22 @@ def profile_heatmaps(request, profile_id: int):
         "resolution": resolution,
     }
 
+    if aggregate:
+        aggregate = ensure_heatmap_image(aggregate, force=force_regen)
+
     if aggregate and aggregate.image:
+        updated_at = aggregate.updated_at.isoformat() if aggregate.updated_at else None
+        image_url = _with_cache_buster(aggregate.image.url, aggregate.updated_at)
         response.update(
             {
                 "status": "ready",
-                "image_url": aggregate.image.url,
-                "updated_at": aggregate.updated_at.isoformat(),
+                "image_url": image_url,
+                "updated_at": updated_at,
             }
         )
         try:
             cache.set(cache_key, response, DEFAULT_TTL_SECONDS)
-            cache.set(heatmap_image_url_key(parts), aggregate.image.url, DEFAULT_TTL_SECONDS)
+            cache.set(heatmap_image_url_key(parts), image_url, DEFAULT_TTL_SECONDS)
         except Exception:
             pass
         return JsonResponse(response)

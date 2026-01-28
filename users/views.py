@@ -309,14 +309,10 @@ def profile(request, user_id):
             context["analytics_has_results"] = bool(
                 context["analytics_ready"] or context["heatmap_ready"]
             )
-            if context["analytics_job_active"]:
-                context["analytics_button_label"] = (
-                    f"Анализируется… ({analytics_job.progress}%)"
-                )
-            elif context["analytics_has_results"]:
-                context["analytics_button_label"] = "Обновить аналитику"
+            if context["analytics_has_results"]:
+                context["analytics_button_label"] = "Re-analyze"
             else:
-                context["analytics_button_label"] = "Проанализировать"
+                context["analytics_button_label"] = "Analyze"
         except PlayerProfile.DoesNotExist:
             messages.warning(request, 'Профиль игрока не найден.')
             context['player_profile'] = None
@@ -355,6 +351,7 @@ def analyze_profile(request, profile_id: int):
         return redirect('profile', user_id=user.id)
 
     force_rebuild = request.POST.get("force") == "1"
+    force_heatmaps = request.POST.get("force_heatmaps") == "1"
     period = "last_20"
     resolution = 64
 
@@ -371,6 +368,7 @@ def analyze_profile(request, profile_id: int):
         period=period,
         resolution=resolution,
         force_rebuild=force_rebuild,
+        force_heatmaps=force_heatmaps,
     )
     return redirect('profile', user_id=user.id)
 

@@ -235,6 +235,7 @@
                             <div class="analytics-actions">
                                 <form method="post" action="{% url 'analyze_profile' player_profile.id %}">
                                     {% csrf_token %}
+                                    <input type="hidden" name="force_heatmaps" value="1">
                                     <button type="submit"
                                             id="analytics-start"
                                             class="btn btn-update"
@@ -245,6 +246,7 @@
                                 <form method="post" action="{% url 'analyze_profile' player_profile.id %}">
                                     {% csrf_token %}
                                     <input type="hidden" name="force" value="1">
+                                    <input type="hidden" name="force_heatmaps" value="1">
                                     <button type="submit"
                                             class="btn btn-link"
                                             {% if analytics_job_active %}disabled{% endif %}>
@@ -1425,7 +1427,7 @@
 
         function setMissingMessage() {
             status.textContent = canTrigger
-                ? "Нет данных. Нажмите «Сгенерировать» в блоке аналитики."
+                ? "Нет данных. Нажмите «Analyze» в блоке аналитики."
                 : "Нет данных.";
         }
 
@@ -1460,7 +1462,7 @@
                 const data = await r.json();
                 if (data.status === "ready" && data.image_url) {
                     img.style.display = "block";
-                    img.src = data.image_url + `?t=${Date.now()}`;
+                    img.src = data.image_url;
                     status.textContent = "";
                     setLoading(false);
                     return;
