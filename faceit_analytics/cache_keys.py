@@ -34,3 +34,7 @@ def heatmap_image_url_key(parts: HeatmapKeyParts) -> str:
         f"{parts.profile_id}:{parts.map_name}:{parts.side}:"
         f"{parts.period}:{parts.version}:{parts.resolution}"
     )
+
+
+def demo_features_key(profile_id: int, period: str, version: str, demo_set_hash: str) -> str:
+    return f"demo_features:{profile_id}:{period}:{version}:{demo_set_hash}"

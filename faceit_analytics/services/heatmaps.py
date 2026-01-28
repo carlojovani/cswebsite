@@ -8,7 +8,7 @@ from django.conf import settings
 from django.core.files import File
 from django.db import transaction
 from django.utils import timezone
-from PIL import Image
+from PIL import Image, ImageFilter
 
 from faceit_analytics import analyzer
 from faceit_analytics.constants import ANALYTICS_VERSION
@@ -16,6 +16,8 @@ from faceit_analytics.models import AnalyticsAggregate, HeatmapAggregate
 from users.models import PlayerProfile
 
 DEFAULT_MAPS: Iterable[str] = ("de_mirage",)
+HEATMAP_OUTPUT_SIZE = int(getattr(settings, "HEATMAP_OUTPUT_SIZE", 1024))
+HEATMAP_BLUR_FACTOR = float(getattr(settings, "HEATMAP_BLUR_FACTOR", 6))
 
 
 def _period_to_limit(period: str) -> int:
@@ -83,7 +85,15 @@ def render_heatmap_png(
 
     image = Image.new("L", (width, height))
     image.putdata(normalized)
-    image = image.resize((width * 4, height * 4), Image.Resampling.NEAREST)
+
+    output_size = max(HEATMAP_OUTPUT_SIZE, 1)
+    image = image.resize((output_size, output_size), Image.Resampling.BICUBIC)
+
+    blur_factor = max(HEATMAP_BLUR_FACTOR, 1)
+    scale = output_size / max(width, height)
+    blur_radius = max(scale / blur_factor, 0.1)
+    image = image.filter(ImageFilter.GaussianBlur(blur_radius))
+
     image.save(output_path, format="PNG")
 
 

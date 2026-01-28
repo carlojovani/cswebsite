@@ -7,6 +7,7 @@ from faceit_analytics.cache_keys import HeatmapKeyParts, heatmap_image_url_key, 
 from faceit_analytics.constants import ANALYTICS_VERSION
 from faceit_analytics.models import AnalyticsAggregate, ProcessingJob
 from faceit_analytics.services.aggregates import build_metrics, enrich_metrics_with_role_features
+from faceit_analytics.services.demo_events import get_or_build_demo_features
 from faceit_analytics.services.heatmaps import DEFAULT_MAPS, get_or_build_heatmap
 from users.faceit import fetch_faceit_profile_details
 from users.models import PlayerProfile
@@ -123,11 +124,21 @@ def run_full_pipeline(
     try:
         profile = job.profile
         sync_faceit_profile(profile)
-        _update_job(job, progress=20)
+        _update_job(job, progress=10)
 
         aggregates = build_metrics(profile, period=period, analytics_version=ANALYTICS_VERSION)
+        _update_job(job, progress=20)
+
+        demo_features = get_or_build_demo_features(
+            profile,
+            period=period,
+            analytics_version=ANALYTICS_VERSION,
+            progress_callback=lambda progress: _update_job(job, progress=progress),
+            progress_start=20,
+            progress_end=40,
+        )
         if aggregates:
-            enrich_metrics_with_role_features(aggregates[0], profile, period)
+            enrich_metrics_with_role_features(aggregates[0], profile, period, demo_features=demo_features)
         _update_job(job, progress=60)
 
         build_heatmaps(job, profile, period=period, resolution=resolution)

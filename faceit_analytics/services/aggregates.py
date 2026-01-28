@@ -42,12 +42,19 @@ def enrich_metrics_with_role_features(
     aggregate: AnalyticsAggregate,
     profile,
     period: str,
+    *,
+    demo_features: dict | None = None,
 ) -> AnalyticsAggregate:
-    events, positions, meta = adapt_feature_inputs(profile, period)
-    timing_slices = compute_timing_slices(events, meta)
-    meta = {**meta, "timing_slices": timing_slices}
-    role_fingerprint = compute_role_fingerprint(events, positions, meta)
-    utility_iq = compute_utility_iq(events, meta)
+    if demo_features:
+        timing_slices = demo_features.get("timing_slices")
+        role_fingerprint = demo_features.get("role_fingerprint")
+        utility_iq = demo_features.get("utility_iq")
+    else:
+        events, positions, meta = adapt_feature_inputs(profile, period)
+        timing_slices = compute_timing_slices(events, meta)
+        meta = {**meta, "timing_slices": timing_slices}
+        role_fingerprint = compute_role_fingerprint(events, positions, meta)
+        utility_iq = compute_utility_iq(events, meta)
 
     metrics = aggregate.metrics_json or {}
     metrics["role_fingerprint"] = role_fingerprint

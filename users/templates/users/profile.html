@@ -281,6 +281,13 @@
                         <h3>Role fingerprint</h3>
                     </div>
                     {% if analytics_metrics.role_fingerprint %}
+                        {% if analytics_metrics.role_fingerprint.debug %}
+                            {% if analytics_metrics.role_fingerprint.debug.demos_count == 0 %}
+                                <div class="analytics-empty">Upload demos to enable advanced metrics.</div>
+                            {% elif analytics_metrics.role_fingerprint.debug.rounds_count < analytics_metrics.role_fingerprint.debug.min_rounds_required %}
+                                <div class="analytics-empty">Not enough rounds yet.</div>
+                            {% endif %}
+                        {% endif %}
                         <div class="role-tags">
                             {% for tag in analytics_metrics.role_fingerprint.tags %}
                                 <span class="role-chip">{{ tag }}</span>
