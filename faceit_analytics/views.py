@@ -8,6 +8,8 @@ from django.shortcuts import get_object_or_404
 from django.views.decorators.http import require_GET, require_POST
 from requests import HTTPError
 
+from .cache_keys import DEFAULT_TTL_SECONDS, HeatmapKeyParts, heatmap_image_url_key, heatmap_meta_key
+from .constants import ANALYTICS_VERSION
 from .analyzer import build_heatmaps
 from .demo_fetch import get_demo_dem_path
 from .faceit_client import FaceitClient
@@ -234,7 +236,26 @@ def profile_heatmaps(request, profile_id: int):
 
     period = request.GET.get("period", "last_20").strip() or "last_20"
     map_name = request.GET.get("map", "de_mirage").strip() or "de_mirage"
-    cache_key = f"heatmap:{profile.id}:{period}:{map_name}"
+    side = request.GET.get("side", AnalyticsAggregate.SIDE_ALL).strip().upper() or AnalyticsAggregate.SIDE_ALL
+    if side not in {AnalyticsAggregate.SIDE_ALL, AnalyticsAggregate.SIDE_CT, AnalyticsAggregate.SIDE_T}:
+        side = AnalyticsAggregate.SIDE_ALL
+    version = request.GET.get("v", ANALYTICS_VERSION).strip() or ANALYTICS_VERSION
+    try:
+        resolution = int(request.GET.get("res", 64))
+    except (TypeError, ValueError):
+        resolution = 64
+    if resolution <= 0:
+        resolution = 64
+
+    parts = HeatmapKeyParts(
+        profile_id=profile.id,
+        map_name=map_name,
+        side=side,
+        period=period,
+        version=version,
+        resolution=resolution,
+    )
+    cache_key = heatmap_meta_key(parts)
     try:
         cached = cache.get(cache_key)
     except Exception:
@@ -242,30 +263,56 @@ def profile_heatmaps(request, profile_id: int):
     if cached:
         return JsonResponse(cached)
 
-    aggregates = HeatmapAggregate.objects.filter(
+    aggregate = HeatmapAggregate.objects.filter(
         profile=profile,
         period=period,
         map_name=map_name,
-    )
-
-    images = {}
-    for side, key in (
-        (AnalyticsAggregate.SIDE_ALL, "presence"),
-        (AnalyticsAggregate.SIDE_CT, "presence_ct"),
-        (AnalyticsAggregate.SIDE_T, "presence_t"),
-    ):
-        aggregate = aggregates.filter(side=side).first()
-        if aggregate and aggregate.image:
-            images[key] = aggregate.image.url
+        side=side,
+        analytics_version=version,
+        resolution=resolution,
+    ).first()
 
     response = {
-        "status": "ready" if images else "missing",
-        "images": images,
-        "map": map_name,
-        "period": period,
+        "status": "missing",
+        "image_url": None,
+        "updated_at": None,
+        "resolution": resolution,
     }
-    try:
-        cache.set(cache_key, response, 120)
-    except Exception:
-        pass
+
+    if aggregate and aggregate.image:
+        response.update(
+            {
+                "status": "ready",
+                "image_url": aggregate.image.url,
+                "updated_at": aggregate.updated_at.isoformat(),
+            }
+        )
+        try:
+            cache.set(cache_key, response, DEFAULT_TTL_SECONDS)
+            cache.set(heatmap_image_url_key(parts), aggregate.image.url, DEFAULT_TTL_SECONDS)
+        except Exception:
+            pass
+        return JsonResponse(response)
+
+    job = (
+        ProcessingJob.objects.filter(
+            profile=profile,
+            job_type=ProcessingJob.JOB_FULL_PIPELINE,
+            status__in=(
+                ProcessingJob.STATUS_PENDING,
+                ProcessingJob.STATUS_RUNNING,
+                ProcessingJob.STATUS_STARTED,
+                ProcessingJob.STATUS_PROCESSING,
+            ),
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if job:
+        response["status"] = "processing"
+        try:
+            cache.set(cache_key, response, DEFAULT_TTL_SECONDS)
+        except Exception:
+            pass
+
     return JsonResponse(response)
