@@ -43,6 +43,17 @@ celery -A backend worker -l info
 4. `GET /api/analytics/jobs/<job_id>` будет возвращать переходы `PENDING -> RUNNING -> SUCCESS` и рост `progress` до 100.
 5. После `SUCCESS` интерфейс обновится и покажет результаты.
 
+## Демки для расширенной аналитики
+
+По умолчанию демки ищутся в `BASE_DIR/demos/<profile_id>/`. Можно использовать папку
+`BASE_DIR/demos/<faceit_nickname>/`, если так удобнее. Поддерживаются локальные `.dem` файлы.
+
+### Smoke-check парсинга демо
+
+```bash
+python manage.py demo_parse_smoke --profile-id <profile_id> --period last_20
+```
+
 ### Настройки Redis
 
 По умолчанию используется `redis://127.0.0.1:6379/0`. Можно переопределить через переменные окружения:
