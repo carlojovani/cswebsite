@@ -1,6 +1,9 @@
+import traceback
+
+from django.core.cache import cache
 from django.utils import timezone
 
-from faceit_analytics.models import AnalyticsAggregate
+from faceit_analytics.models import AnalyticsAggregate, ProcessingJob
 from faceit_analytics.services.aggregates import build_metrics
 from faceit_analytics.services.heatmaps import DEFAULT_MAPS, upsert_heatmap_aggregate
 from users.faceit import fetch_faceit_profile_details
@@ -54,9 +57,58 @@ def build_heatmaps(profile: PlayerProfile, period: str, resolution: int = 64) ->
                 resolution=resolution,
             )
 
+def _update_job(job: ProcessingJob, **fields) -> None:
+    for key, value in fields.items():
+        setattr(job, key, value)
+    job.save(update_fields=list(fields.keys()) + ["updated_at"])
 
-def run_full_pipeline(profile_id: int, requested_by_id: int | None = None, period: str = "last_20") -> None:
-    profile = PlayerProfile.objects.get(id=profile_id)
-    sync_faceit_profile(profile)
-    build_metrics(profile, period=period)
-    build_heatmaps(profile, period=period, resolution=64)
+
+def _invalidate_cache(profile_id: int, period: str) -> None:
+    try:
+        cache.delete(f"agg:{profile_id}:{period}")
+        if hasattr(cache, "delete_pattern"):
+            cache.delete_pattern(f"heatmap:{profile_id}:{period}:*")
+    except Exception:
+        pass
+
+
+def run_full_pipeline(
+    profile_id: int,
+    job_id: int,
+    period: str = "last_20",
+    resolution: int = 64,
+) -> None:
+    job = ProcessingJob.objects.select_related("profile").get(id=job_id)
+    _update_job(
+        job,
+        status=ProcessingJob.STATUS_RUNNING,
+        progress=1,
+        error="",
+        started_at=job.started_at or timezone.now(),
+        finished_at=None,
+    )
+
+    try:
+        profile = job.profile
+        sync_faceit_profile(profile)
+        _update_job(job, progress=20)
+
+        build_metrics(profile, period=period)
+        _update_job(job, progress=60)
+
+        build_heatmaps(profile, period=period, resolution=resolution)
+        _invalidate_cache(profile.id, period)
+        _update_job(
+            job,
+            status=ProcessingJob.STATUS_SUCCESS,
+            progress=100,
+            finished_at=timezone.now(),
+        )
+    except Exception:
+        _update_job(
+            job,
+            status=ProcessingJob.STATUS_FAILED,
+            error=traceback.format_exc(),
+            finished_at=timezone.now(),
+        )
+        raise
