@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -94,6 +95,28 @@ def _safe_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def safe_steamid64(value: Any) -> str | None:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return str(int(value))
+    if isinstance(value, str):
+        value_str = value.strip()
+        if value_str.isdigit():
+            return value_str
+        return None
+    if isinstance(value, float):
+        try:
+            decimal_value = Decimal(str(value))
+            integer_value = decimal_value.to_integral_value(rounding=ROUND_HALF_UP)
+            return str(int(integer_value))
+        except (InvalidOperation, ValueError, OverflowError):
+            return None
+    return None
 
 
 def normalize_steam_id_to_64(value: Any) -> str | None:
@@ -326,7 +349,11 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
     missing_time_kills = 0
     attacker_none_count = 0
     attacker_id_sample: dict[str, str | None] = {"attacker": None, "victim": None}
-    debug_payload: dict[str, Any] = {}
+    debug_payload: dict[str, Any] = {
+        "tickrate": tick_rate,
+        "tickrate_assumed": tick_rate_approx,
+        "round_start_tick_sample": dict(list(round_start_ticks.items())[:5]) if round_start_ticks else {},
+    }
     if kills_df is not None and not kills_df.empty:
         raw_kill_columns = list(kills_df.columns)
         debug_payload["raw_kill_columns"] = raw_kill_columns
@@ -382,6 +409,13 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
         attacker_side_col = _pick_column(kills_df, ["attacker_side", "attacker_side_name", "attacker_team", "attackerTeam"])
         victim_side_col = _pick_column(kills_df, ["victim_side", "victim_side_name", "victim_team", "victimTeam"])
 
+        if attacker_col:
+            kills_df[attacker_col] = kills_df[attacker_col].apply(safe_steamid64)
+        if victim_col:
+            kills_df[victim_col] = kills_df[victim_col].apply(safe_steamid64)
+        if assister_col:
+            kills_df[assister_col] = kills_df[assister_col].apply(safe_steamid64)
+
         for _, row in kills_df.iterrows():
             round_number = _safe_int(row.get(round_col)) if round_col else None
             if round_number is not None:
@@ -395,26 +429,27 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
             if t_round is None and round_number is not None and tick_value is not None:
                 start_tick = round_start_ticks.get(round_number)
                 if start_tick is not None and tick_rate:
-                    t_round = (tick_value - start_tick) / tick_rate
+                    t_round = max((tick_value - start_tick) / tick_rate, 0)
             if t_round is None:
                 t_round = _round_time_seconds(row, round_number, round_start_ticks, round_start_times, tick_rate)
             if t_round is None:
                 missing_time_kills += 1
-            attacker_steam_id = normalize_steam_id_to_64(row.get(attacker_col)) if attacker_col else None
-            victim_steam_id = normalize_steam_id_to_64(row.get(victim_col)) if victim_col else None
-            assister_steam_id = normalize_steam_id_to_64(row.get(assister_col)) if assister_col else None
+            attacker_steam_id = row.get(attacker_col) if attacker_col else None
+            victim_steam_id = row.get(victim_col) if victim_col else None
+            assister_steam_id = row.get(assister_col) if assister_col else None
             if attacker_steam_id is None:
                 attacker_none_count += 1
             if attacker_id_sample["attacker"] is None and attacker_steam_id:
                 attacker_id_sample["attacker"] = attacker_steam_id
             if attacker_id_sample["victim"] is None and victim_steam_id:
                 attacker_id_sample["victim"] = victim_steam_id
-            attacker_id = _normalize_steam_id_int(row.get(attacker_col)) if attacker_col else None
-            victim_id = _normalize_steam_id_int(row.get(victim_col)) if victim_col else None
-            assister_id = _normalize_steam_id_int(row.get(assister_col)) if assister_col else None
+            attacker_id = _safe_int(attacker_steam_id) if attacker_steam_id else None
+            victim_id = _safe_int(victim_steam_id) if victim_steam_id else None
+            assister_id = _safe_int(assister_steam_id) if assister_steam_id else None
             kill_event = {
                 "round": round_number,
                 "time": t_round,
+                "tick": tick_value,
                 "attacker": attacker_id,
                 "victim": victim_id,
                 "assister": assister_id,
@@ -424,8 +459,6 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
                 "attacker_side": _normalize_side(row.get(attacker_side_col)) if attacker_side_col else None,
                 "victim_side": _normalize_side(row.get(victim_side_col)) if victim_side_col else None,
             }
-            if tick_value is not None and kill_event.get("time") is not None:
-                kill_event["tick"] = tick_value
             if "kill_event_sample" not in debug_payload:
                 debug_payload["kill_event_sample"] = kill_event
             kills.append(kill_event)
@@ -905,6 +938,9 @@ def get_or_build_demo_features(
         "raw_kill_row_sample": None,
         "kill_event_sample": None,
         "time_fields_present": None,
+        "tickrate": None,
+        "tickrate_assumed": None,
+        "round_start_tick_sample": None,
     }
 
     if demos_count == 0 or not steam_id:
@@ -949,7 +985,16 @@ def get_or_build_demo_features(
             debug["attacker_id_sample"]["attacker"] = parsed.attacker_id_sample["attacker"]
         if parsed.attacker_id_sample.get("victim") and not debug["attacker_id_sample"].get("victim"):
             debug["attacker_id_sample"]["victim"] = parsed.attacker_id_sample["victim"]
-        for key in ("raw_kill_columns", "raw_kill_keys", "raw_kill_row_sample", "kill_event_sample", "time_fields_present"):
+        for key in (
+            "raw_kill_columns",
+            "raw_kill_keys",
+            "raw_kill_row_sample",
+            "kill_event_sample",
+            "time_fields_present",
+            "tickrate",
+            "tickrate_assumed",
+            "round_start_tick_sample",
+        ):
             if parsed.debug.get(key) is not None and debug.get(key) in (None, [], {}):
                 debug[key] = parsed.debug.get(key)
         if progress_callback:
