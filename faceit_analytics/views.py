@@ -3,6 +3,7 @@ from pathlib import Path
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
+from django.db import transaction
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.views.decorators.http import require_GET, require_POST
@@ -187,11 +188,13 @@ def start_analytics_processing(request, profile_id: int):
         requested_by=request.user,
     )
 
-    task = task_full_pipeline.delay(profile.id, job.id, period="last_20", resolution=64)
-    job.celery_task_id = task.id
-    job.save()
+    def _enqueue_job() -> None:
+        task = task_full_pipeline.delay(profile.id, job.id, period="last_20", resolution=64)
+        ProcessingJob.objects.filter(id=job.id).update(celery_task_id=task.id)
 
-    return JsonResponse({"job_id": job.id, "status": job.status})
+    transaction.on_commit(_enqueue_job)
+
+    return JsonResponse({"job_id": job.id, "status": job.status, "progress": job.progress})
 
 
 @login_required
@@ -201,12 +204,21 @@ def analytics_job_status(request, job_id: int):
     if not request.user.is_superuser and request.user != job.profile.user:
         return JsonResponse({"error": "forbidden"}, status=403)
 
+    status_map = {
+        ProcessingJob.STATUS_RUNNING: ProcessingJob.STATUS_PROCESSING,
+        ProcessingJob.STATUS_SUCCESS: ProcessingJob.STATUS_DONE,
+    }
+    status = status_map.get(job.status, job.status)
     payload = {
-        "status": job.status,
+        "status": status,
         "progress": job.progress,
     }
     if job.error:
         payload["error"] = job.error
+    if job.started_at:
+        payload["started_at"] = job.started_at.isoformat()
+    if job.finished_at:
+        payload["finished_at"] = job.finished_at.isoformat()
     return JsonResponse(payload)
 
 

@@ -3,6 +3,7 @@ import traceback
 
 from celery import shared_task
 from django.core.cache import cache
+from django.utils import timezone
 
 from faceit_analytics.models import ProcessingJob
 from faceit_analytics.services.aggregates import build_metrics
@@ -22,6 +23,37 @@ def _set_job(job: ProcessingJob, **fields) -> None:
     job.save()
 
 
+def _truncate_error(value: str, limit: int = 1000) -> str:
+    if len(value) <= limit:
+        return value
+    return value[:limit].rstrip() + "…"
+
+
+def _start_job(job: ProcessingJob) -> None:
+    _set_job(
+        job,
+        status=ProcessingJob.STATUS_STARTED,
+        progress=5,
+        error="",
+        started_at=job.started_at or timezone.now(),
+        finished_at=None,
+    )
+
+
+def _finish_job_success(job: ProcessingJob) -> None:
+    _set_job(job, status=ProcessingJob.STATUS_DONE, progress=100, finished_at=timezone.now())
+
+
+def _finish_job_failed(job: ProcessingJob, error: str) -> None:
+    _set_job(
+        job,
+        status=ProcessingJob.STATUS_FAILED,
+        progress=0,
+        error=_truncate_error(error),
+        finished_at=timezone.now(),
+    )
+
+
 def _invalidate_cache(profile_id: int, period: str) -> None:
     cache.delete(f"agg:{profile_id}:{period}")
     if hasattr(cache, "delete_pattern"):
@@ -31,68 +63,68 @@ def _invalidate_cache(profile_id: int, period: str) -> None:
 @shared_task
 def task_sync_faceit(profile_id: int, job_id: int) -> None:
     job = _load_job(job_id)
-    _set_job(job, status=ProcessingJob.STATUS_RUNNING, progress=1, error="")
+    _start_job(job)
 
     try:
         profile = PlayerProfile.objects.get(id=profile_id)
         sync_faceit_profile(profile)
-        _set_job(job, status=ProcessingJob.STATUS_SUCCESS, progress=100)
+        _finish_job_success(job)
     except Exception:
         logger.exception("Failed to sync Faceit for profile %s", profile_id)
-        _set_job(job, status=ProcessingJob.STATUS_FAILED, progress=0, error=traceback.format_exc())
+        _finish_job_failed(job, traceback.format_exc())
         raise
 
 
 @shared_task
 def task_build_aggregates(profile_id: int, job_id: int, period: str) -> None:
     job = _load_job(job_id)
-    _set_job(job, status=ProcessingJob.STATUS_RUNNING, progress=1, error="")
+    _start_job(job)
 
     try:
         profile = PlayerProfile.objects.get(id=profile_id)
         build_metrics(profile, period=period)
         _invalidate_cache(profile_id, period)
-        _set_job(job, status=ProcessingJob.STATUS_SUCCESS, progress=100)
+        _finish_job_success(job)
     except Exception:
         logger.exception("Failed to build aggregates for profile %s", profile_id)
-        _set_job(job, status=ProcessingJob.STATUS_FAILED, progress=0, error=traceback.format_exc())
+        _finish_job_failed(job, traceback.format_exc())
         raise
 
 
 @shared_task
 def task_render_heatmaps(profile_id: int, job_id: int, period: str, resolution: int = 64) -> None:
     job = _load_job(job_id)
-    _set_job(job, status=ProcessingJob.STATUS_RUNNING, progress=1, error="")
+    _start_job(job)
 
     try:
         profile = PlayerProfile.objects.get(id=profile_id)
         build_heatmaps(profile, period=period, resolution=resolution)
         _invalidate_cache(profile_id, period)
-        _set_job(job, status=ProcessingJob.STATUS_SUCCESS, progress=100)
+        _finish_job_success(job)
     except Exception:
         logger.exception("Failed to render heatmaps for profile %s", profile_id)
-        _set_job(job, status=ProcessingJob.STATUS_FAILED, progress=0, error=traceback.format_exc())
+        _finish_job_failed(job, traceback.format_exc())
         raise
 
 
 @shared_task
 def task_full_pipeline(profile_id: int, job_id: int, period: str = "last_20", resolution: int = 64) -> None:
     job = _load_job(job_id)
-    _set_job(job, status=ProcessingJob.STATUS_RUNNING, progress=1, error="")
+    _start_job(job)
 
     try:
         profile = PlayerProfile.objects.get(id=profile_id)
 
         sync_faceit_profile(profile)
-        _set_job(job, progress=30)
+        _set_job(job, status=ProcessingJob.STATUS_PROCESSING, progress=40)
 
         build_metrics(profile, period=period)
-        _set_job(job, progress=70)
+        _set_job(job, status=ProcessingJob.STATUS_PROCESSING, progress=80)
 
         build_heatmaps(profile, period=period, resolution=resolution)
         _invalidate_cache(profile_id, period)
-        _set_job(job, progress=100, status=ProcessingJob.STATUS_SUCCESS)
+        _finish_job_success(job)
     except Exception:
         logger.exception("Failed to run full pipeline for profile %s", profile_id)
-        _set_job(job, status=ProcessingJob.STATUS_FAILED, progress=0, error=traceback.format_exc())
+        _finish_job_failed(job, traceback.format_exc())
         raise
