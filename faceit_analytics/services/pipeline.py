@@ -50,6 +50,8 @@ def build_heatmaps(
     profile: PlayerProfile,
     period: str,
     resolution: int = 64,
+    *,
+    force_rebuild: bool = False,
     progress_start: int = 70,
     progress_end: int = 100,
 ) -> None:
@@ -72,6 +74,7 @@ def build_heatmaps(
                 period=period,
                 resolution=resolution,
                 version=ANALYTICS_VERSION,
+                force_rebuild=force_rebuild,
             )
             counter += 1
             _update_job(job, progress=min(int(progress_start + step_size * counter), progress_end))
@@ -110,6 +113,9 @@ def run_full_pipeline(
     job_id: int,
     period: str = "last_20",
     resolution: int = 64,
+    force_rebuild: bool = False,
+    force_heatmaps: bool = False,
+    force_demo_features: bool = False,
 ) -> None:
     job = ProcessingJob.objects.select_related("profile").get(id=job_id)
     _update_job(
@@ -133,6 +139,7 @@ def run_full_pipeline(
             profile,
             period=period,
             analytics_version=ANALYTICS_VERSION,
+            force_rebuild=force_demo_features or force_rebuild,
             progress_callback=lambda progress: _update_job(job, progress=progress),
             progress_start=20,
             progress_end=40,
@@ -141,7 +148,13 @@ def run_full_pipeline(
             enrich_metrics_with_role_features(aggregates[0], profile, period, demo_features=demo_features)
         _update_job(job, progress=60)
 
-        build_heatmaps(job, profile, period=period, resolution=resolution)
+        build_heatmaps(
+            job,
+            profile,
+            period=period,
+            resolution=resolution,
+            force_rebuild=force_heatmaps or force_rebuild,
+        )
         _invalidate_cache(profile.id, period, resolution)
         _update_job(
             job,

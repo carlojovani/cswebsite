@@ -231,14 +231,27 @@
                      data-can-trigger="{% if can_trigger_analytics %}1{% else %}0{% endif %}">
                     <div class="analytics-header">
                         <h3>Аналитика</h3>
-                        {% if show_analytics_button %}
-                            <button type="button" id="analytics-start" class="btn btn-update">
-                                {% if analytics_job and analytics_job.status == "FAILED" %}
-                                    Повторить
-                                {% else %}
-                                    Сгенерировать
-                                {% endif %}
-                            </button>
+                        {% if can_trigger_analytics %}
+                            <div class="analytics-actions">
+                                <form method="post" action="{% url 'analyze_profile' player_profile.id %}">
+                                    {% csrf_token %}
+                                    <button type="submit"
+                                            id="analytics-start"
+                                            class="btn btn-update"
+                                            {% if analytics_job_active %}disabled{% endif %}>
+                                        {{ analytics_button_label }}
+                                    </button>
+                                </form>
+                                <form method="post" action="{% url 'analyze_profile' player_profile.id %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="force" value="1">
+                                    <button type="submit"
+                                            class="btn btn-link"
+                                            {% if analytics_job_active %}disabled{% endif %}>
+                                        Полный пересчет
+                                    </button>
+                                </form>
+                            </div>
                         {% endif %}
                     </div>
                     <div id="analytics-status" class="analytics-meta">
@@ -256,6 +269,11 @@
                             Аналитика ещё не готова.
                         {% endif %}
                     </div>
+                    {% if analytics_metrics.demo_features_approx %}
+                        <div class="analytics-meta">
+                            Демо не найдено — роль/utility/timing будут приближенно.
+                        </div>
+                    {% endif %}
                     {% if analytics_job and analytics_job.status == "FAILED" and analytics_job.error %}
                         <pre class="analytics-error">{{ analytics_job.error|truncatechars:220 }}</pre>
                     {% endif %}

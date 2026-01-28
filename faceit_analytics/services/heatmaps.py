@@ -17,7 +17,7 @@ from users.models import PlayerProfile
 
 DEFAULT_MAPS: Iterable[str] = ("de_mirage",)
 HEATMAP_OUTPUT_SIZE = int(getattr(settings, "HEATMAP_OUTPUT_SIZE", 1024))
-HEATMAP_BLUR_FACTOR = float(getattr(settings, "HEATMAP_BLUR_FACTOR", 6))
+HEATMAP_BLUR_FACTOR = float(getattr(settings, "HEATMAP_BLUR_FACTOR", 1.2))
 
 
 def _period_to_limit(period: str) -> int:
@@ -66,12 +66,13 @@ def build_heatmap_grid(
     return grid, float(max_value)
 
 
-def render_heatmap_png(
+def render_heatmap_image(
     grid: list[list[float]],
-    output_path: Path,
+    *,
     max_value: float | None = None,
-) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_size: int | None = None,
+    blur_factor: float | None = None,
+) -> Image.Image:
     height = len(grid)
     width = len(grid[0]) if grid else 0
     if not width or not height:
@@ -86,14 +87,23 @@ def render_heatmap_png(
     image = Image.new("L", (width, height))
     image.putdata(normalized)
 
-    output_size = max(HEATMAP_OUTPUT_SIZE, 1)
-    image = image.resize((output_size, output_size), Image.Resampling.BICUBIC)
+    target_size = max(output_size or HEATMAP_OUTPUT_SIZE, 1)
+    if target_size != width or target_size != height:
+        image = image.resize((target_size, target_size), Image.Resampling.BICUBIC)
 
-    blur_factor = max(HEATMAP_BLUR_FACTOR, 1)
-    scale = output_size / max(width, height)
-    blur_radius = max(scale / blur_factor, 0.1)
-    image = image.filter(ImageFilter.GaussianBlur(blur_radius))
+    blur_radius = max(blur_factor if blur_factor is not None else HEATMAP_BLUR_FACTOR, 0)
+    if blur_radius:
+        image = image.filter(ImageFilter.GaussianBlur(blur_radius))
+    return image
 
+
+def render_heatmap_png(
+    grid: list[list[float]],
+    output_path: Path,
+    max_value: float | None = None,
+) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    image = render_heatmap_image(grid, max_value=max_value)
     image.save(output_path, format="PNG")
 
 
@@ -160,6 +170,8 @@ def get_or_build_heatmap(
     period: str,
     version: str = ANALYTICS_VERSION,
     resolution: int = 64,
+    *,
+    force_rebuild: bool = False,
 ) -> HeatmapAggregate:
     aggregate = HeatmapAggregate.objects.filter(
         profile_id=profile_id,
@@ -169,7 +181,7 @@ def get_or_build_heatmap(
         analytics_version=version,
         resolution=resolution,
     ).first()
-    if aggregate and aggregate.image:
+    if aggregate and aggregate.image and not force_rebuild:
         return aggregate
 
     profile = PlayerProfile.objects.get(id=profile_id)

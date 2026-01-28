@@ -183,13 +183,9 @@ def safe_json(obj: Any) -> Any:
         return int(obj)
     if isinstance(obj, (np.floating,)):
         value = float(obj)
-        if math.isnan(value):
-            return None
-        return value
+        return value if math.isfinite(value) else None
     if isinstance(obj, float):
-        if math.isnan(obj):
-            return None
-        return obj
+        return obj if math.isfinite(obj) else None
     if isinstance(obj, pd.Timestamp):
         return obj.isoformat()
     if pd.isna(obj):
@@ -1142,6 +1138,7 @@ def get_or_build_demo_features(
             "demo_set_hash": demo_set_hash,
             "insufficient_rounds": True,
         }
+        payload = safe_json(payload)
         cache.set(cache_key, payload, DEMO_FEATURES_TTL_SECONDS)
         return payload
 
@@ -1241,6 +1238,7 @@ def get_or_build_demo_features(
         "insufficient_rounds": insufficient_rounds,
     }
 
+    payload = safe_json(payload)
     cache.set(cache_key, payload, DEMO_FEATURES_TTL_SECONDS)
     if progress_callback:
         progress_callback(progress_end)

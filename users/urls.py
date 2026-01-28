@@ -20,6 +20,7 @@ urlpatterns = [
     path('profile/<int:user_id>/', views.profile, name='profile'),
     path('profile/update-faceit/', views.update_faceit_data, name='update_faceit_data'),
     path('profile/edit/', views.edit_profile, name='edit_profile'),  # ДОБАВЬТЕ ЭТУ СТРОКУ
+    path('profiles/<int:profile_id>/analyze/', views.analyze_profile, name='analyze_profile'),
 
     # Поиск (с ограничениями по типу пользователя)
     path('search/player/', views.search_player, name='search_player'),

@@ -5,10 +5,12 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db.models import Q
 from django.utils import timezone
+from django.views.decorators.http import require_POST
 
 from faceit_analytics.cache_keys import DEFAULT_TTL_SECONDS, profile_metrics_key
 from faceit_analytics.constants import ANALYTICS_VERSION
 from faceit_analytics.models import AnalyticsAggregate, HeatmapAggregate, ProcessingJob
+from faceit_analytics.tasks import task_full_pipeline
 from .forms import (
     RegistrationStep1Form,
     PlayerRegistrationForm,
@@ -304,10 +306,17 @@ def profile(request, user_id):
                 analytics_job and analytics_job.status == ProcessingJob.STATUS_FAILED
             )
             context["can_trigger_analytics"] = request.user == user or request.user.is_superuser
-            context["show_analytics_button"] = bool(
-                context["can_trigger_analytics"]
-                and (context["analytics_job_failed"] or not context["analytics_ready"])
+            context["analytics_has_results"] = bool(
+                context["analytics_ready"] or context["heatmap_ready"]
             )
+            if context["analytics_job_active"]:
+                context["analytics_button_label"] = (
+                    f"Анализируется… ({analytics_job.progress}%)"
+                )
+            elif context["analytics_has_results"]:
+                context["analytics_button_label"] = "Обновить аналитику"
+            else:
+                context["analytics_button_label"] = "Проанализировать"
         except PlayerProfile.DoesNotExist:
             messages.warning(request, 'Профиль игрока не найден.')
             context['player_profile'] = None
@@ -321,6 +330,49 @@ def profile(request, user_id):
             context['team_profile'] = None
 
     return render(request, 'users/profile.html', context)
+
+
+@login_required
+@require_POST
+def analyze_profile(request, profile_id: int):
+    profile = get_object_or_404(PlayerProfile, id=profile_id)
+    user = profile.user
+    if not request.user.is_superuser and request.user != user:
+        messages.error(request, 'У вас нет доступа к этому профилю.')
+        return redirect('home')
+
+    active_job = ProcessingJob.objects.filter(
+        profile=profile,
+        job_type=ProcessingJob.JOB_FULL_PIPELINE,
+        status__in=(
+            ProcessingJob.STATUS_PENDING,
+            ProcessingJob.STATUS_RUNNING,
+            ProcessingJob.STATUS_STARTED,
+            ProcessingJob.STATUS_PROCESSING,
+        ),
+    ).order_by("-created_at").first()
+    if active_job:
+        return redirect('profile', user_id=user.id)
+
+    force_rebuild = request.POST.get("force") == "1"
+    period = "last_20"
+    resolution = 64
+
+    job = ProcessingJob.objects.create(
+        profile=profile,
+        job_type=ProcessingJob.JOB_FULL_PIPELINE,
+        status=ProcessingJob.STATUS_PENDING,
+        progress=0,
+        requested_by=request.user,
+    )
+    task_full_pipeline.delay(
+        profile_id=profile.id,
+        job_id=job.id,
+        period=period,
+        resolution=resolution,
+        force_rebuild=force_rebuild,
+    )
+    return redirect('profile', user_id=user.id)
 
 
 # ---------------------------
