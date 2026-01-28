@@ -32,8 +32,16 @@ python manage.py runserver
 4. Запустите Celery worker:
 
 ```bash
-celery -A backend worker -l info
+celery -A backend.celery worker -l info -P solo
 ```
+
+## Smoke-check аналитики
+
+1. Откройте профиль игрока и нажмите **Сгенерировать**.
+2. В логах Django появится `POST /api/analytics/<profile_id>/start`.
+3. Celery воркер получит задачу `task_full_pipeline`.
+4. `GET /api/analytics/jobs/<job_id>` будет возвращать переходы `PENDING -> STARTED/PROCESSING -> DONE` и рост `progress` до 100.
+5. После `DONE` интерфейс обновится и покажет результаты.
 
 ### Настройки Redis
 

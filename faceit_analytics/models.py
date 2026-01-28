@@ -69,15 +69,21 @@ class ProcessingJob(models.Model):
     )
 
     STATUS_PENDING = "PENDING"
+    STATUS_STARTED = "STARTED"
+    STATUS_PROCESSING = "PROCESSING"
+    STATUS_DONE = "DONE"
+    STATUS_FAILED = "FAILED"
     STATUS_RUNNING = "RUNNING"
     STATUS_SUCCESS = "SUCCESS"
-    STATUS_FAILED = "FAILED"
 
     STATUS_CHOICES = (
         (STATUS_PENDING, "Pending"),
-        (STATUS_RUNNING, "Running"),
-        (STATUS_SUCCESS, "Success"),
+        (STATUS_STARTED, "Started"),
+        (STATUS_PROCESSING, "Processing"),
+        (STATUS_DONE, "Done"),
         (STATUS_FAILED, "Failed"),
+        (STATUS_RUNNING, "Running (legacy)"),
+        (STATUS_SUCCESS, "Success (legacy)"),
     )
 
     profile = models.ForeignKey(PlayerProfile, on_delete=models.CASCADE, related_name="processing_jobs")
@@ -86,6 +92,8 @@ class ProcessingJob(models.Model):
     status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING)
     progress = models.PositiveSmallIntegerField(default=0)
     error = models.TextField(blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     requested_by = models.ForeignKey(
