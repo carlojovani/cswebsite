@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 from awpy import Demo
 from django.conf import settings
 from django.core.cache import cache
@@ -26,6 +28,32 @@ MIN_FLASH_DURATION_SECONDS = 0.2
 MIN_ROUNDS_REQUIRED = 30
 MIN_CONTACTS_REQUIRED = 10
 DEMO_FEATURES_TTL_SECONDS = 60 * 60 * 24
+
+KILLS_STEAMID_COLUMNS = ["attacker_steamid", "victim_steamid", "assister_steamid"]
+UTIL_DAMAGE_STEAMID_COLUMNS = ["attacker_steamid", "victim_steamid"]
+
+
+def _read_parquet_with_steamid_strings(parquet_path: Path, steam_cols: Iterable[str]) -> pd.DataFrame:
+    table = pq.read_table(parquet_path)
+    for col in steam_cols:
+        if col in table.column_names:
+            index = table.schema.get_field_index(col)
+            table = table.set_column(index, col, table[col].cast(pa.string()))
+    return table.to_pandas()
+
+
+def _load_demo_dataframe(value: Any, steam_cols: Iterable[str]) -> pd.DataFrame | None:
+    if value is None:
+        return None
+    if isinstance(value, pd.DataFrame):
+        return value
+    if isinstance(value, (str, Path)):
+        parquet_path = Path(value)
+        if parquet_path.suffix == ".parquet" and parquet_path.exists():
+            return _read_parquet_with_steamid_strings(parquet_path, steam_cols)
+    if hasattr(value, "to_pandas"):
+        return value.to_pandas()
+    return None
 
 
 @dataclass
@@ -356,9 +384,9 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
     rounds_df = demo.rounds.to_pandas() if getattr(demo, "rounds", None) is not None else None
     round_start_ticks, round_start_times, round_winners, rounds_in_demo = _build_round_meta(rounds_df)
 
-    kills_df = demo.kills.to_pandas() if getattr(demo, "kills", None) is not None else None
-    flashes_df = demo.flashes.to_pandas() if getattr(demo, "flashes", None) is not None else None
-    damages_df = demo.damages.to_pandas() if getattr(demo, "damages", None) is not None else None
+    kills_df = _load_demo_dataframe(getattr(demo, "kills", None), KILLS_STEAMID_COLUMNS)
+    flashes_df = _load_demo_dataframe(getattr(demo, "flashes", None), [])
+    damages_df = _load_demo_dataframe(getattr(demo, "damages", None), UTIL_DAMAGE_STEAMID_COLUMNS)
 
     kills: list[dict[str, Any]] = []
     missing_time_kills = 0
