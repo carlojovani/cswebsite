@@ -253,6 +253,7 @@ def profile(request, user_id):
                     AnalyticsAggregate.objects.filter(
                         profile=player_profile,
                         period=period,
+                        analytics_version=ANALYTICS_VERSION,
                     )
                 )
                 try:
@@ -263,9 +264,22 @@ def profile(request, user_id):
             context["analytics_period"] = period
             context["analytics_aggregates"] = analytics_aggregates
             context["analytics_ready"] = bool(analytics_aggregates)
+            context["analytics_version"] = ANALYTICS_VERSION
+            if analytics_aggregates:
+                metrics_json = analytics_aggregates[0].metrics_json or {}
+                context["analytics_metrics"] = metrics_json
+                context["analytics_simple_metrics"] = {
+                    key: value
+                    for key, value in metrics_json.items()
+                    if not isinstance(value, (dict, list))
+                }
+            else:
+                context["analytics_metrics"] = {}
+                context["analytics_simple_metrics"] = {}
             context["heatmap_ready"] = HeatmapAggregate.objects.filter(
                 profile=player_profile,
                 period=period,
+                analytics_version=ANALYTICS_VERSION,
             ).exists()
             analytics_job = (
                 ProcessingJob.objects.filter(
