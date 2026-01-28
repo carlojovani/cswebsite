@@ -4,6 +4,7 @@ import time
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
+from django.core.files.storage import default_storage
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.views.decorators.http import require_GET, require_POST
@@ -273,7 +274,16 @@ def profile_heatmaps(request, profile_id: int):
         except Exception:
             cached = None
         if cached:
-            return JsonResponse(cached)
+            image_url = cached.get("image_url")
+            if image_url:
+                base_url = settings.MEDIA_URL or ""
+                path = image_url.split("?", 1)[0]
+                if base_url and path.startswith(base_url):
+                    storage_path = path[len(base_url) :]
+                    if not default_storage.exists(storage_path):
+                        cached = None
+            if cached:
+                return JsonResponse(cached)
 
     aggregate = HeatmapAggregate.objects.filter(
         profile=profile,

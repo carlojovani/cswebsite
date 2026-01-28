@@ -23,9 +23,14 @@ from users.models import PlayerProfile
 DEFAULT_MAPS: Iterable[str] = ("de_mirage",)
 HEATMAP_OUTPUT_SIZE = int(getattr(settings, "HEATMAP_OUTPUT_SIZE", 768))
 HEATMAP_UPSCALE_FILTER = str(getattr(settings, "HEATMAP_UPSCALE_FILTER", "LANCZOS")).upper()
-HEATMAP_BLUR_RADIUS = float(getattr(settings, "HEATMAP_BLUR_RADIUS", 1.2))
-HEATMAP_CLIP_PCT = float(getattr(settings, "HEATMAP_CLIP_PCT", 99.5))
-HEATMAP_GAMMA = float(getattr(settings, "HEATMAP_GAMMA", 0.9))
+HEATMAP_BLUR_FACTOR = float(
+    getattr(settings, "HEATMAP_BLUR_FACTOR", getattr(settings, "HEATMAP_BLUR_RADIUS", 1.0))
+)
+HEATMAP_PERCENTILE_CLIP = float(
+    getattr(settings, "HEATMAP_PERCENTILE_CLIP", getattr(settings, "HEATMAP_CLIP_PCT", 99))
+)
+HEATMAP_GAMMA = float(getattr(settings, "HEATMAP_GAMMA", 0.85))
+HEATMAP_ALPHA = float(getattr(settings, "HEATMAP_ALPHA", 0.55))
 
 
 def _period_to_limit(period: str) -> int:
@@ -92,7 +97,11 @@ def render_heatmap_image(
     arr = np.array(grid, dtype=np.float32)
     arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
     positive = arr[arr > 0]
-    clip_value = np.percentile(positive, clip_pct or HEATMAP_CLIP_PCT) if positive.size else float(arr.max())
+    clip_value = (
+        np.percentile(positive, clip_pct if clip_pct is not None else HEATMAP_PERCENTILE_CLIP)
+        if positive.size
+        else float(arr.max())
+    )
     if not clip_value or clip_value <= 0:
         clip_value = 1.0
     arr = np.clip(arr, 0, clip_value) / clip_value
@@ -101,23 +110,26 @@ def render_heatmap_image(
     if gamma_value and gamma_value > 0:
         arr = arr ** gamma_value
 
+    mask_bytes = (np.clip(arr, 0, 1) * 255).astype(np.uint8)
+    mask_image = Image.fromarray(mask_bytes, mode="L")
+    target_size = max(output_size or HEATMAP_OUTPUT_SIZE, 1)
+    if target_size != width or target_size != height:
+        resample = _get_resample_filter(upscale_filter)
+        mask_image = mask_image.resize((target_size, target_size), resample=resample)
+
+    blur_radius = max(0.0, float(blur_radius if blur_radius is not None else HEATMAP_BLUR_FACTOR))
+    if blur_radius:
+        mask_image = mask_image.filter(ImageFilter.GaussianBlur(blur_radius))
+
+    mask_arr = np.array(mask_image, dtype=np.float32) / 255.0
     cmap = cm.get_cmap(cmap_name)
-    rgba = cmap(arr)
-    alpha = np.clip(arr, 0, 1)
-    rgba[:, :, 3] = alpha
+    rgba = cmap(mask_arr)
+    alpha_value = max(0.0, float(HEATMAP_ALPHA))
+    rgba[:, :, 3] = np.clip(mask_arr * alpha_value, 0, 1)
     rgb_bytes = (rgba[:, :, :3] * 255).astype(np.uint8)
     alpha_bytes = (rgba[:, :, 3] * 255).astype(np.uint8)
     out = np.dstack([rgb_bytes, alpha_bytes])
     image = Image.fromarray(out, mode="RGBA")
-
-    target_size = max(output_size or HEATMAP_OUTPUT_SIZE, 1)
-    if target_size != width or target_size != height:
-        resample = _get_resample_filter(upscale_filter)
-        image = image.resize((target_size, target_size), resample=resample)
-
-    blur_radius = max(blur_radius if blur_radius is not None else HEATMAP_BLUR_RADIUS, 0)
-    if blur_radius:
-        image = image.filter(ImageFilter.GaussianBlur(blur_radius))
     return image
 
 
@@ -179,8 +191,8 @@ def ensure_heatmap_image(
     heatmap_image = render_heatmap_image(
         aggregate.grid,
         output_size=HEATMAP_OUTPUT_SIZE,
-        blur_radius=HEATMAP_BLUR_RADIUS,
-        clip_pct=HEATMAP_CLIP_PCT,
+        blur_radius=HEATMAP_BLUR_FACTOR,
+        clip_pct=HEATMAP_PERCENTILE_CLIP,
         gamma=HEATMAP_GAMMA,
         upscale_filter=HEATMAP_UPSCALE_FILTER,
         cmap_name=cmap_name,
