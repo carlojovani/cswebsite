@@ -23,14 +23,22 @@ from users.models import PlayerProfile
 DEFAULT_MAPS: Iterable[str] = ("de_mirage",)
 HEATMAP_OUTPUT_SIZE = int(getattr(settings, "HEATMAP_OUTPUT_SIZE", 768))
 HEATMAP_UPSCALE_FILTER = str(getattr(settings, "HEATMAP_UPSCALE_FILTER", "BICUBIC")).upper()
-HEATMAP_BLUR_FACTOR = float(
-    getattr(settings, "HEATMAP_BLUR_FACTOR", getattr(settings, "HEATMAP_BLUR_RADIUS", 0.6))
+HEATMAP_BLUR_SIGMA = float(
+    getattr(
+        settings,
+        "HEATMAP_BLUR_SIGMA",
+        getattr(settings, "HEATMAP_BLUR_FACTOR", getattr(settings, "HEATMAP_BLUR_RADIUS", 0.6)),
+    )
 )
-HEATMAP_PERCENTILE_CLIP = float(
-    getattr(settings, "HEATMAP_PERCENTILE_CLIP", getattr(settings, "HEATMAP_CLIP_PCT", 99))
+HEATMAP_NORM_PERCENTILE = float(
+    getattr(
+        settings,
+        "HEATMAP_NORM_PERCENTILE",
+        getattr(settings, "HEATMAP_PERCENTILE_CLIP", getattr(settings, "HEATMAP_CLIP_PCT", 99.5)),
+    )
 )
-HEATMAP_GAMMA = float(getattr(settings, "HEATMAP_GAMMA", 0.85))
-HEATMAP_ALPHA = float(getattr(settings, "HEATMAP_ALPHA", 0.7))
+HEATMAP_GAMMA = float(getattr(settings, "HEATMAP_GAMMA", 0.6))
+HEATMAP_ALPHA = float(getattr(settings, "HEATMAP_ALPHA", 0.75))
 
 
 def _period_to_limit(period: str) -> int:
@@ -96,36 +104,40 @@ def render_heatmap_image(
 
     arr = np.array(grid, dtype=np.float32)
     arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
-    positive = arr[arr > 0]
-    clip_value = (
-        np.percentile(positive, clip_pct if clip_pct is not None else HEATMAP_PERCENTILE_CLIP)
-        if positive.size
-        else float(arr.max())
-    )
-    if not clip_value or clip_value <= 0:
-        clip_value = 1.0
-    arr = np.clip(arr, 0, clip_value) / clip_value
+    max_value = float(arr.max()) if arr.size else 0.0
+    if max_value <= 0:
+        max_value = 1.0
 
-    gamma_value = gamma if gamma is not None else HEATMAP_GAMMA
-    if gamma_value and gamma_value > 0:
-        arr = arr ** gamma_value
-
-    mask_bytes = (np.clip(arr, 0, 1) * 255).astype(np.uint8)
+    arr = np.clip(arr, 0, max_value) / max_value
+    mask_bytes = (arr * 255).astype(np.uint8)
     mask_image = Image.fromarray(mask_bytes, mode="L")
     target_size = max(output_size or HEATMAP_OUTPUT_SIZE, 1)
     if target_size != width or target_size != height:
         resample = _get_resample_filter(upscale_filter)
         mask_image = mask_image.resize((target_size, target_size), resample=resample)
 
-    blur_radius = max(0.0, float(blur_radius if blur_radius is not None else HEATMAP_BLUR_FACTOR))
+    blur_radius = max(0.0, float(blur_radius if blur_radius is not None else HEATMAP_BLUR_SIGMA))
     if blur_radius:
         mask_image = mask_image.filter(ImageFilter.GaussianBlur(blur_radius))
 
     mask_arr = np.array(mask_image, dtype=np.float32) / 255.0
+    positive = mask_arr[mask_arr > 0]
+    clip_value = (
+        np.percentile(positive, clip_pct if clip_pct is not None else HEATMAP_NORM_PERCENTILE)
+        if positive.size
+        else float(mask_arr.max())
+    )
+    if not clip_value or clip_value <= 0:
+        clip_value = 1.0
+    mask_arr = np.clip(mask_arr / clip_value, 0, 1)
+
+    gamma_value = gamma if gamma is not None else HEATMAP_GAMMA
+    if gamma_value and gamma_value > 0:
+        mask_arr = mask_arr ** gamma_value
     cmap = cm.get_cmap(cmap_name)
     rgba = cmap(mask_arr)
     alpha_value = max(0.0, float(HEATMAP_ALPHA))
-    rgba[:, :, 3] = np.clip(mask_arr * alpha_value, 0, 1)
+    rgba[:, :, 3] = np.clip((mask_arr ** 0.8) * alpha_value, 0, 1)
     rgb_bytes = (rgba[:, :, :3] * 255).astype(np.uint8)
     alpha_bytes = (rgba[:, :, 3] * 255).astype(np.uint8)
     out = np.dstack([rgb_bytes, alpha_bytes])
@@ -187,6 +199,12 @@ def ensure_heatmap_image(
             aggregate.image = None
             force = True
 
+    if aggregate.image and force:
+        try:
+            storage.delete(aggregate.image.name)
+        except Exception:
+            pass
+
     if aggregate.image and not force:
         return aggregate
 
@@ -210,8 +228,8 @@ def ensure_heatmap_image(
     heatmap_image = render_heatmap_image(
         aggregate.grid,
         output_size=HEATMAP_OUTPUT_SIZE,
-        blur_radius=HEATMAP_BLUR_FACTOR,
-        clip_pct=HEATMAP_PERCENTILE_CLIP,
+        blur_radius=HEATMAP_BLUR_SIGMA,
+        clip_pct=HEATMAP_NORM_PERCENTILE,
         gamma=HEATMAP_GAMMA,
         upscale_filter=HEATMAP_UPSCALE_FILTER,
         cmap_name=cmap_name,

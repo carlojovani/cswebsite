@@ -26,7 +26,7 @@ def test_render_heatmap_image_output_size():
         [0.0, 0.0, 0.0, 0.0],
     ]
     with override_settings(HEATMAP_OUTPUT_SIZE=72):
-        image = render_heatmap_image(grid)
+        image = render_heatmap_image(grid, output_size=72)
     assert image.size == (72, 72)
     pixels = np.array(image)
     assert pixels.std() > 0
@@ -40,16 +40,16 @@ def test_render_heatmap_no_blur_keeps_hotspot_visible():
         [0.0, 0.0, 0.0, 0.0],
     ]
     with override_settings(
-        HEATMAP_BLUR_FACTOR=0,
+        HEATMAP_BLUR_SIGMA=0,
         HEATMAP_ALPHA=0.6,
         HEATMAP_GAMMA=0.85,
-        HEATMAP_PERCENTILE_CLIP=99,
+        HEATMAP_NORM_PERCENTILE=99,
     ):
         image = render_heatmap_image(grid, output_size=64, blur_radius=None)
     pixels = np.array(image)
     alpha = pixels[:, :, 3]
     assert alpha.max() > 120
-    assert np.percentile(alpha, 90) < 90
+    assert np.percentile(alpha, 90) < 140
     assert pixels[:, :, :3].max() > 40
 
 
@@ -126,14 +126,40 @@ def test_missing_file_regenerates_heatmap(tmp_path):
         resolution=64,
         grid=grid,
         max_value=1.0,
-        image="heatmaps/1/de_mirage/kills/ALL/last_20/missing.png",
     )
     aggregate.save = lambda *args, **kwargs: None
 
     with override_settings(MEDIA_ROOT=str(tmp_path), MEDIA_URL="/media/"):
+        aggregate = ensure_heatmap_image(aggregate, force=True)
+        assert aggregate.image
+        image_path = Path(tmp_path) / aggregate.image.name
+        assert image_path.exists()
+        image_path.unlink()
+
         aggregate = ensure_heatmap_image(aggregate)
         assert aggregate.image
         assert aggregate.image.storage.exists(aggregate.image.name)
+
+
+def test_heat_overlay_not_invisible():
+    grid = [
+        [0.0, 2.0, 0.0, 0.0],
+        [0.0, 5.0, 3.0, 0.0],
+        [0.0, 3.0, 6.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+    ]
+    with override_settings(
+        HEATMAP_OUTPUT_SIZE=64,
+        HEATMAP_BLUR_SIGMA=0.6,
+        HEATMAP_GAMMA=0.6,
+        HEATMAP_ALPHA=0.75,
+        HEATMAP_NORM_PERCENTILE=99.5,
+    ):
+        image = render_heatmap_image(grid)
+    pixels = np.array(image)
+    alpha = pixels[:, :, 3]
+    visible_ratio = (alpha > 10).sum() / alpha.size
+    assert visible_ratio > 0.005
 
 
 def test_atomic_write_used(tmp_path):

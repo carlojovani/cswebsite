@@ -275,9 +275,9 @@ def profile_heatmaps(request, profile_id: int):
     period = request.GET.get("period", "last_20").strip() or "last_20"
     map_name = request.GET.get("map", "de_mirage").strip() or "de_mirage"
     side = request.GET.get("side", AnalyticsAggregate.SIDE_ALL).strip().upper() or AnalyticsAggregate.SIDE_ALL
-    metric = request.GET.get("metric", HeatmapAggregate.METRIC_KILLS).strip().lower()
-    if metric not in {HeatmapAggregate.METRIC_KILLS, HeatmapAggregate.METRIC_DEATHS}:
-        metric = HeatmapAggregate.METRIC_KILLS
+    kind = (request.GET.get("kind") or request.GET.get("metric") or HeatmapAggregate.METRIC_KILLS).strip().lower()
+    if kind not in {HeatmapAggregate.METRIC_KILLS, HeatmapAggregate.METRIC_DEATHS}:
+        kind = HeatmapAggregate.METRIC_KILLS
     if side not in {AnalyticsAggregate.SIDE_ALL, AnalyticsAggregate.SIDE_CT, AnalyticsAggregate.SIDE_T}:
         side = AnalyticsAggregate.SIDE_ALL
     version = request.GET.get("v", ANALYTICS_VERSION).strip() or ANALYTICS_VERSION
@@ -291,7 +291,7 @@ def profile_heatmaps(request, profile_id: int):
     parts = HeatmapKeyParts(
         profile_id=profile.id,
         map_name=map_name,
-        metric=metric,
+        metric=kind,
         side=side,
         period=period,
         version=version,
@@ -320,7 +320,7 @@ def profile_heatmaps(request, profile_id: int):
         profile=profile,
         period=period,
         map_name=map_name,
-        metric=metric,
+        metric=kind,
         side=side,
         analytics_version=version,
         resolution=resolution,
@@ -332,11 +332,21 @@ def profile_heatmaps(request, profile_id: int):
         "updated_at": None,
         "resolution": resolution,
         "version": None,
-        "metric": metric,
+        "metric": kind,
+        "kind": kind,
         "side": side,
         "map": map_name,
         "period": period,
         "res": resolution,
+        "meta": {
+            "map": map_name,
+            "side": side,
+            "period": period,
+            "kind": kind,
+            "metric": kind,
+            "resolution": resolution,
+            "version": version,
+        },
     }
 
     if aggregate:
