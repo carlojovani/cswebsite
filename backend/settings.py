@@ -101,3 +101,6 @@ CACHES = {
         },
     }
 }
+
+HEATMAP_OUTPUT_SIZE = 1024
+HEATMAP_BLUR_FACTOR = 1.2
