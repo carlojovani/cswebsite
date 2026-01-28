@@ -32,8 +32,9 @@ class AnalyticsAggregate(models.Model):
 
 def heatmap_upload_to(instance: "HeatmapAggregate", filename: str) -> str:
     return (
-        f"heatmaps/{instance.profile_id}/{instance.map_name}/{instance.side}/"
-        f"{instance.period}/{filename}"
+        "heatmaps/"
+        f"{instance.profile_id}/{instance.map_name}/{instance.side}/"
+        f"{instance.period}/{instance.analytics_version}.png"
     )
 
 
@@ -43,9 +44,11 @@ class HeatmapAggregate(models.Model):
     side = models.CharField(max_length=3, choices=AnalyticsAggregate.SIDE_CHOICES, default=AnalyticsAggregate.SIDE_ALL)
     period = models.CharField(max_length=20)
     analytics_version = models.CharField(max_length=12, default="v1")
-    resolution = models.IntegerField(default=64)
-    grid_json = models.JSONField(default=list)
-    image = models.FileField(upload_to=heatmap_upload_to, blank=True)
+    resolution = models.PositiveSmallIntegerField(default=64)
+    grid = models.JSONField(default=list)
+    max_value = models.FloatField(null=True)
+    image = models.ImageField(upload_to=heatmap_upload_to, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

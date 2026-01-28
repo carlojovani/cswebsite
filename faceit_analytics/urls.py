@@ -13,5 +13,5 @@ urlpatterns = [
     path("local/heatmaps_aggregate", local_heatmaps_aggregate, name="local_heatmaps_aggregate"),
     path("analytics/<int:profile_id>/start", start_analytics_processing, name="start_analytics_processing"),
     path("analytics/jobs/<int:job_id>", analytics_job_status, name="analytics_job_status"),
-    path("analytics/<int:profile_id>/heatmaps", profile_heatmaps, name="profile_heatmaps"),
+    path("heatmaps/<int:profile_id>", profile_heatmaps, name="profile_heatmaps"),
 ]

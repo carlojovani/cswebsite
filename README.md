@@ -52,3 +52,9 @@ export REDIS_URL=redis://127.0.0.1:6379/0
 export CELERY_BROKER_URL=redis://127.0.0.1:6379/0
 export CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/0
 ```
+
+## Production: S3-compatible storage
+
+Для production окружения рекомендуется хранить heatmap PNG и другие медиафайлы в S3-совместимом хранилище
+через `django-storages`. Настройте `DEFAULT_FILE_STORAGE` и параметры доступа, чтобы `MEDIA_URL` указывал
+на ваш CDN/бакет. Это позволит разгрузить локальный диск и ускорить отдачу изображений.

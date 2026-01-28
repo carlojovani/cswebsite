@@ -275,24 +275,29 @@
                      class="heatmaps-card"
                      data-profile-id="{{ player_profile.id }}"
                      data-map="de_mirage"
-                     data-period="{{ analytics_period|default:'last_20' }}">
+                     data-period="{{ analytics_period|default:'last_20' }}"
+                     data-version="v1"
+                     data-resolution="64"
+                     data-can-trigger="{% if can_trigger_analytics %}1{% else %}0{% endif %}">
                     <div class="heatmaps-header">
                         <div>
                             <h3>Heatmaps</h3>
-                            <div class="heatmaps-tabs">
-                                <button type="button" class="hm-tab active" data-group="type" data-value="presence">Presence</button>
-                                <button type="button" class="hm-tab" data-group="type" data-value="kills">Kills</button>
-                                <button type="button" class="hm-tab" data-group="type" data-value="deaths">Deaths</button>
+                            <div class="heatmaps-controls">
+                                <label class="heatmaps-label" for="hm-map">Карта</label>
+                                <select id="hm-map" class="heatmaps-select">
+                                    <option value="de_mirage">de_mirage</option>
+                                </select>
                             </div>
                             <div class="heatmaps-tabs heatmaps-tabs--secondary" data-group="side">
-                                <button type="button" class="hm-tab active" data-group="side" data-value="presence">All</button>
-                                <button type="button" class="hm-tab" data-group="side" data-value="presence_ct">CT</button>
-                                <button type="button" class="hm-tab" data-group="side" data-value="presence_t">T</button>
+                                <button type="button" class="hm-tab active" data-group="side" data-value="ALL">All</button>
+                                <button type="button" class="hm-tab" data-group="side" data-value="CT">CT</button>
+                                <button type="button" class="hm-tab" data-group="side" data-value="T">T</button>
                             </div>
                         </div>
                     </div>
 
                     <div id="hm-status" class="heatmaps-meta">Загрузка тепловой карты…</div>
+                    <div id="hm-spinner" class="heatmaps-spinner" aria-hidden="true"></div>
                     <div class="heatmaps-body">
                         <img id="hm-img" class="heatmap-img" alt="heatmap" loading="lazy" />
                     </div>
@@ -738,6 +743,25 @@
         flex-wrap: wrap;
     }
 
+    .heatmaps-controls {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+    }
+
+    .heatmaps-label {
+        font-size: 0.85rem;
+        color: #6c757d;
+    }
+
+    .heatmaps-select {
+        padding: 0.4rem 0.6rem;
+        border-radius: 8px;
+        border: 1px solid rgba(0, 0, 0, 0.12);
+        background: #fff;
+    }
+
     .heatmaps-tabs--secondary {
         margin-top: 0.65rem;
     }
@@ -762,6 +786,21 @@
         margin: 0.75rem 0 1rem;
         color: #6c757d;
         font-size: 0.95rem;
+    }
+
+    .heatmaps-spinner {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        border: 3px solid rgba(67, 97, 238, 0.2);
+        border-top-color: #4361ee;
+        animation: spin 1s linear infinite;
+        margin-bottom: 1rem;
+        display: none;
+    }
+
+    .heatmaps-spinner.is-active {
+        display: inline-block;
     }
 
     .heatmaps-body img {
@@ -905,6 +944,12 @@
         }
     }
 
+    @keyframes spin {
+        to {
+            transform: rotate(360deg);
+        }
+    }
+
     @media (max-width: 480px) {
         .stats-grid {
             grid-template-columns: 1fr;
@@ -1027,12 +1072,15 @@
         const root = document.getElementById("heatmaps-root");
         const status = document.getElementById("hm-status");
         const img = document.getElementById("hm-img");
-        const typeTabs = Array.from(document.querySelectorAll('.hm-tab[data-group="type"]'));
         const sideTabs = Array.from(document.querySelectorAll('.hm-tab[data-group="side"]'));
-        const sideTabsRow = document.querySelector(".heatmaps-tabs--secondary");
+        const mapSelect = document.getElementById("hm-map");
+        const spinner = document.getElementById("hm-spinner");
         const heatmapProfileId = (root?.dataset?.profileId || "").trim();
-        const mapName = (root?.dataset?.map || "de_mirage").trim() || "de_mirage";
+        const defaultMap = (root?.dataset?.map || "de_mirage").trim() || "de_mirage";
         const period = (root?.dataset?.period || "last_20").trim() || "last_20";
+        const version = (root?.dataset?.version || "v1").trim() || "v1";
+        const resolution = (root?.dataset?.resolution || "64").trim() || "64";
+        const canTrigger = (root?.dataset?.canTrigger || "0").trim() === "1";
 
         function setActive(tabs, value) {
             tabs.forEach((t) => t.classList.toggle("active", t.dataset.value === value));
@@ -1043,69 +1091,104 @@
             return;
         }
 
-        const apiUrl = `/api/analytics/${encodeURIComponent(heatmapProfileId)}/heatmaps?map=${encodeURIComponent(mapName)}&period=${encodeURIComponent(period)}`;
+        if (mapSelect) {
+            mapSelect.value = defaultMap;
+        }
 
-        try {
+        let currentSide = "ALL";
+        let currentMap = defaultMap;
+        let pollingTimer = null;
+        let pollAttempts = 0;
+        const maxPollAttempts = 10;
+
+        function setLoading(isLoading) {
+            if (spinner) {
+                spinner.classList.toggle("is-active", isLoading);
+                spinner.setAttribute("aria-hidden", isLoading ? "false" : "true");
+            }
+        }
+
+        function setMissingMessage() {
+            status.textContent = canTrigger
+                ? "Нет данных. Нажмите «Сгенерировать» в блоке аналитики."
+                : "Нет данных.";
+        }
+
+        function clearPolling() {
+            if (pollingTimer) {
+                clearTimeout(pollingTimer);
+            }
+            pollingTimer = null;
+        }
+
+        async function fetchHeatmap() {
+            clearPolling();
+            pollAttempts = 0;
             status.textContent = "Загрузка тепловой карты…";
-            const r = await fetch(apiUrl, { headers: { Accept: "application/json" } });
+            setLoading(true);
+            img.style.display = "none";
 
-            if (!r.ok) {
-                status.textContent = "Не удалось загрузить heatmap.";
-                return;
-            }
+            const apiUrl = `/api/heatmaps/${encodeURIComponent(heatmapProfileId)}` +
+                `?map=${encodeURIComponent(currentMap)}` +
+                `&side=${encodeURIComponent(currentSide)}` +
+                `&period=${encodeURIComponent(period)}` +
+                `&v=${encodeURIComponent(version)}` +
+                `&res=${encodeURIComponent(resolution)}`;
 
-            const data = await r.json();
-            if (!data.images || Object.keys(data.images).length === 0) {
-                status.textContent = "Heatmap ещё не готова.";
-                return;
-            }
-
-            let currentType = "presence";
-            let currentSide = "presence";
-
-            function imageKey() {
-                return currentType === "presence" ? currentSide : currentType;
-            }
-
-            function show() {
-                const key = imageKey();
-                const url = data.images[key];
-                if (!url) {
-                    status.textContent = "Нет изображения для выбранного режима.";
+            try {
+                const r = await fetch(apiUrl, { headers: { Accept: "application/json" } });
+                if (!r.ok) {
+                    status.textContent = "Не удалось загрузить heatmap.";
+                    setLoading(false);
                     return;
                 }
-                img.style.display = "block";
-                img.src = url + `?t=${Date.now()}`;
-                status.textContent = "";
-            }
-
-            typeTabs.forEach((t) =>
-                t.addEventListener("click", () => {
-                    currentType = t.dataset.value;
-                    setActive(typeTabs, currentType);
-                    if (sideTabsRow) {
-                        sideTabsRow.style.display = currentType === "presence" ? "flex" : "none";
+                const data = await r.json();
+                if (data.status === "ready" && data.image_url) {
+                    img.style.display = "block";
+                    img.src = data.image_url + `?t=${Date.now()}`;
+                    status.textContent = "";
+                    setLoading(false);
+                    return;
+                }
+                if (data.status === "processing") {
+                    status.textContent = "Heatmap обрабатывается…";
+                    setLoading(true);
+                    pollAttempts += 1;
+                    if (pollAttempts <= maxPollAttempts) {
+                        pollingTimer = setTimeout(fetchHeatmap, 2500);
+                    } else {
+                        status.textContent = "Heatmap ещё не готова. Попробуйте позже.";
+                        setLoading(false);
                     }
-                    show();
-                })
-            );
-
-            sideTabs.forEach((t) =>
-                t.addEventListener("click", () => {
-                    currentSide = t.dataset.value;
-                    setActive(sideTabs, currentSide);
-                    show();
-                })
-            );
-
-            setActive(typeTabs, currentType);
-            setActive(sideTabs, currentSide);
-            show();
-        } catch (e) {
-            status.textContent = "Ошибка при загрузке heatmap.";
-            // eslint-disable-next-line no-console
-            console.error(e);
+                    return;
+                }
+                setMissingMessage();
+            } catch (e) {
+                status.textContent = "Ошибка при загрузке heatmap.";
+            } finally {
+                if (status.textContent !== "Heatmap обрабатывается…") {
+                    setLoading(false);
+                }
+            }
         }
+
+        sideTabs.forEach((t) =>
+            t.addEventListener("click", () => {
+                currentSide = t.dataset.value;
+                setActive(sideTabs, currentSide);
+                fetchHeatmap();
+            })
+        );
+
+        if (mapSelect) {
+            mapSelect.addEventListener("change", () => {
+                currentMap = mapSelect.value;
+                fetchHeatmap();
+            });
+        }
+
+        setActive(sideTabs, currentSide);
+        fetchHeatmap();
     });
 </script>
 {% endblock %}

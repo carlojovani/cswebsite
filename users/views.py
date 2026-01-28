@@ -6,6 +6,8 @@ from django.contrib import messages
 from django.db.models import Q
 from django.utils import timezone
 
+from faceit_analytics.cache_keys import DEFAULT_TTL_SECONDS, profile_metrics_key
+from faceit_analytics.constants import ANALYTICS_VERSION
 from faceit_analytics.models import AnalyticsAggregate, HeatmapAggregate, ProcessingJob
 from .forms import (
     RegistrationStep1Form,
@@ -241,7 +243,7 @@ def profile(request, user_id):
             }
 
             period = "last_20"
-            cache_key = f"agg:{player_profile.id}:{period}"
+            cache_key = profile_metrics_key(player_profile.id, period, ANALYTICS_VERSION)
             try:
                 analytics_aggregates = cache.get(cache_key)
             except Exception:
@@ -254,7 +256,7 @@ def profile(request, user_id):
                     )
                 )
                 try:
-                    cache.set(cache_key, analytics_aggregates, 120)
+                    cache.set(cache_key, analytics_aggregates, DEFAULT_TTL_SECONDS)
                 except Exception:
                     pass
 
