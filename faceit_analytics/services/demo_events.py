@@ -162,6 +162,23 @@ def safe_steamid64(value: Any) -> str | None:
         return None
 
 
+def steamid64_eq(value: Any, target_steamid64: str | None) -> bool:
+    if not target_steamid64:
+        return False
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return False
+    if isinstance(value, bool):
+        return False
+    try:
+        target_float = float(int(target_steamid64))
+    except (TypeError, ValueError):
+        return False
+    try:
+        return float(value) == target_float
+    except (TypeError, ValueError):
+        return False
+
+
 def normalize_steam_id_to_64(value: Any) -> str | None:
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return None
@@ -398,6 +415,8 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
         "round_start_tick_sample": dict(list(round_start_ticks.items())[:5]) if round_start_ticks else {},
     }
     if kills_df is not None and not kills_df.empty:
+        raw_kills_df = kills_df.copy()
+        attacker_steam_raw_type_sample: list[str] = []
         raw_kill_columns = list(kills_df.columns)
         debug_payload["raw_kill_columns"] = raw_kill_columns
         for col in ["attacker_steamid", "victim_steamid", "assister_steamid"]:
@@ -475,7 +494,8 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
 
         tickrate_assumed_for_kills = False
 
-        for _, row in kills_df.iterrows():
+        for idx, row in kills_df.iterrows():
+            raw_row = raw_kills_df.loc[idx] if idx in raw_kills_df.index else row
             round_number = _safe_int(row.get(round_col)) if round_col else None
             if round_number is not None:
                 rounds_in_demo.add(round_number)
@@ -497,6 +517,11 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
             attacker_steam_id = row.get(attacker_col) if attacker_col else None
             victim_steam_id = row.get(victim_col) if victim_col else None
             assister_steam_id = row.get(assister_col) if assister_col else None
+            attacker_steam_raw = raw_row.get(attacker_col) if attacker_col else None
+            victim_steam_raw = raw_row.get(victim_col) if victim_col else None
+            assister_steam_raw = raw_row.get(assister_col) if assister_col else None
+            if attacker_steam_raw is not None and len(attacker_steam_raw_type_sample) < 5:
+                attacker_steam_raw_type_sample.append(type(attacker_steam_raw).__name__)
             if attacker_steam_id is None:
                 attacker_none_count += 1
             if attacker_id_sample["attacker"] is None and attacker_steam_id:
@@ -516,12 +541,17 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
                 "attacker_steam_id": attacker_steam_id,
                 "victim_steam_id": victim_steam_id,
                 "assister_steam_id": assister_steam_id,
+                "attacker_steam_raw": attacker_steam_raw,
+                "victim_steam_raw": victim_steam_raw,
+                "assister_steam_raw": assister_steam_raw,
                 "attacker_side": _normalize_side(row.get(attacker_side_col)) if attacker_side_col else None,
                 "victim_side": _normalize_side(row.get(victim_side_col)) if victim_side_col else None,
             }
             if "kill_event_sample" not in debug_payload:
                 debug_payload["kill_event_sample"] = kill_event
             kills.append(kill_event)
+        if attacker_steam_raw_type_sample:
+            debug_payload["attacker_steam_raw_type_sample"] = attacker_steam_raw_type_sample
         if tickrate_assumed_for_kills:
             debug_payload["tickrate_assumed"] = True
 
@@ -566,6 +596,7 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
 
     utility_damage: list[dict[str, Any]] = []
     if damages_df is not None and not damages_df.empty:
+        raw_damages_df = damages_df.copy()
         round_col = _pick_column(damages_df, ["round", "round_num", "round_number"])
         attacker_col = _pick_column(
             damages_df,
@@ -583,7 +614,8 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
         if victim_col and victim_col in damages_df.columns:
             damages_df[victim_col] = damages_df[victim_col].apply(safe_steamid64)
 
-        for _, row in damages_df.iterrows():
+        for idx, row in damages_df.iterrows():
+            raw_row = raw_damages_df.loc[idx] if idx in raw_damages_df.index else row
             weapon = str(row.get(weapon_col) or "").lower()
             kind = None
             if "hegrenade" in weapon or "he_grenade" in weapon:
@@ -602,6 +634,8 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
                 continue
             attacker_steam_id = row.get(attacker_col) if attacker_col else None
             victim_steam_id = row.get(victim_col) if victim_col else None
+            attacker_steam_raw = raw_row.get(attacker_col) if attacker_col else None
+            victim_steam_raw = raw_row.get(victim_col) if victim_col else None
             utility_damage.append(
                 {
                     "round": round_number,
@@ -610,6 +644,8 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
                     "victim": _safe_int(victim_steam_id) if victim_steam_id else None,
                     "attacker_steam_id": attacker_steam_id,
                     "victim_steam_id": victim_steam_id,
+                    "attacker_steam_raw": attacker_steam_raw,
+                    "victim_steam_raw": victim_steam_raw,
                     "damage": float(damage_amount),
                     "kind": kind,
                 }
@@ -805,7 +841,7 @@ def aggregate_player_features(
                 later = round_kills_sorted[idx + 1 :]
                 is_first_duel = first_kill is not None and kill is first_kill
 
-                if kill.get("attacker_steam_id") == target_steam_id64:
+                if steamid64_eq(kill.get("attacker_steam_raw"), target_steam_id):
                     player_kills += 1
                     target_attacker_kills += 1
                     round_events.append(
@@ -819,7 +855,7 @@ def aggregate_player_features(
                         }
                     )
 
-                if kill.get("victim_steam_id") == target_steam_id64:
+                if steamid64_eq(kill.get("victim_steam_raw"), target_steam_id):
                     player_deaths += 1
                     target_victim_deaths += 1
                     round_events.append(
@@ -832,7 +868,7 @@ def aggregate_player_features(
                         }
                     )
 
-                if kill.get("assister_steam_id") == target_steam_id64:
+                if steamid64_eq(kill.get("assister_steam_raw"), target_steam_id):
                     player_assists += 1
                     target_assists += 1
                     round_events.append(
@@ -870,7 +906,7 @@ def aggregate_player_features(
                 )
 
             for dmg in utility_by_round.get(round_number, []):
-                if dmg.get("attacker_steam_id") != target_steam_id64:
+                if not steamid64_eq(dmg.get("attacker_steam_raw"), target_steam_id):
                     continue
                 round_events.append(
                     {
@@ -1013,6 +1049,7 @@ def get_or_build_demo_features(
         "tickrate": None,
         "tickrate_assumed": None,
         "round_start_tick_sample": None,
+        "attacker_steam_raw_type_sample": None,
     }
 
     if demos_count == 0 or not steam_id:
@@ -1066,6 +1103,7 @@ def get_or_build_demo_features(
             "tickrate",
             "tickrate_assumed",
             "round_start_tick_sample",
+            "attacker_steam_raw_type_sample",
         ):
             if parsed.debug.get(key) is not None and debug.get(key) in (None, [], {}):
                 debug[key] = parsed.debug.get(key)

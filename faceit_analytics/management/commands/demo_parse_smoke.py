@@ -29,11 +29,17 @@ class Command(BaseCommand):
             analytics_version=ANALYTICS_VERSION,
             force_rebuild=force,
         )
+        debug = payload.get("debug") or {}
+        debug["steamid64_eq_counts"] = {
+            "kills": debug.get("player_kills", 0),
+            "deaths": debug.get("player_deaths", 0),
+            "assists": debug.get("player_assists", 0),
+        }
 
         output = {
             "profile_id": profile_id,
             "period": period,
-            "debug": payload.get("debug"),
+            "debug": debug,
             "role_fingerprint": payload.get("role_fingerprint"),
             "utility_iq": payload.get("utility_iq"),
             "timing_slices": payload.get("timing_slices"),
