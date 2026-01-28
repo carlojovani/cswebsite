@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from dataclasses import dataclass
 from pathlib import Path
@@ -106,17 +107,31 @@ def safe_steamid64(value: Any) -> str | None:
         return str(int(value))
     if isinstance(value, str):
         value_str = value.strip()
+        if not value_str or value_str.lower() == "nan":
+            return None
         if value_str.isdigit():
             return value_str
-        return None
+        try:
+            decimal_value = Decimal(value_str)
+            integer_value = decimal_value.to_integral_value(rounding=ROUND_HALF_UP)
+            return str(int(integer_value))
+        except (InvalidOperation, ValueError, OverflowError):
+            return None
     if isinstance(value, float):
+        if math.isnan(value):
+            return None
         try:
             decimal_value = Decimal(str(value))
             integer_value = decimal_value.to_integral_value(rounding=ROUND_HALF_UP)
             return str(int(integer_value))
         except (InvalidOperation, ValueError, OverflowError):
             return None
-    return None
+    try:
+        decimal_value = Decimal(str(value))
+        integer_value = decimal_value.to_integral_value(rounding=ROUND_HALF_UP)
+        return str(int(integer_value))
+    except (InvalidOperation, ValueError, OverflowError):
+        return None
 
 
 def normalize_steam_id_to_64(value: Any) -> str | None:
@@ -357,6 +372,9 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
     if kills_df is not None and not kills_df.empty:
         raw_kill_columns = list(kills_df.columns)
         debug_payload["raw_kill_columns"] = raw_kill_columns
+        for col in ["attacker_steamid", "victim_steamid", "assister_steamid"]:
+            if col in kills_df.columns:
+                kills_df[col] = kills_df[col].apply(safe_steamid64)
         raw_kill_row_sample: dict[str, Any] | None = None
         if raw_kill_columns:
             sample_row = kills_df.iloc[0].to_dict()
@@ -409,12 +427,25 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
         attacker_side_col = _pick_column(kills_df, ["attacker_side", "attacker_side_name", "attacker_team", "attackerTeam"])
         victim_side_col = _pick_column(kills_df, ["victim_side", "victim_side_name", "victim_team", "victimTeam"])
 
-        if attacker_col:
+        if attacker_col and attacker_col in kills_df.columns:
             kills_df[attacker_col] = kills_df[attacker_col].apply(safe_steamid64)
-        if victim_col:
+        if victim_col and victim_col in kills_df.columns:
             kills_df[victim_col] = kills_df[victim_col].apply(safe_steamid64)
-        if assister_col:
+        if assister_col and assister_col in kills_df.columns:
             kills_df[assister_col] = kills_df[assister_col].apply(safe_steamid64)
+
+        round_start_tick_map: dict[int, int] = {}
+        if round_col and tick_col:
+            for _, row in kills_df.iterrows():
+                round_number = _safe_int(row.get(round_col))
+                tick_value = _safe_int(row.get(tick_col))
+                if round_number is None or tick_value is None:
+                    continue
+                current = round_start_tick_map.get(round_number)
+                if current is None or tick_value < current:
+                    round_start_tick_map[round_number] = tick_value
+
+        tickrate_assumed_for_kills = False
 
         for _, row in kills_df.iterrows():
             round_number = _safe_int(row.get(round_col)) if round_col else None
@@ -427,9 +458,10 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
                     t_round = _safe_float(row.get(time_key))
                     break
             if t_round is None and round_number is not None and tick_value is not None:
-                start_tick = round_start_ticks.get(round_number)
-                if start_tick is not None and tick_rate:
-                    t_round = max((tick_value - start_tick) / tick_rate, 0)
+                start_tick = round_start_ticks.get(round_number) or round_start_tick_map.get(round_number)
+                if start_tick is not None:
+                    tickrate_assumed_for_kills = True
+                    t_round = max((tick_value - start_tick) / 64.0, 0.0)
             if t_round is None:
                 t_round = _round_time_seconds(row, round_number, round_start_ticks, round_start_times, tick_rate)
             if t_round is None:
@@ -462,6 +494,8 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
             if "kill_event_sample" not in debug_payload:
                 debug_payload["kill_event_sample"] = kill_event
             kills.append(kill_event)
+        if tickrate_assumed_for_kills:
+            debug_payload["tickrate_assumed"] = True
 
     flashes: list[dict[str, Any]] = []
     if flashes_df is not None and not flashes_df.empty:
@@ -513,6 +547,14 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
         dmg_col = _pick_column(damages_df, ["hp_damage", "health_damage", "dmg_health", "damage"])
         weapon_col = _pick_column(damages_df, ["weapon", "weapon_name", "weapon_type", "weaponClass"])
 
+        for col in ["attacker_steamid", "victim_steamid"]:
+            if col in damages_df.columns:
+                damages_df[col] = damages_df[col].apply(safe_steamid64)
+        if attacker_col and attacker_col in damages_df.columns:
+            damages_df[attacker_col] = damages_df[attacker_col].apply(safe_steamid64)
+        if victim_col and victim_col in damages_df.columns:
+            damages_df[victim_col] = damages_df[victim_col].apply(safe_steamid64)
+
         for _, row in damages_df.iterrows():
             weapon = str(row.get(weapon_col) or "").lower()
             kind = None
@@ -530,14 +572,16 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
             damage_amount = _safe_float(row.get(dmg_col)) if dmg_col else None
             if damage_amount is None or damage_amount <= 0:
                 continue
+            attacker_steam_id = row.get(attacker_col) if attacker_col else None
+            victim_steam_id = row.get(victim_col) if victim_col else None
             utility_damage.append(
                 {
                     "round": round_number,
                     "time": t_round,
-                    "attacker": _normalize_steam_id_int(row.get(attacker_col)) if attacker_col else None,
-                    "victim": _normalize_steam_id_int(row.get(victim_col)) if victim_col else None,
-                    "attacker_steam_id": normalize_steam_id_to_64(row.get(attacker_col)) if attacker_col else None,
-                    "victim_steam_id": normalize_steam_id_to_64(row.get(victim_col)) if victim_col else None,
+                    "attacker": _safe_int(attacker_steam_id) if attacker_steam_id else None,
+                    "victim": _safe_int(victim_steam_id) if victim_steam_id else None,
+                    "attacker_steam_id": attacker_steam_id,
+                    "victim_steam_id": victim_steam_id,
                     "damage": float(damage_amount),
                     "kind": kind,
                 }
