@@ -447,6 +447,77 @@
                                 <li>Not enough data for reasons.</li>
                             {% endfor %}
                         </ul>
+                        {% if analytics_metrics.playstyle.entry_breakdown %}
+                            <div class="playstyle-entry">
+                                <div class="playstyle-entry__row">
+                                    <span>Entry breakdown</span>
+                                    {% if analytics_metrics.playstyle.entry_breakdown.avg_entry_time_s != None %}
+                                        <span class="playstyle-entry__meta">
+                                            avg {{ analytics_metrics.playstyle.entry_breakdown.avg_entry_time_s|floatformat:1 }}s
+                                        </span>
+                                    {% endif %}
+                                </div>
+                                <div class="playstyle-entry__row">
+                                    <span>Assisted</span>
+                                    <strong>
+                                        {% if analytics_metrics.playstyle.entry_breakdown.assisted_entry_pct != None %}
+                                            {{ analytics_metrics.playstyle.entry_breakdown.assisted_entry_pct|floatformat:1 }}%
+                                        {% else %}
+                                            —
+                                        {% endif %}
+                                    </strong>
+                                    <span class="playstyle-entry__meta">
+                                        early/mid/late:
+                                        {% if analytics_metrics.playstyle.entry_breakdown.assisted_by_bucket_pct.early != None %}
+                                            {{ analytics_metrics.playstyle.entry_breakdown.assisted_by_bucket_pct.early|floatformat:0 }}%
+                                        {% else %}
+                                            —
+                                        {% endif %} /
+                                        {% if analytics_metrics.playstyle.entry_breakdown.assisted_by_bucket_pct.mid != None %}
+                                            {{ analytics_metrics.playstyle.entry_breakdown.assisted_by_bucket_pct.mid|floatformat:0 }}%
+                                        {% else %}
+                                            —
+                                        {% endif %} /
+                                        {% if analytics_metrics.playstyle.entry_breakdown.assisted_by_bucket_pct.late != None %}
+                                            {{ analytics_metrics.playstyle.entry_breakdown.assisted_by_bucket_pct.late|floatformat:0 }}%
+                                        {% else %}
+                                            —
+                                        {% endif %}
+                                    </span>
+                                </div>
+                                <div class="playstyle-entry__row">
+                                    <span>Solo</span>
+                                    <strong>
+                                        {% if analytics_metrics.playstyle.entry_breakdown.solo_entry_pct != None %}
+                                            {{ analytics_metrics.playstyle.entry_breakdown.solo_entry_pct|floatformat:1 }}%
+                                        {% else %}
+                                            —
+                                        {% endif %}
+                                    </strong>
+                                    <span class="playstyle-entry__meta">
+                                        early/mid/late:
+                                        {% if analytics_metrics.playstyle.entry_breakdown.solo_by_bucket_pct.early != None %}
+                                            {{ analytics_metrics.playstyle.entry_breakdown.solo_by_bucket_pct.early|floatformat:0 }}%
+                                        {% else %}
+                                            —
+                                        {% endif %} /
+                                        {% if analytics_metrics.playstyle.entry_breakdown.solo_by_bucket_pct.mid != None %}
+                                            {{ analytics_metrics.playstyle.entry_breakdown.solo_by_bucket_pct.mid|floatformat:0 }}%
+                                        {% else %}
+                                            —
+                                        {% endif %} /
+                                        {% if analytics_metrics.playstyle.entry_breakdown.solo_by_bucket_pct.late != None %}
+                                            {{ analytics_metrics.playstyle.entry_breakdown.solo_by_bucket_pct.late|floatformat:0 }}%
+                                        {% else %}
+                                            —
+                                        {% endif %}
+                                    </span>
+                                </div>
+                                {% if analytics_metrics.playstyle.entry_breakdown.approx %}
+                                    <div class="analytics-approx">approx</div>
+                                {% endif %}
+                            </div>
+                        {% endif %}
                     {% else %}
                         <div class="analytics-empty">Not enough data</div>
                     {% endif %}
@@ -604,6 +675,28 @@
                                 </strong>
                             </div>
                         </div>
+                        {% if analytics_metrics.multikill.by_context %}
+                            <div class="multikill-context">
+                                <div class="multikill-context__row">
+                                    <span>Execute</span>
+                                    <strong>
+                                        2k {{ analytics_metrics.multikill.by_context.execute.k2|default:"0" }},
+                                        3k {{ analytics_metrics.multikill.by_context.execute.k3|default:"0" }},
+                                        4k {{ analytics_metrics.multikill.by_context.execute.k4|default:"0" }},
+                                        5k {{ analytics_metrics.multikill.by_context.execute.k5|default:"0" }}
+                                    </strong>
+                                </div>
+                                <div class="multikill-context__row">
+                                    <span>Hold</span>
+                                    <strong>
+                                        2k {{ analytics_metrics.multikill.by_context.hold.k2|default:"0" }},
+                                        3k {{ analytics_metrics.multikill.by_context.hold.k3|default:"0" }},
+                                        4k {{ analytics_metrics.multikill.by_context.hold.k4|default:"0" }},
+                                        5k {{ analytics_metrics.multikill.by_context.hold.k5|default:"0" }}
+                                    </strong>
+                                </div>
+                            </div>
+                        {% endif %}
                     {% else %}
                         <div class="analytics-empty">Not enough data</div>
                     {% endif %}
@@ -617,7 +710,9 @@
                      data-version="{{ analytics_version|default:'v2' }}"
                      data-resolution="256"
                      data-metric="kills"
-                     data-slice="{{ heatmap_default_slice|default:'0-15' }}"
+                     data-bucket="{{ heatmap_default_bucket|default:'all' }}"
+                     data-buckets="{{ heatmap_time_buckets|join:',' }}"
+                     data-slice="{{ heatmap_default_slice|default:'all' }}"
                      data-slices="{{ heatmap_time_slices|join:',' }}"
                      data-can-trigger="{% if can_trigger_analytics %}1{% else %}0{% endif %}">
                     <div class="heatmaps-header">
@@ -630,6 +725,15 @@
                                         <option value="{{ map_name }}"
                                                 {% if map_name == analytics_map %}selected{% endif %}>
                                             {{ map_name }}
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                                <label class="heatmaps-label" for="hm-bucket">Bucket</label>
+                                <select id="hm-bucket" class="heatmaps-select">
+                                    {% for bucket in heatmap_time_buckets %}
+                                        <option value="{{ bucket }}"
+                                                {% if bucket == heatmap_default_bucket %}selected{% endif %}>
+                                            {{ bucket|capfirst }}
                                         </option>
                                     {% endfor %}
                                 </select>
@@ -961,6 +1065,46 @@
     .stat-sub {
         font-size: 0.85rem;
         color: #6c757d;
+    }
+
+    .playstyle-entry {
+        margin-top: 1rem;
+        padding: 0.75rem 1rem;
+        background: #f8f9fa;
+        border-radius: 8px;
+        display: grid;
+        gap: 0.5rem;
+    }
+
+    .playstyle-entry__row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        font-size: 0.9rem;
+    }
+
+    .playstyle-entry__meta {
+        font-size: 0.8rem;
+        color: #6c757d;
+    }
+
+    .multikill-context {
+        margin-top: 1rem;
+        padding: 0.75rem 1rem;
+        background: #f8f9fa;
+        border-radius: 8px;
+        display: grid;
+        gap: 0.35rem;
+        font-size: 0.9rem;
+    }
+
+    .multikill-context__row {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.75rem;
+        flex-wrap: wrap;
     }
 
     /* Details Grid */
@@ -1631,6 +1775,7 @@
         const sideTabs = Array.from(document.querySelectorAll('.hm-tab[data-group="side"]'));
         const metricTabs = Array.from(document.querySelectorAll('.hm-tab[data-group="metric"]'));
         const mapSelect = document.getElementById("hm-map");
+        const bucketSelect = document.getElementById("hm-bucket");
         const resolutionSelect = document.getElementById("hm-resolution");
         const sliceInput = document.getElementById("hm-slice");
         const sliceLabel = document.getElementById("hm-slice-label");
@@ -1643,6 +1788,11 @@
         const version = (root?.dataset?.version || "v2").trim() || "v2";
         const resolution = (root?.dataset?.resolution || "256").trim() || "256";
         const defaultMetric = (root?.dataset?.metric || "kills").trim().toLowerCase() || "kills";
+        const bucketOptions = (root?.dataset?.buckets || "all")
+            .split(",")
+            .map((v) => v.trim().toLowerCase())
+            .filter(Boolean);
+        const defaultBucket = (root?.dataset?.bucket || bucketOptions[0] || "all").trim().toLowerCase();
         const sliceOptions = (root?.dataset?.slices || "0-15")
             .split(",")
             .map((v) => v.trim())
@@ -1664,6 +1814,10 @@
         }
         if (resolutionSelect) {
             resolutionSelect.value = resolution;
+        }
+        let currentBucket = defaultBucket || "all";
+        if (bucketSelect && bucketOptions.length) {
+            bucketSelect.value = currentBucket;
         }
         let currentSliceIndex = Math.max(sliceOptions.indexOf(defaultSlice), 0);
         let currentSlice = sliceOptions[currentSliceIndex] || defaultSlice;
@@ -1715,6 +1869,12 @@
             pollingTimer = null;
         }
 
+        function toggleSlice(enabled) {
+            if (sliceInput) {
+                sliceInput.disabled = !enabled;
+            }
+        }
+
         async function fetchHeatmap({ force = false } = {}) {
             clearPolling();
             pollAttempts = 0;
@@ -1723,12 +1883,17 @@
             img.style.display = "none";
             let waitingForImage = false;
 
-            const apiUrl = `/api/heatmaps/me` +
+            let apiUrl = `/api/heatmaps/me` +
                 `?map=${encodeURIComponent(currentMap)}` +
                 `&metric=${encodeURIComponent(currentMetric)}` +
                 `&side=${encodeURIComponent(currentSide)}` +
-                `&period=${encodeURIComponent(period)}` +
-                `&slice=${encodeURIComponent(currentSlice)}` +
+                `&period=${encodeURIComponent(period)}`;
+            if (currentBucket && currentBucket !== "all") {
+                apiUrl += `&time_bucket=${encodeURIComponent(currentBucket)}`;
+            } else {
+                apiUrl += `&slice=${encodeURIComponent(currentSlice)}`;
+            }
+            apiUrl +=
                 `&v=${encodeURIComponent(version)}` +
                 `&res=${encodeURIComponent(currentResolution)}` +
                 (force ? "&force=1" : "");
@@ -1830,6 +1995,13 @@
                 fetchHeatmap();
             });
         }
+        if (bucketSelect) {
+            bucketSelect.addEventListener("change", () => {
+                currentBucket = bucketSelect.value.trim().toLowerCase() || "all";
+                toggleSlice(currentBucket === "all");
+                fetchHeatmap();
+            });
+        }
         if (sliceInput) {
             sliceInput.addEventListener("input", () => {
                 currentSliceIndex = parseInt(sliceInput.value, 10);
@@ -1856,6 +2028,7 @@
 
         setActive(sideTabs, currentSide);
         setActive(metricTabs, currentMetric);
+        toggleSlice(currentBucket === "all");
         fetchHeatmap();
     });
 </script>

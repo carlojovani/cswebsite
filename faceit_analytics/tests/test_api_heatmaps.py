@@ -88,3 +88,31 @@ class HeatmapMeApiTests(TestCase):
             assert payload["status"] == "ready"
             regenerated_path = os.path.join(tmp_dir, payload["image_url"].split("/media/")[-1].split("?")[0])
             assert os.path.exists(regenerated_path)
+
+    def test_time_bucket_and_bounds_filter_results(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            all_slice = self._create_heatmap(self.profile1.id, tmp_dir, time_slice="all")
+            early_slice = self._create_heatmap(self.profile1.id, tmp_dir, time_slice="0-15")
+            mid_slice = self._create_heatmap(self.profile1.id, tmp_dir, time_slice="16-35")
+            assert self.client.login(username="user1", password="pass") is True
+
+            with override_settings(MEDIA_ROOT=tmp_dir, MEDIA_URL="/media/"):
+                response_default = self.client.get(
+                    "/api/heatmaps/me?map=de_mirage&metric=kills&side=ALL&period=last_20&v=v2&res=64"
+                )
+                response_bucket = self.client.get(
+                    "/api/heatmaps/me?map=de_mirage&metric=kills&side=ALL&period=last_20&time_bucket=early&v=v2&res=64"
+                )
+                response_bounds = self.client.get(
+                    "/api/heatmaps/me?map=de_mirage&metric=kills&side=ALL&period=last_20&time_from=16&time_to=35&v=v2&res=64"
+                )
+
+            assert response_default.status_code == 200
+            assert response_bucket.status_code == 200
+            assert response_bounds.status_code == 200
+            payload_default = response_default.json()
+            payload_bucket = response_bucket.json()
+            payload_bounds = response_bounds.json()
+            assert all_slice.image.url in payload_default["image_url"]
+            assert early_slice.image.url in payload_bucket["image_url"]
+            assert mid_slice.image.url in payload_bounds["image_url"]
