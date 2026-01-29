@@ -310,9 +310,9 @@ def profile(request, user_id):
                 context["analytics_ready"] or context["heatmap_ready"]
             )
             if context["analytics_has_results"]:
-                context["analytics_button_label"] = "Re-analyze"
+                context["analytics_button_label"] = "Обновить анализ"
             else:
-                context["analytics_button_label"] = "Analyze"
+                context["analytics_button_label"] = "Проанализировать"
         except PlayerProfile.DoesNotExist:
             messages.warning(request, 'Профиль игрока не найден.')
             context['player_profile'] = None

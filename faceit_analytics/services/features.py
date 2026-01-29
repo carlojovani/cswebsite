@@ -34,7 +34,16 @@ def _get_event_time_seconds(event: dict[str, Any], meta: dict[str, Any]) -> floa
     if "tick" in event and event["tick"] is not None:
         tick_rate = meta.get("tick_rate") or meta.get("ticks_per_second")
         if tick_rate:
-            return float(event["tick"]) / float(tick_rate)
+            tick_value = float(event["tick"])
+            start_tick = event.get("round_start_tick")
+            if start_tick is None:
+                round_number = event.get("round")
+                round_start_ticks = meta.get("round_start_ticks")
+                if isinstance(round_start_ticks, dict) and round_number is not None:
+                    start_tick = round_start_ticks.get(round_number)
+            if start_tick is not None:
+                return (tick_value - float(start_tick)) / float(tick_rate)
+            return tick_value / float(tick_rate)
     return None
 
 
@@ -271,56 +280,59 @@ def compute_timing_slices(
 ) -> dict[str, Any]:
     if not events:
         buckets = [
-            {"label": "0-20", "value": None, "approx": True},
-            {"label": "20-40", "value": None, "approx": True},
-            {"label": "40-60", "value": None, "approx": True},
-            {"label": "60+", "value": None, "approx": True},
+            {"label": "0-30", "value": None, "approx": True},
+            {"label": "30-60", "value": None, "approx": True},
+            {"label": "60-90", "value": None, "approx": True},
+            {"label": "90+", "value": None, "approx": True},
         ]
         return {"buckets": buckets, "approx": True}
 
     counts = {
-        "0-20": 0,
-        "20-40": 0,
-        "40-60": 0,
-        "60+": 0,
+        "0-30": 0,
+        "30-60": 0,
+        "60-90": 0,
+        "90+": 0,
     }
     total = 0
+    approx_time = bool(meta.get("tickrate_assumed"))
     for event in events:
         if event.get("exclude_from_timing"):
             continue
         if not _is_contact_event(event):
             continue
+        if event.get("time_approx"):
+            approx_time = True
         event_time = _get_event_time_seconds(event, meta)
         if event_time is None:
             continue
         total += 1
-        if event_time < 20:
-            counts["0-20"] += 1
-        elif event_time < 40:
-            counts["20-40"] += 1
+        if event_time < 30:
+            counts["0-30"] += 1
         elif event_time < 60:
-            counts["40-60"] += 1
+            counts["30-60"] += 1
+        elif event_time < 90:
+            counts["60-90"] += 1
         else:
-            counts["60+"] += 1
+            counts["90+"] += 1
 
     if total == 0:
         buckets = [
-            {"label": "0-20", "value": None, "approx": True},
-            {"label": "20-40", "value": None, "approx": True},
-            {"label": "40-60", "value": None, "approx": True},
-            {"label": "60+", "value": None, "approx": True},
+            {"label": "0-30", "value": None, "approx": True},
+            {"label": "30-60", "value": None, "approx": True},
+            {"label": "60-90", "value": None, "approx": True},
+            {"label": "90+", "value": None, "approx": True},
         ]
         return {"buckets": buckets, "approx": True}
 
     # Buckets are normalized by total contact events with known round times.
     buckets = [
-        {"label": "0-20", "value": (counts["0-20"] / total) * 100, "approx": False},
-        {"label": "20-40", "value": (counts["20-40"] / total) * 100, "approx": False},
-        {"label": "40-60", "value": (counts["40-60"] / total) * 100, "approx": False},
-        {"label": "60+", "value": (counts["60+"] / total) * 100, "approx": False},
+        {"label": "0-30", "value": (counts["0-30"] / total) * 100, "approx": approx_time},
+        {"label": "30-60", "value": (counts["30-60"] / total) * 100, "approx": approx_time},
+        {"label": "60-90", "value": (counts["60-90"] / total) * 100, "approx": approx_time},
+        {"label": "90+", "value": (counts["90+"] / total) * 100, "approx": approx_time},
     ]
 
-    return {"buckets": buckets, "approx": False}
+    return {"buckets": buckets, "approx": approx_time}
 
 
 def _utility_iq_score(
@@ -350,7 +362,7 @@ def _build_role_tags(metrics: dict[str, dict[str, Any]], meta: dict[str, Any]) -
     timing_meta = meta.get("timing_slices")
     if timing_meta and isinstance(timing_meta, dict):
         for bucket in timing_meta.get("buckets", []):
-            if bucket.get("label") == "0-20":
+            if bucket.get("label") == "0-30":
                 early_contacts = bucket.get("value")
                 break
     traded_death_rate = _value("traded_death_rate")

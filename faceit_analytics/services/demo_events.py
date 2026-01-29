@@ -21,6 +21,7 @@ from faceit_analytics.services.features import (
     compute_timing_slices,
     compute_utility_iq,
 )
+from faceit_analytics.utils import deep_json_sanitize
 
 TRADE_WINDOW_SECONDS = 5
 FLASH_ASSIST_WINDOW_SECONDS = 4
@@ -69,6 +70,9 @@ class ParsedDemoEvents:
     tick_rate: float
     tick_rate_approx: bool
     missing_time_kills: int
+    missing_time_flashes: int
+    missing_time_utility: int
+    approx_time_kills: int
     attacker_none_count: int
     attacker_id_sample: dict[str, str | None]
     debug: dict[str, Any]
@@ -173,44 +177,36 @@ def steamid_eq(value: Any, target: Any) -> bool:
 
 
 def safe_json(obj: Any) -> Any:
-    if obj is None:
-        return None
-    if isinstance(obj, dict):
-        return {key: safe_json(value) for key, value in obj.items()}
-    if isinstance(obj, (list, tuple, set)):
-        return [safe_json(value) for value in obj]
-    if isinstance(obj, (np.integer,)):
-        return int(obj)
-    if isinstance(obj, (np.floating,)):
-        value = float(obj)
-        return value if math.isfinite(value) else None
-    if isinstance(obj, float):
-        return obj if math.isfinite(obj) else None
-    if isinstance(obj, pd.Timestamp):
-        return obj.isoformat()
-    if pd.isna(obj):
-        return None
-    return obj
+    return deep_json_sanitize(obj)
 
 
+def _local_demos_root(demos_dir: Path | None = None) -> Path:
+    if demos_dir is not None:
+        return Path(demos_dir)
+    local_root = getattr(settings, "LOCAL_DEMOS_ROOT", None)
+    if local_root:
+        return Path(local_root)
+    media_root = Path(getattr(settings, "MEDIA_ROOT", "media"))
+    return media_root / "local_demos"
+
+
+def _profile_steamid64(profile) -> str:
+    for attr in ("steamid64", "steam_id64", "steam_id"):
+        value = getattr(profile, attr, None)
+        if value:
+            return str(value).strip()
+    return ""
 
 
 def discover_demo_files(profile, period: str, demos_dir: Path | None = None) -> list[Path]:
-    root = Path(demos_dir) if demos_dir else Path(getattr(settings, "DEMOS_DIR", settings.BASE_DIR / "demos"))
-    steam_id = (getattr(profile, "steam_id", None) or "").strip()
-    candidates: list[Path] = []
-    if steam_id:
-        candidates.append(root / steam_id)
-    candidates.append(root / str(profile.id))
-    nickname = getattr(profile.user, "faceit_nickname", "") or ""
-    if nickname:
-        candidates.append(root / nickname)
-
-    demo_paths: list[Path] = []
-    for folder in candidates:
-        if not folder.exists():
-            continue
-        demo_paths.extend(folder.glob("*.dem"))
+    root = _local_demos_root(demos_dir)
+    steam_id = _profile_steamid64(profile)
+    if not steam_id:
+        return []
+    demos_root = root / steam_id
+    if not demos_root.exists():
+        return []
+    demo_paths = list(demos_root.glob("**/*.dem"))
 
     demo_paths = sorted(demo_paths, key=lambda p: p.stat().st_mtime, reverse=True)
     limit = max(_period_to_limit(period), 1)
@@ -361,6 +357,7 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
 
     kills: list[dict[str, Any]] = []
     missing_time_kills = 0
+    approx_time_kills = 0
     attacker_none_count = 0
     attacker_id_sample: dict[str, str | None] = {"attacker": None, "victim": None}
     round_start_tick_map: dict[int, int] = {}
@@ -451,18 +448,22 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
                 rounds_in_demo.add(round_number)
             tick_value = _safe_int(row.get(tick_col)) if tick_col else None
             t_round = _round_time_seconds(row, round_number, round_start_ticks, round_start_times, tick_rate)
+            time_approx = False
+            start_tick_used = None
             if t_round is None and tick_value is not None:
                 start_tick = round_start_ticks.get(round_number) if round_number is not None else None
                 if start_tick is None and round_number is not None:
                     start_tick = round_start_tick_map.get(round_number)
                 if start_tick is not None:
+                    start_tick_used = start_tick
                     t_round = max((tick_value - start_tick) / tick_rate, 0.0) if tick_rate else None
                 else:
                     tickrate_assumed_for_kills = True
+                    time_approx = True
+                    approx_time_kills += 1
                     t_round = max(tick_value / fallback_tick_rate, 0.0)
             if t_round is None:
                 missing_time_kills += 1
-                t_round = 0.0
             attacker_steam_raw = raw_row.get(attacker_col) if attacker_col else None
             victim_steam_raw = raw_row.get(victim_col) if victim_col else None
             assister_steam_raw = raw_row.get(assister_col) if assister_col else None
@@ -486,6 +487,8 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
                 "round": round_number,
                 "time": t_round,
                 "tick": tick_value,
+                "round_start_tick": start_tick_used,
+                "time_approx": time_approx,
                 "attacker": attacker_steam_id,
                 "victim": victim_steam_id,
                 "assister": assister_steam_id,
@@ -514,8 +517,10 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
 
     flashes: list[dict[str, Any]] = []
     flash_events_count = 0
+    missing_time_flashes = 0
     if flashes_df is not None and not flashes_df.empty:
         round_col = _pick_column(flashes_df, ["round", "round_num", "round_number"])
+        tick_col = _pick_column(flashes_df, ["tick", "tick_num", "ticks"])
         thrower_col = _pick_column(
             flashes_df,
             ["attacker_steamid", "thrower_steamid", "flasher_steamid", "attackerSteamID"],
@@ -535,6 +540,17 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
             if round_number is not None:
                 rounds_in_demo.add(round_number)
             t_round = _round_time_seconds(row, round_number, round_start_ticks, round_start_times, tick_rate)
+            tick_value = _safe_int(row.get(tick_col)) if tick_col else None
+            if t_round is None and tick_value is not None:
+                start_tick = round_start_ticks.get(round_number) if round_number is not None else None
+                if start_tick is None and round_number is not None:
+                    start_tick = round_start_tick_map.get(round_number)
+                if start_tick is not None:
+                    t_round = max((tick_value - start_tick) / tick_rate, 0.0) if tick_rate else None
+                else:
+                    t_round = max(tick_value / 128.0, 0.0)
+            if t_round is None:
+                missing_time_flashes += 1
             thrower_side = _normalize_side(row.get(thrower_side_col)) if thrower_side_col else None
             blinded_side = _normalize_side(row.get(blinded_side_col)) if blinded_side_col else None
             thrower_id = normalize_steamid64(row.get(thrower_col)) if thrower_col else None
@@ -549,6 +565,7 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
                 {
                     "round": round_number,
                     "time": t_round,
+                    "tick": tick_value,
                     "thrower": thrower_id,
                     "blinded": blinded_id,
                     "thrower_steamid64": thrower_id,
@@ -566,6 +583,7 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
         flash_events_count = assistedflash_kill_count
 
     utility_damage: list[dict[str, Any]] = []
+    missing_time_utility = 0
     if damages_df is not None and not damages_df.empty:
         raw_damages_df = damages_df.copy()
         round_col = _pick_column(damages_df, ["round", "round_num", "round_number"])
@@ -604,6 +622,8 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
                     t_round = max((tick_value - start_tick) / tick_rate, 0.0) if tick_rate else None
                 else:
                     t_round = max(tick_value / 128.0, 0.0)
+            if t_round is None:
+                missing_time_utility += 1
             damage_amount = _safe_float(row.get(dmg_col)) if dmg_col else None
             if damage_amount is None or damage_amount <= 0:
                 continue
@@ -620,7 +640,7 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
             utility_damage.append(
                 {
                     "round": round_number,
-                    "time": t_round if t_round is not None else 0.0,
+                    "time": t_round,
                     "tick": tick_value,
                     "attacker": attacker_steam_id,
                     "victim": victim_steam_id,
@@ -648,6 +668,9 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
         tick_rate=tick_rate,
         tick_rate_approx=tick_rate_approx,
         missing_time_kills=missing_time_kills,
+        missing_time_flashes=missing_time_flashes,
+        missing_time_utility=missing_time_utility,
+        approx_time_kills=approx_time_kills,
         attacker_none_count=attacker_none_count,
         attacker_id_sample=attacker_id_sample,
         debug=debug_payload,
@@ -893,6 +916,9 @@ def aggregate_player_features(
                             "type": "kill",
                             "round": round_number,
                             "time": kill_time,
+                            "tick": kill.get("tick"),
+                            "round_start_tick": kill.get("round_start_tick"),
+                            "time_approx": kill.get("time_approx"),
                             "is_trade_kill": _is_trade_kill(kill, prior, target_id, target_side, target_name),
                             "is_first_duel": is_first_duel,
                             "is_first_duel_win": is_first_duel,
@@ -907,6 +933,9 @@ def aggregate_player_features(
                             "type": "death",
                             "round": round_number,
                             "time": kill_time,
+                            "tick": kill.get("tick"),
+                            "round_start_tick": kill.get("round_start_tick"),
+                            "time_approx": kill.get("time_approx"),
                             "was_traded": _is_traded_death(kill, later, target_id, target_side, target_name),
                             "is_first_duel": is_first_duel,
                         }
@@ -920,6 +949,9 @@ def aggregate_player_features(
                             "type": "assist",
                             "round": round_number,
                             "time": kill_time,
+                            "tick": kill.get("tick"),
+                            "round_start_tick": kill.get("round_start_tick"),
+                            "time_approx": kill.get("time_approx"),
                             "exclude_from_timing": True,
                         }
                     )
@@ -1072,14 +1104,17 @@ def get_or_build_demo_features(
     progress_start: int = 10,
     progress_end: int = 40,
 ) -> dict[str, Any]:
-    steam_id = (getattr(profile, "steam_id", None) or "").strip()
+    steam_id = _profile_steamid64(profile)
     demo_files = discover_demo_files(profile, period)
     demos_count = len(demo_files)
     demo_set_hash = compute_demo_set_hash(demo_files) if demo_files else ""
 
     cache_key = demo_features_key(profile.id, period, demo_set_hash, analytics_version)
     if not force_rebuild:
-        cached = cache.get(cache_key)
+        try:
+            cached = cache.get(cache_key)
+        except Exception:
+            cached = None
         if cached:
             return cached
 
@@ -1090,6 +1125,9 @@ def get_or_build_demo_features(
         "flash_events_count": 0,
         "util_damage_events_count": 0,
         "missing_time_kills": 0,
+        "missing_time_flashes": 0,
+        "missing_time_utility": 0,
+        "approx_time_kills": 0,
         "attacker_none_count": 0,
         "attacker_id_sample": {"attacker": None, "victim": None},
         "player_kills": 0,
@@ -1123,6 +1161,7 @@ def get_or_build_demo_features(
             "player_kills": 0,
             "player_deaths": 0,
             "flash_events_count": 0,
+            "tickrate_assumed": debug.get("tickrate_assumed"),
         }
         timing_slices = compute_timing_slices([], meta)
         role_fingerprint = compute_role_fingerprint([], None, {**meta, "timing_slices": timing_slices})
@@ -1139,7 +1178,10 @@ def get_or_build_demo_features(
             "insufficient_rounds": True,
         }
         payload = safe_json(payload)
-        cache.set(cache_key, payload, DEMO_FEATURES_TTL_SECONDS)
+        try:
+            cache.set(cache_key, payload, DEMO_FEATURES_TTL_SECONDS)
+        except Exception:
+            pass
         return payload
 
     parsed_demos: list[ParsedDemoEvents] = []
@@ -1151,6 +1193,9 @@ def get_or_build_demo_features(
         debug["util_damage_events_count"] += len(parsed.utility_damage)
         debug["rounds_count"] += len(parsed.rounds_in_demo)
         debug["missing_time_kills"] += parsed.missing_time_kills
+        debug["missing_time_flashes"] += parsed.missing_time_flashes
+        debug["missing_time_utility"] += parsed.missing_time_utility
+        debug["approx_time_kills"] += parsed.approx_time_kills
         debug["attacker_none_count"] += parsed.attacker_none_count
         if parsed.attacker_id_sample.get("attacker") and not debug["attacker_id_sample"].get("attacker"):
             debug["attacker_id_sample"]["attacker"] = parsed.attacker_id_sample["attacker"]
@@ -1203,6 +1248,7 @@ def get_or_build_demo_features(
             "player_kills": debug.get("player_kills", 0),
             "player_deaths": debug.get("player_deaths", 0),
             "flash_events_count": debug.get("flash_events_count", 0),
+            "tickrate_assumed": debug.get("tickrate_assumed"),
         }
         timing_slices = compute_timing_slices([], meta)
         role_fingerprint = compute_role_fingerprint([], None, {**meta, "timing_slices": timing_slices})
@@ -1214,6 +1260,7 @@ def get_or_build_demo_features(
             "period": period,
             "profile_id": profile.id,
             "tick_rate": meta.get("tick_rate"),
+            "tickrate_assumed": debug.get("tickrate_assumed"),
             "min_rounds_required": MIN_ROUNDS_REQUIRED,
             "minimal_contacts": MIN_CONTACTS_REQUIRED,
             "player_kills": debug.get("player_kills", 0),
@@ -1239,7 +1286,10 @@ def get_or_build_demo_features(
     }
 
     payload = safe_json(payload)
-    cache.set(cache_key, payload, DEMO_FEATURES_TTL_SECONDS)
+    try:
+        cache.set(cache_key, payload, DEMO_FEATURES_TTL_SECONDS)
+    except Exception:
+        pass
     if progress_callback:
         progress_callback(progress_end)
     return payload

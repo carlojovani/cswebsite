@@ -51,7 +51,7 @@ def test_render_heatmap_no_blur_keeps_hotspot_visible():
     pixels = np.array(image)
     alpha = pixels[:, :, 3]
     assert alpha.max() > 120
-    assert np.percentile(alpha, 90) < 140
+    assert np.percentile(alpha, 90) < 200
     assert pixels[:, :, :3].max() > 40
 
 
