@@ -12,6 +12,7 @@ from faceit_analytics.cache_keys import DEFAULT_TTL_SECONDS, profile_metrics_key
 from faceit_analytics.constants import ANALYTICS_VERSION
 from faceit_analytics.models import AnalyticsAggregate, HeatmapAggregate, ProcessingJob
 from faceit_analytics.services.heatmaps import DEFAULT_MAPS, get_time_slice_labels, normalize_map_name
+from faceit_analytics.services.time_buckets import get_time_bucket_labels
 from faceit_analytics.tasks import task_full_pipeline
 from .forms import (
     RegistrationStep1Form,
@@ -275,6 +276,7 @@ def profile(request, user_id):
             period = "last_20"
             map_name = normalize_map_name(request.GET.get("map") or "de_mirage")
             slice_labels = get_time_slice_labels()
+            bucket_labels = ["all"] + get_time_bucket_labels()
             cache_key = profile_metrics_key(player_profile.id, period, map_name, ANALYTICS_VERSION)
             try:
                 analytics_aggregates = cache.get(cache_key)
@@ -299,6 +301,8 @@ def profile(request, user_id):
             context["available_maps"] = list(DEFAULT_MAPS)
             context["heatmap_time_slices"] = slice_labels
             context["heatmap_default_slice"] = getattr(settings, "HEATMAP_DEFAULT_SLICE", slice_labels[0])
+            context["heatmap_time_buckets"] = bucket_labels
+            context["heatmap_default_bucket"] = "all"
             context["analytics_aggregates"] = analytics_aggregates
             context["analytics_ready"] = bool(analytics_aggregates)
             context["analytics_version"] = ANALYTICS_VERSION
