@@ -1,0 +1,99 @@
+diff a/faceit_analytics/services/features.py b/faceit_analytics/services/features.py	(rejected hunks)
+@@ -351,86 +351,85 @@ def _utility_iq_score(
+     return score
+ 
+ 
+ def _build_role_tags(metrics: dict[str, dict[str, Any]], meta: dict[str, Any]) -> list[str]:
+     def _value(name: str) -> float | None:
+         metric = metrics.get(name) or {}
+         return metric.get("value")
+ 
+     tags: list[str] = []
+     first_duel_attempts = _value("first_duel_attempts_per_round")
+     early_contacts = None
+     timing_meta = meta.get("timing_slices")
+     if timing_meta and isinstance(timing_meta, dict):
+         for bucket in timing_meta.get("buckets", []):
+             if bucket.get("label") == "0-30":
+                 early_contacts = bucket.get("value")
+                 break
+     traded_death_rate = _value("traded_death_rate")
+     flash_assists = _value("flash_assists_per_round")
+     utility_damage = _value("utility_damage_per_round")
+     clutch_opportunities = _value("clutch_opportunities_rate")
+     clutch_win = _value("clutch_win_rate")
+ 
+     if first_duel_attempts is not None and first_duel_attempts >= 0.14:
+         if early_contacts is None or early_contacts >= 40:
+-            tags.append("Aggressive Entry")
++            tags.append("Агрессивный энтри")
+ 
+     if first_duel_attempts is not None and first_duel_attempts >= 0.14:
+         if traded_death_rate is not None and traded_death_rate < 0.3:
+-            tags.append("Low Trade Synergy")
++            tags.append("Слабые размены")
+ 
+     if (flash_assists is not None and flash_assists >= 0.12) or (
+         utility_damage is not None and utility_damage >= 18
+     ):
+-        tags.append("Support Utility")
++        tags.append("Поддержка утилити")
+ 
+     if clutch_opportunities is not None and clutch_opportunities >= 0.08:
+         if clutch_win is not None and clutch_win >= 0.4:
+-            tags.append("Clutch Factor")
++            tags.append("Клатч-фактор")
+ 
+     if meta.get("side") == "CT":
+         if early_contacts is not None and early_contacts < 25:
+-            tags.append("Passive Anchor")
++            tags.append("Пассивный якорь")
+ 
+     return tags[:5]
+ 
+ 
+ def _build_role_summary(metrics: dict[str, dict[str, Any]], tags: list[str], meta: dict[str, Any]) -> str:
+     rounds = meta.get("rounds")
+     min_rounds_required = meta.get("min_rounds_required")
+     minimal_contacts = meta.get("minimal_contacts")
+     player_kills = meta.get("player_kills")
+     player_deaths = meta.get("player_deaths")
+     contacts = None
+     if player_kills is not None and player_deaths is not None:
+         contacts = int(player_kills) + int(player_deaths)
+ 
+     insufficient_rounds = False
+     if min_rounds_required is not None:
+         if rounds is None or rounds < int(min_rounds_required):
+             insufficient_rounds = True
+     insufficient_contacts = (
+         minimal_contacts is not None and contacts is not None and contacts < int(minimal_contacts)
+     )
+ 
+     if insufficient_rounds or insufficient_contacts:
+-        return "Not enough data to build a stable role fingerprint."
++        return "Недостаточно данных для стабильного ролевого профиля."
+ 
+     if not tags:
+-        summary = "Role profile is developing based on available contacts."
++        summary = "Ролевой профиль формируется по доступным контактам."
+     else:
+         primary = tags[0]
+         second = tags[1] if len(tags) > 1 else None
+-        summary = f"{primary} tendencies"
++        summary = f"Основной профиль: {primary}."
+         if second:
+-            summary += f" with {second.lower()} patterns"
+-        summary += "."
++            summary += f" Также заметны признаки: {second.lower()}."
+ 
+     first_duel_success = metrics.get("first_duel_success_rate", {}).get("value")
+     if first_duel_success is not None:
+-        summary += f" First-duel success rate is {first_duel_success:.0%}."
++        summary += f" Успех первых дуэлей: {first_duel_success:.0%}."
+ 
+     if meta.get("flash_events_count") == 0:
+-        summary += " Note: no flash events detected, so flash-related metrics may be missing."
++        summary += " Флеш-события не найдены, поэтому метрики флешей могут отсутствовать."
+ 
+     return summary

@@ -1,0 +1,404 @@
+diff a/faceit_analytics/services/demo_events.py b/faceit_analytics/services/demo_events.py	(rejected hunks)
+@@ -1,30 +1,32 @@
+ from __future__ import annotations
+ 
+ import hashlib
++import json
+ import math
+ from collections import Counter
++from functools import lru_cache
+ from dataclasses import dataclass
+ from pathlib import Path
+ from typing import Any, Callable, Iterable
+ 
+ import numpy as np
+ import pandas as pd
+ import pyarrow as pa
+ import pyarrow.parquet as pq
+ from awpy import Demo
+ from django.conf import settings
+ from django.core.cache import cache
+ 
+ from faceit_analytics.cache_keys import demo_features_key
+ from faceit_analytics.services.features import (
+     compute_role_fingerprint,
+     compute_timing_slices,
+     compute_utility_iq,
+ )
+ from faceit_analytics.services.paths import get_demos_dir
+ from faceit_analytics.utils import to_jsonable
+ 
+ TRADE_WINDOW_SECONDS = 5
+ FLASH_ASSIST_WINDOW_SECONDS = 4
+ FIRST_CONTACT_WINDOW_SECONDS = 20
+ MIN_FLASH_DURATION_SECONDS = 0.2
+@@ -182,54 +184,51 @@ def steamid_eq(value: Any, target: Any) -> bool:
+ 
+ 
+ def safe_json(obj: Any) -> Any:
+     return to_jsonable(obj)
+ 
+ 
+ def _local_demos_root(demos_dir: Path | None = None) -> Path:
+     if demos_dir is not None:
+         return Path(demos_dir)
+     local_root = getattr(settings, "LOCAL_DEMOS_ROOT", None)
+     if local_root:
+         return Path(local_root)
+     media_root = Path(getattr(settings, "MEDIA_ROOT", "media"))
+     return media_root / "local_demos"
+ 
+ 
+ def _profile_steamid64(profile) -> str:
+     for attr in ("steamid64", "steam_id64", "steam_id"):
+         value = getattr(profile, attr, None)
+         if value:
+             return str(value).strip()
+     return ""
+ 
+ 
+ def discover_demo_files(profile, period: str, map_name: str, demos_dir: Path | None = None) -> list[Path]:
+-    if demos_dir is not None:
+-        demos_root = Path(demos_dir)
+-    else:
+-        demos_root = get_demos_dir(profile, map_name)
++    demos_root = get_demos_dir(profile, map_name)
+     steam_id = _profile_steamid64(profile)
+     if not steam_id:
+         return []
+     if not demos_root.exists():
+         return []
+     demo_paths = list(demos_root.glob("*.dem"))
+ 
+     demo_paths = sorted(demo_paths, key=lambda p: p.stat().st_mtime, reverse=True)
+     limit = max(_period_to_limit(period), 1)
+     return demo_paths[:limit]
+ 
+ 
+ def compute_demo_set_hash(files: Iterable[Path]) -> str:
+     hasher = hashlib.sha1()
+     for path in sorted(files, key=lambda p: p.name):
+         stats = path.stat()
+         hasher.update(str(path.resolve()).encode("utf-8"))
+         hasher.update(str(stats.st_size).encode("utf-8"))
+         hasher.update(str(stats.st_mtime).encode("utf-8"))
+     return hasher.hexdigest()
+ 
+ 
+ def _tick_rate_from_demo(demo: Demo) -> float:
+     for attr in ("tickrate", "tick_rate", "tickRate"):
+         value = getattr(demo, attr, None)
+@@ -1092,51 +1091,54 @@ def aggregate_player_features(
+         "rounds": rounds_total if rounds_total else None,
+         "tick_rate": tick_rate,
+     }
+ 
+     debug = {
+         "player_kills": player_kills,
+         "player_deaths": player_deaths,
+         "player_assists": player_assists,
+         "player_util_damage_total": player_utility_damage_total,
+         "utility_damage_per_round": utility_damage_per_round,
+         "player_contacts": player_kills + player_deaths,
+         "target_attacker_kills": target_attacker_kills,
+         "target_victim_deaths": target_victim_deaths,
+         "target_assists": target_assists,
+         "attacker_id_examples": attacker_id_examples,
+         "victim_id_examples": victim_id_examples,
+         "target_name": target_name,
+         "name_candidates_count": len(name_candidates),
+         "steam_match_counts": steam_match_counts,
+     }
+ 
+     return events, meta, debug
+ 
+ 
+ def _slice_label(bounds: tuple[int, int]) -> str:
+-    return f"{int(bounds[0])}-{int(bounds[1])}"
++    start, end = bounds
++    if int(end) >= 999:
++        return f"{int(start)}+"
++    return f"{int(start)}-{int(end)}"
+ 
+ 
+ def _slice_for_time(seconds: float | None) -> str:
+     if seconds is None:
+         return "unknown"
+     for bounds in HEATMAP_TIME_SLICES:
+         start, end = bounds
+         if start <= seconds < end:
+             return _slice_label(bounds)
+     last = HEATMAP_TIME_SLICES[-1]
+     return _slice_label(last)
+ 
+ 
+ def _rounds_from_events(events: list[dict[str, Any]]) -> int:
+     rounds = {event.get("round") for event in events if event.get("round") is not None}
+     return len(rounds)
+ 
+ 
+ def compute_awareness_before_death(events: list[dict[str, Any]]) -> dict[str, Any]:
+     deaths = [event for event in events if event.get("type") == "death" and event.get("time") is not None]
+     if not deaths:
+         return {
+             "aware_deaths": 0,
+             "total_deaths": 0,
+             "awareness_before_death_rate": None,
+@@ -1169,118 +1171,195 @@ def compute_awareness_before_death(events: list[dict[str, Any]]) -> dict[str, An
+             aware_count += 1
+             bucket["aware"] += 1
+ 
+     total_deaths = len(deaths)
+     return {
+         "aware_deaths": aware_count,
+         "total_deaths": total_deaths,
+         "awareness_before_death_rate": (aware_count / total_deaths) * 100 if total_deaths else None,
+         "by_slice": by_slice,
+         "lookback_sec": DEATH_AWARENESS_LOOKBACK_SEC,
+     }
+ 
+ 
+ def _quadrant_from_coords(x: float | None, y: float | None) -> str:
+     if x is None or y is None:
+         return "unknown"
+     if x >= 0 and y >= 0:
+         return "NE"
+     if x < 0 and y >= 0:
+         return "NW"
+     if x >= 0 and y < 0:
+         return "SE"
+     return "SW"
+ 
+ 
+-def compute_multikill_metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
++@lru_cache(maxsize=16)
++def _load_zone_config(map_name: str | None) -> dict[str, Any]:
++    if not map_name:
++        return {}
++    zones_path = Path(__file__).resolve().parent.parent / "maps" / "zones.json"
++    if not zones_path.exists():
++        return {}
++    try:
++        payload = json.loads(zones_path.read_text(encoding="utf-8"))
++    except json.JSONDecodeError:
++        return {}
++    return payload.get(map_name, {})
++
++
++def _normalize_place(place: str | None) -> str:
++    if not place:
++        return ""
++    return str(place).strip().lower()
++
++
++def _zone_from_place(place: str | None, config: dict[str, Any]) -> str | None:
++    if not place or not config:
++        return None
++    place_norm = _normalize_place(place)
++    for zone, tokens in (config.get("place_map") or {}).items():
++        for token in tokens:
++            if token in place_norm:
++                return zone
++    return None
++
++
++def _zone_from_coords(map_name: str | None, x: float | None, y: float | None, config: dict[str, Any]) -> str | None:
++    if not map_name or x is None or y is None or not config:
++        return None
++    bboxes = config.get("bbox") or {}
++    if not bboxes:
++        return None
++    try:
++        from faceit_analytics import analyzer
++
++        radar, meta, _radar_name = analyzer.load_radar_and_meta(map_name)
++        w, h = radar.size
++        pixel = analyzer._world_to_pixel(np.array([[x, y]], dtype=np.float32), meta, (w, h))
++        if pixel.size == 0:
++            return None
++        px, py = float(pixel[0][0]), float(pixel[0][1])
++        nx = px / max(w, 1)
++        ny = py / max(h, 1)
++    except Exception:
++        return None
++
++    for zone, boxes in bboxes.items():
++        for box in boxes:
++            x1, y1, x2, y2 = box
++            if x1 <= nx <= x2 and y1 <= ny <= y2:
++                return zone
++    return None
++
++
++def _kill_zone(kill: dict[str, Any], map_name: str | None) -> str:
++    config = _load_zone_config(map_name)
++    zone = _zone_from_place(kill.get("attacker_place"), config)
++    if zone:
++        return zone
++    zone = _zone_from_coords(map_name, kill.get("attacker_x"), kill.get("attacker_y"), config)
++    if zone:
++        return zone
++    return _quadrant_from_coords(kill.get("attacker_x"), kill.get("attacker_y"))
++
++
++def compute_multikill_metrics(events: list[dict[str, Any]], map_name: str | None = None) -> dict[str, Any]:
+     kills = [event for event in events if event.get("type") == "kill" and event.get("time") is not None]
+     if not kills:
+         return {
+             "multikill_round_rate": None,
+             "multikill_event_rate": None,
+             "multikill_events": 0,
+             "rounds_with_multikill": 0,
+             "by_timing": {"early": 0, "late": 0},
++            "by_phase": {"entry": 0, "hold": 0},
+             "by_zone": {},
+             "window_sec": MULTIKILL_WINDOW_SEC,
+             "early_threshold_sec": MULTIKILL_EARLY_THRESHOLD_SEC,
+         }
+ 
+     rounds_with_multikill = set()
+     multikill_events = 0
+     timing_breakdown = {"early": 0, "late": 0}
++    phase_breakdown = {"entry": 0, "hold": 0}
+     zone_breakdown: dict[str, int] = {}
+ 
+     kills_by_round: dict[int | None, list[dict[str, Any]]] = {}
+     for kill in kills:
+         kills_by_round.setdefault(kill.get("round"), []).append(kill)
+ 
+     for round_number, round_kills in kills_by_round.items():
+         if round_number is None:
+             continue
+         sorted_kills = sorted(round_kills, key=lambda k: k.get("time") or 0)
+         streak: list[dict[str, Any]] = []
+         for kill in sorted_kills:
+             if not streak:
+                 streak = [kill]
+                 continue
+             delta = float(kill.get("time") or 0) - float(streak[-1].get("time") or 0)
+             if delta <= MULTIKILL_WINDOW_SEC:
+                 streak.append(kill)
+             else:
+                 if len(streak) >= 2:
+                     multikill_events += 1
+                     rounds_with_multikill.add(round_number)
+                     start_time = float(streak[0].get("time") or 0)
+                     key = "early" if start_time <= MULTIKILL_EARLY_THRESHOLD_SEC else "late"
+                     timing_breakdown[key] += 1
+-                    zone = streak[0].get("attacker_place") or _quadrant_from_coords(
+-                        streak[0].get("attacker_x"),
+-                        streak[0].get("attacker_y"),
+-                    )
++                    zone = _kill_zone(streak[0], map_name)
+                     zone_breakdown[zone] = zone_breakdown.get(zone, 0) + 1
++                    if zone in {"A", "B", "ENTRY"}:
++                        if start_time <= MULTIKILL_EARLY_THRESHOLD_SEC:
++                            phase_breakdown["entry"] += 1
++                        else:
++                            phase_breakdown["hold"] += 1
+                 streak = [kill]
+         if len(streak) >= 2:
+             multikill_events += 1
+             rounds_with_multikill.add(round_number)
+             start_time = float(streak[0].get("time") or 0)
+             key = "early" if start_time <= MULTIKILL_EARLY_THRESHOLD_SEC else "late"
+             timing_breakdown[key] += 1
+-            zone = streak[0].get("attacker_place") or _quadrant_from_coords(
+-                streak[0].get("attacker_x"),
+-                streak[0].get("attacker_y"),
+-            )
++            zone = _kill_zone(streak[0], map_name)
+             zone_breakdown[zone] = zone_breakdown.get(zone, 0) + 1
++            if zone in {"A", "B", "ENTRY"}:
++                if start_time <= MULTIKILL_EARLY_THRESHOLD_SEC:
++                    phase_breakdown["entry"] += 1
++                else:
++                    phase_breakdown["hold"] += 1
+ 
+     rounds_total = _rounds_from_events(events)
+     total_kills = len(kills)
+     return {
+         "multikill_round_rate": (multikill_events / rounds_total) * 100 if rounds_total else None,
+         "multikill_event_rate": (multikill_events / total_kills) * 100 if total_kills else None,
+         "multikill_events": multikill_events,
+         "rounds_with_multikill": len(rounds_with_multikill),
+         "by_timing": timing_breakdown,
++        "by_phase": phase_breakdown,
+         "by_zone": zone_breakdown,
+         "window_sec": MULTIKILL_WINDOW_SEC,
+         "early_threshold_sec": MULTIKILL_EARLY_THRESHOLD_SEC,
+     }
+ 
+ 
+ def get_or_build_demo_features(
+     profile,
+     period: str,
+     map_name: str,
+     analytics_version: str,
+     *,
+     force_rebuild: bool = False,
+     progress_callback: Callable[[int], None] | None = None,
+     progress_start: int = 10,
+     progress_end: int = 40,
+ ) -> dict[str, Any]:
+     steam_id = _profile_steamid64(profile)
+     demo_files = discover_demo_files(profile, period, map_name)
+     demos_count = len(demo_files)
+     demo_set_hash = compute_demo_set_hash(demo_files) if demo_files else ""
+ 
+     cache_key = demo_features_key(profile.id, period, map_name, demo_set_hash, analytics_version)
+     if not force_rebuild:
+         try:
+@@ -1389,51 +1468,51 @@ def get_or_build_demo_features(
+         if progress_callback:
+             span = max(progress_end - progress_start, 1)
+             progress = progress_start + int((index / max(demos_count, 1)) * span)
+             progress_callback(progress)
+ 
+     events, meta, player_debug = aggregate_player_features(parsed_demos, steam_id)
+     debug.update(
+         {
+             "player_kills": player_debug.get("player_kills", 0),
+             "player_deaths": player_debug.get("player_deaths", 0),
+             "player_assists": player_debug.get("player_assists", 0),
+             "player_util_damage_total": player_debug.get("player_util_damage_total", 0.0),
+             "target_attacker_kills": player_debug.get("target_attacker_kills", 0),
+             "target_victim_deaths": player_debug.get("target_victim_deaths", 0),
+             "target_assists": player_debug.get("target_assists", 0),
+             "attacker_id_examples": player_debug.get("attacker_id_examples", []),
+             "victim_id_examples": player_debug.get("victim_id_examples", []),
+             "target_name": player_debug.get("target_name"),
+             "name_candidates_count": player_debug.get("name_candidates_count"),
+             "steam_match_counts": player_debug.get("steam_match_counts"),
+         }
+     )
+     rounds_total = meta.get("rounds") or 0
+ 
+     awareness = compute_awareness_before_death(events)
+-    multikill = compute_multikill_metrics(events)
++    multikill = compute_multikill_metrics(events, map_name)
+ 
+     kills = debug.get("player_kills", 0) or 0
+     deaths = debug.get("player_deaths", 0) or 0
+     assists = debug.get("player_assists", 0) or 0
+     kda_ratio = (kills + assists) / deaths if deaths else None
+     kda = {
+         "kills": kills,
+         "deaths": deaths,
+         "assists": assists,
+         "kda_ratio": kda_ratio,
+         "assists_per_round": assists / rounds_total if rounds_total else None,
+     }
+ 
+     if rounds_total < MIN_ROUNDS_REQUIRED:
+         meta = {
+             "rounds": None,
+             "period": period,
+             "profile_id": profile.id,
+             "min_rounds_required": MIN_ROUNDS_REQUIRED,
+             "minimal_contacts": MIN_CONTACTS_REQUIRED,
+             "player_kills": debug.get("player_kills", 0),
+             "player_deaths": debug.get("player_deaths", 0),
+             "flash_events_count": debug.get("flash_events_count", 0),
+             "tickrate_assumed": debug.get("tickrate_assumed"),
+         }

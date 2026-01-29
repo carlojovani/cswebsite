@@ -1,0 +1,112 @@
+diff a/faceit_analytics/services/archetype.py b/faceit_analytics/services/archetype.py	(rejected hunks)
+@@ -44,55 +44,110 @@ def infer_archetype(metrics: dict[str, Any], timing_slices: dict[str, Any], dist
+         except (TypeError, ValueError):
+             early_share = None
+             late_share = None
+ 
+     entry_score = (
+         _safe_ratio(first_duel_attempts) * 1.6
+         + _safe_ratio(first_contact_rate) * 1.3
+         + _safe_ratio(early_share) * 1.1
+     )
+     support_score = (
+         _safe_ratio(flash_assists) * 1.4
+         + _safe_ratio(trade_kill_rate) * 1.1
+         + _safe_ratio(assists_per_round) * 0.9
+     )
+     lurk_score = (
+         _safe_ratio(late_share) * 1.4
+         + (1.0 - _safe_ratio(traded_death_rate, 0.0)) * 0.8
+         + (1.0 - _safe_ratio(first_duel_attempts, 0.0)) * 0.6
+     )
+ 
+     scores = {
+         "Entry": entry_score,
+         "Support": support_score,
+         "Lurk": lurk_score,
+     }
++    value_inputs = (
++        first_duel_attempts,
++        first_contact_rate,
++        trade_kill_rate,
++        traded_death_rate,
++        flash_assists,
++        assists_per_round,
++        early_share,
++        late_share,
++    )
++    if all(value is None for value in value_inputs):
++        return {
++            "label": "Unknown",
++            "label_ru": "Недостаточно данных",
++            "scores": scores,
++            "reasons": [],
++            "reasons_ru": [],
++            "explanation_ru": "Недостаточно данных для определения архетипа.",
++            "approx": True,
++            "entry_split": {
++                "with_teammate": None,
++                "solo": None,
++                "note": "Недостаточно данных",
++            },
++        }
++
+     label = max(scores, key=scores.get) if scores else "Unknown"
++    label_map = {
++        "Entry": "Энтри",
++        "Support": "Саппорт",
++        "Lurk": "Лёркер",
++    }
+ 
+     reasons: list[str] = []
++    reasons_ru: list[str] = []
+     if label == "Entry":
+         if first_duel_attempts is not None:
+             reasons.append("High first duel attempts per round.")
++            reasons_ru.append("Часто открывает раунд и берёт первые дуэли.")
+         if first_contact_rate is not None:
+             reasons.append("Frequent early contacts.")
++            reasons_ru.append("Регулярно вступает в первый контакт.")
+         if early_share is not None:
+             reasons.append("Most contacts happen early in the round.")
++            reasons_ru.append("Большая часть контактов приходится на раннюю стадию раунда.")
+     elif label == "Support":
+         if flash_assists is not None:
+             reasons.append("Consistent flash assists per round.")
++            reasons_ru.append("Регулярно помогает флешками.")
+         if trade_kill_rate is not None:
+             reasons.append("Good trade kill involvement.")
++            reasons_ru.append("Часто разменяет союзников.")
+         if assists_per_round is not None:
+             reasons.append("High assist volume per round.")
++            reasons_ru.append("Стабильно набирает ассисты.")
+     else:
+         if late_share is not None:
+             reasons.append("More contacts happen late in the round.")
++            reasons_ru.append("Контакты чаще происходят в поздней стадии раунда.")
+         if traded_death_rate is not None:
+             reasons.append("Lower traded death rate suggests spacing.")
++            reasons_ru.append("Редко разменяется, что похоже на игру с дистанции.")
+         reasons.append("Less frequent early duels.")
++        reasons_ru.append("Реже вступает в ранние дуэли.")
++
++    entry_split = (metrics or {}).get("entry_split") or {}
++    entry_with_teammate = entry_split.get("with_teammate")
++    entry_solo = entry_split.get("solo")
+ 
+     return {
+         "label": label,
++        "label_ru": label_map.get(label, "Недостаточно данных"),
+         "scores": scores,
+         "reasons": reasons[:3],
++        "reasons_ru": reasons_ru[:3],
++        "explanation_ru": " ".join(reasons_ru[:3]) if reasons_ru else "Недостаточно данных.",
+         "approx": any(value is None for value in (first_duel_attempts, trade_kill_rate, flash_assists)),
++        "entry_split": {
++            "with_teammate": entry_with_teammate,
++            "solo": entry_solo,
++            "note": "Недостаточно данных"
++            if entry_with_teammate is None or entry_solo is None
++            else None,
++        },
+     }

@@ -1,0 +1,803 @@
+diff a/users/templates/users/profile.html b/users/templates/users/profile.html	(rejected hunks)
+@@ -175,59 +175,59 @@
+                                     <span>Nuke</span>
+                                     <strong>{{ player_profile.get_nuke_ct_position_display }}</strong>
+                                 </div>
+                                 <div class="role-item">
+                                     <span>Ancient</span>
+                                     <strong>{{ player_profile.get_ancient_ct_position_display }}</strong>
+                                 </div>
+                                 <div class="role-item">
+                                     <span>Inferno</span>
+                                     <strong>{{ player_profile.get_inferno_ct_position_display }}</strong>
+                                 </div>
+                                 <div class="role-item">
+                                     <span>Overpass</span>
+                                     <strong>{{ player_profile.get_overpass_ct_position_display }}</strong>
+                                 </div>
+                             </div>
+                         </div>
+                         <div class="roles-column">
+                             <h4>T</h4>
+                             <div class="roles-list">
+                                 <div class="role-item">
+                                     <span>Роль</span>
+                                     <strong>{{ player_profile.get_t_role_display }}</strong>
+                                 </div>
+                                 <div class="role-item">
+-                                    <span>IGL</span>
++                                    <span>Игровой лидер</span>
+                                     {% if player_profile.is_igl %}
+                                         <strong class="status-active">Да</strong>
+                                     {% else %}
+                                         <strong class="status-inactive">Нет</strong>
+                                     {% endif %}
+                                 </div>
+                                 <div class="role-item">
+-                                    <span>AWP</span>
++                                    <span>Снайпер</span>
+                                     {% if player_profile.can_awp %}
+                                         <strong class="status-active">Да</strong>
+                                     {% else %}
+                                         <strong class="status-inactive">Нет</strong>
+                                     {% endif %}
+                                 </div>
+                             </div>
+                         </div>
+                     </div>
+                     {% if player_profile.description %}
+                     <div class="role-description">
+                         {{ player_profile.description|linebreaks }}
+                     </div>
+                     {% endif %}
+                 </div>
+ 
+                 <div id="analytics-root"
+                      class="analytics-card"
+                      data-profile-id="{{ player_profile.id }}"
+                      data-job-id="{% if analytics_job %}{{ analytics_job.id }}{% endif %}"
+                      data-job-status="{% if analytics_job %}{{ analytics_job.status }}{% endif %}"
+                      data-period="{{ analytics_period|default:'last_20' }}"
+                      data-can-trigger="{% if can_trigger_analytics %}1{% else %}0{% endif %}">
+                     <div class="analytics-header">
+                         <h3>Аналитика</h3>
+@@ -266,416 +266,436 @@
+                                 Аналитика в обработке… {{ analytics_job.progress }}%
+                             {% endif %}
+                         {% elif analytics_ready %}
+                             Аналитика готова.
+                         {% else %}
+                             Аналитика ещё не готова.
+                         {% endif %}
+                     </div>
+                     {% if analytics_metrics.demo_features_approx %}
+                         <div class="analytics-meta">
+                             Демо не найдено — роль/utility/timing будут приближенно.
+                         </div>
+                     {% endif %}
+                     {% if analytics_job and analytics_job.status == "FAILED" and analytics_job.error %}
+                         <pre class="analytics-error">{{ analytics_job.error|truncatechars:220 }}</pre>
+                     {% endif %}
+                     {% if analytics_aggregates %}
+                         <div class="analytics-metrics">
+                             {% for key, value in analytics_simple_metrics.items %}
+                                 <div class="analytics-metric">
+                                     <span class="metric-label">{{ key }}</span>
+                                     <strong class="metric-value">{{ value }}</strong>
+                                 </div>
+                             {% empty %}
+                                 <div class="analytics-metric">
+-                                    <span class="metric-label">Metrics</span>
++                                    <span class="metric-label">Метрики</span>
+                                     <strong class="metric-value">Нет данных</strong>
+                                 </div>
+                             {% endfor %}
+                         </div>
+                         {% if analytics_metrics.kda %}
+                             <div class="analytics-metrics analytics-metrics--kda">
+                                 <div class="analytics-metric">
+-                                    <span class="metric-label">Kills</span>
++                                    <span class="metric-label">Убийства</span>
+                                     <strong class="metric-value">{{ analytics_metrics.kda.kills }}</strong>
+                                 </div>
+                                 <div class="analytics-metric">
+-                                    <span class="metric-label">Deaths</span>
++                                    <span class="metric-label">Смерти</span>
+                                     <strong class="metric-value">{{ analytics_metrics.kda.deaths }}</strong>
+                                 </div>
+                                 <div class="analytics-metric">
+-                                    <span class="metric-label">Assists</span>
++                                    <span class="metric-label">Ассисты</span>
+                                     <strong class="metric-value">{{ analytics_metrics.kda.assists }}</strong>
+                                 </div>
+                                 <div class="analytics-metric">
+                                     <span class="metric-label">KDA</span>
+                                     <strong class="metric-value">
+                                         {% if analytics_metrics.kda.kda_ratio != None %}
+                                             {{ analytics_metrics.kda.kda_ratio|floatformat:2 }}
+                                         {% else %}
+                                             —
+                                         {% endif %}
+                                     </strong>
+                                 </div>
+                             </div>
+                         {% endif %}
+                     {% endif %}
+                 </div>
+ 
+                 <div class="analytics-card role-fingerprint-card">
+                     <div class="analytics-header">
+-                        <h3>Role fingerprint</h3>
++                        <h3>Ролевой профиль</h3>
+                     </div>
+                     {% if analytics_metrics.role_fingerprint %}
+                         {% if analytics_metrics.role_fingerprint.debug %}
+                             {% if analytics_metrics.role_fingerprint.debug.demos_count == 0 %}
+-                                <div class="analytics-empty">Upload demos to enable advanced metrics.</div>
++                                <div class="analytics-empty">Загрузите демки, чтобы включить расширенные метрики.</div>
+                             {% elif analytics_metrics.role_fingerprint.debug.rounds_count < analytics_metrics.role_fingerprint.debug.min_rounds_required %}
+-                                <div class="analytics-empty">Not enough rounds yet.</div>
++                                <div class="analytics-empty">Недостаточно раундов.</div>
+                             {% endif %}
+                         {% endif %}
+                         <div class="role-tags">
+                             {% for tag in analytics_metrics.role_fingerprint.tags %}
+                                 <span class="role-chip">{{ tag }}</span>
+                             {% empty %}
+-                                <span class="role-chip role-chip--empty">Not enough data</span>
++                                <span class="role-chip role-chip--empty">Недостаточно данных</span>
+                             {% endfor %}
+                             {% if analytics_metrics.role_fingerprint.approx %}
+-                                <span class="role-chip role-chip--approx">approx</span>
++                                <span class="role-chip role-chip--approx">приблизительно</span>
+                             {% endif %}
+                         </div>
+                         <div class="role-summary">
+                             {{ analytics_metrics.role_fingerprint.summary }}
+                         </div>
+                         <div class="role-metrics-grid">
+                             <div class="role-metric">
+-                                <span>First duel / round</span>
++                                <span>Первые дуэли / раунд</span>
+                                 <strong>
+                                     {% if analytics_metrics.role_fingerprint.metrics.first_duel_attempts_per_round.value != None %}
+                                         {{ analytics_metrics.role_fingerprint.metrics.first_duel_attempts_per_round.value|floatformat:2 }}
+                                     {% else %}
+-                                        not enough data
++                                        недостаточно данных
+                                     {% endif %}
+                                 </strong>
+                             </div>
+                             <div class="role-metric">
+-                                <span>First duel success</span>
++                                <span>Успех первых дуэлей</span>
+                                 <strong>
+                                     {% if analytics_metrics.role_fingerprint.metrics.first_duel_success_rate.value != None %}
+                                         {{ analytics_metrics.role_fingerprint.metrics.first_duel_success_rate.value|floatformat:2 }}
+                                     {% else %}
+-                                        not enough data
++                                        недостаточно данных
+                                     {% endif %}
+                                 </strong>
+                             </div>
+                             <div class="role-metric">
+-                                <span>Trade kill rate</span>
++                                <span>Доля разменов</span>
+                                 <strong>
+                                     {% if analytics_metrics.role_fingerprint.metrics.trade_kill_rate.value != None %}
+                                         {{ analytics_metrics.role_fingerprint.metrics.trade_kill_rate.value|floatformat:2 }}
+                                     {% else %}
+-                                        not enough data
++                                        недостаточно данных
+                                     {% endif %}
+                                 </strong>
+                             </div>
+                             <div class="role-metric">
+-                                <span>Traded death rate</span>
++                                <span>Доля размененных смертей</span>
+                                 <strong>
+                                     {% if analytics_metrics.role_fingerprint.metrics.traded_death_rate.value != None %}
+                                         {{ analytics_metrics.role_fingerprint.metrics.traded_death_rate.value|floatformat:2 }}
+                                     {% else %}
+-                                        not enough data
++                                        недостаточно данных
+                                     {% endif %}
+                                 </strong>
+                             </div>
+                             <div class="role-metric">
+-                                <span>Clutch win rate</span>
++                                <span>Успех клатчей</span>
+                                 <strong>
+                                     {% if analytics_metrics.role_fingerprint.metrics.clutch_win_rate.value != None %}
+                                         {{ analytics_metrics.role_fingerprint.metrics.clutch_win_rate.value|floatformat:2 }}
+                                     {% else %}
+-                                        not enough data
++                                        недостаточно данных
+                                     {% endif %}
+                                 </strong>
+                             </div>
+                             <div class="role-metric">
+-                                <span>Flash assists / round</span>
++                                <span>Флеш-ассисты / раунд</span>
+                                 <strong>
+                                     {% if analytics_metrics.role_fingerprint.metrics.flash_assists_per_round.value != None %}
+                                         {{ analytics_metrics.role_fingerprint.metrics.flash_assists_per_round.value|floatformat:2 }}
+                                     {% else %}
+-                                        not enough data
++                                        недостаточно данных
+                                     {% endif %}
+                                 </strong>
+                             </div>
+                         </div>
+                     {% else %}
+-                        <div class="analytics-empty">Not enough data</div>
++                        <div class="analytics-empty">Недостаточно данных</div>
+                     {% endif %}
+                 </div>
+ 
+                 <div class="analytics-card playstyle-card">
+                     <div class="analytics-header">
+-                        <h3>Playstyle archetype</h3>
++                        <h3>Архетип игрока</h3>
+                     </div>
+                     {% if analytics_metrics.playstyle %}
+                         <div class="playstyle-label">
+-                            <strong>{{ analytics_metrics.playstyle.label }}</strong>
++                            <strong>{{ analytics_metrics.playstyle.label_ru|default:analytics_metrics.playstyle.label }}</strong>
+                             {% if analytics_metrics.playstyle.approx %}
+-                                <span class="role-chip role-chip--approx">approx</span>
++                                <span class="role-chip role-chip--approx">приблизительно</span>
+                             {% endif %}
+                         </div>
++                        <div class="analytics-meta">
++                            {{ analytics_metrics.playstyle.explanation_ru|default:"Недостаточно данных." }}
++                        </div>
+                         <ul class="playstyle-reasons">
+-                            {% for reason in analytics_metrics.playstyle.reasons %}
++                            {% for reason in analytics_metrics.playstyle.reasons_ru %}
+                                 <li>{{ reason }}</li>
+                             {% empty %}
+-                                <li>Not enough data for reasons.</li>
++                                <li>Недостаточно данных.</li>
+                             {% endfor %}
+                         </ul>
++                        <div class="analytics-meta">
++                            <strong>Выходы с тиммейтом / соло:</strong>
++                            {% if analytics_metrics.playstyle.entry_split.with_teammate != None and analytics_metrics.playstyle.entry_split.solo != None %}
++                                {{ analytics_metrics.playstyle.entry_split.with_teammate|floatformat:0 }}% /
++                                {{ analytics_metrics.playstyle.entry_split.solo|floatformat:0 }}%
++                            {% else %}
++                                недостаточно данных
++                            {% endif %}
++                        </div>
+                     {% else %}
+-                        <div class="analytics-empty">Not enough data</div>
++                        <div class="analytics-empty">Недостаточно данных</div>
+                     {% endif %}
+                 </div>
+ 
+                 <div class="analytics-card utility-iq-card">
+                     <div class="analytics-header">
+-                        <h3>Utility IQ</h3>
++                        <h3>Интеллект утилити</h3>
+                     </div>
+                     {% if analytics_metrics.utility_iq %}
+                         <div class="utility-score">
+-                            <span>Score</span>
++                            <span>Оценка</span>
+                             <strong>
+                                 {% if analytics_metrics.utility_iq.score != None %}
+                                     {{ analytics_metrics.utility_iq.score }}
+                                 {% else %}
+-                                    not enough data
++                                    недостаточно данных
+                                 {% endif %}
+                             </strong>
+                             {% if analytics_metrics.utility_iq.approx %}
+-                                <span class="role-chip role-chip--approx">approx</span>
++                                <span class="role-chip role-chip--approx">приблизительно</span>
+                             {% endif %}
+                         </div>
+                         <div class="utility-breakdown">
+                             <div>
+-                                <span>Flash assists / round</span>
++                                <span>Флеш-ассисты / раунд</span>
+                                 <strong>
+                                     {% if analytics_metrics.utility_iq.breakdown.flash_assists_per_round.value != None %}
+                                         {{ analytics_metrics.utility_iq.breakdown.flash_assists_per_round.value|floatformat:2 }}
+                                     {% else %}
+-                                        not enough data
++                                        недостаточно данных
+                                     {% endif %}
+                                 </strong>
+                             </div>
+                             <div>
+-                                <span>Utility damage / round</span>
++                                <span>Урон утилити / раунд</span>
+                                 <strong>
+                                     {% if analytics_metrics.utility_iq.breakdown.utility_damage_per_round.value != None %}
+                                         {{ analytics_metrics.utility_iq.breakdown.utility_damage_per_round.value|floatformat:2 }}
+                                     {% else %}
+-                                        not enough data
++                                        недостаточно данных
+                                     {% endif %}
+                                 </strong>
+                             </div>
+                             <div>
+-                                <span>Friendly flash rate</span>
++                                <span>Флеши по своим</span>
+                                 <strong>
+                                     {% if analytics_metrics.utility_iq.breakdown.friendly_flash_rate.value != None %}
+                                         {{ analytics_metrics.utility_iq.breakdown.friendly_flash_rate.value|floatformat:2 }}
+                                     {% else %}
+-                                        not enough data
++                                        недостаточно данных
+                                     {% endif %}
+                                 </strong>
+                             </div>
+                         </div>
+                     {% else %}
+-                        <div class="analytics-empty">Not enough data</div>
++                        <div class="analytics-empty">Недостаточно данных</div>
+                     {% endif %}
+                 </div>
+ 
+                 <div class="analytics-card timing-control-card">
+                     <div class="analytics-header">
+-                        <h3>Timing control</h3>
++                        <h3>Контроль времени</h3>
+                     </div>
+                     {% if analytics_metrics.timing_slices %}
+                         <table class="timing-table">
+                             <thead>
+                                 <tr>
+-                                    <th>Window</th>
+-                                    <th>Contacts</th>
++                                    <th>Окно</th>
++                                    <th>Контакты</th>
+                                 </tr>
+                             </thead>
+                             <tbody>
+                                 {% for bucket in analytics_metrics.timing_slices.buckets %}
+                                     <tr>
+                                         <td>{{ bucket.label }}</td>
+                                         <td>
+                                             {% if bucket.value != None %}
+                                                 {{ bucket.value|floatformat:1 }}%
+                                             {% else %}
+-                                                not enough data
++                                                недостаточно данных
+                                             {% endif %}
+                                         </td>
+                                     </tr>
+                                 {% empty %}
+                                     <tr>
+-                                        <td colspan="2">not enough data</td>
++                                        <td colspan="2">недостаточно данных</td>
+                                     </tr>
+                                 {% endfor %}
+                             </tbody>
+                         </table>
+                         {% if analytics_metrics.timing_slices.approx %}
+-                            <div class="analytics-approx">approx</div>
++                            <div class="analytics-approx">приблизительно</div>
+                         {% endif %}
+                     {% else %}
+-                        <div class="analytics-empty">Not enough data</div>
++                        <div class="analytics-empty">Недостаточно данных</div>
+                     {% endif %}
+                 </div>
+ 
+                 <div class="analytics-card awareness-card">
+                     <div class="analytics-header">
+-                        <h3>Awareness before death</h3>
++                        <h3>Осведомлённость перед смертью</h3>
+                     </div>
+                     {% if analytics_metrics.awareness_before_death %}
+                         <div class="analytics-metrics">
+                             <div class="analytics-metric">
+-                                <span class="metric-label">Awareness %</span>
++                                <span class="metric-label">Осведомлённость</span>
+                                 <strong class="metric-value">
+                                     {% if analytics_metrics.awareness_before_death.awareness_before_death_rate != None %}
+                                         {{ analytics_metrics.awareness_before_death.awareness_before_death_rate|floatformat:2 }}%
+                                     {% else %}
+                                         —
+                                     {% endif %}
+                                 </strong>
+                             </div>
+                             <div class="analytics-metric">
+-                                <span class="metric-label">Aware deaths</span>
++                                <span class="metric-label">Осознанные смерти</span>
+                                 <strong class="metric-value">{{ analytics_metrics.awareness_before_death.aware_deaths }}</strong>
+                             </div>
+                             <div class="analytics-metric">
+-                                <span class="metric-label">Total deaths</span>
++                                <span class="metric-label">Всего смертей</span>
+                                 <strong class="metric-value">{{ analytics_metrics.awareness_before_death.total_deaths }}</strong>
+                             </div>
+                         </div>
+                     {% else %}
+-                        <div class="analytics-empty">Not enough data</div>
++                        <div class="analytics-empty">Недостаточно данных</div>
+                     {% endif %}
+                 </div>
+ 
+                 <div class="analytics-card multikill-card">
+                     <div class="analytics-header">
+-                        <h3>Multi-kill breakdown</h3>
++                        <h3>Мультикиллы: выход на точку / удержание точки</h3>
+                     </div>
+                     {% if analytics_metrics.multikill %}
+                         <div class="analytics-metrics">
+                             <div class="analytics-metric">
+-                                <span class="metric-label">Multi-kill rate</span>
++                                <span class="metric-label">Доля мультикиллов</span>
+                                 <strong class="metric-value">
+                                     {% if analytics_metrics.multikill.multikill_round_rate != None %}
+                                         {{ analytics_metrics.multikill.multikill_round_rate|floatformat:2 }}%
+                                     {% else %}
+                                         —
+                                     {% endif %}
+                                 </strong>
+                             </div>
+                             <div class="analytics-metric">
+-                                <span class="metric-label">Events</span>
++                                <span class="metric-label">События</span>
+                                 <strong class="metric-value">{{ analytics_metrics.multikill.multikill_events }}</strong>
+                             </div>
+                             <div class="analytics-metric">
+-                                <span class="metric-label">Early/late</span>
++                                <span class="metric-label">Рано / поздно</span>
+                                 <strong class="metric-value">
+                                     {{ analytics_metrics.multikill.by_timing.early|default:"0" }} /
+                                     {{ analytics_metrics.multikill.by_timing.late|default:"0" }}
+                                 </strong>
+                             </div>
++                            <div class="analytics-metric">
++                                <span class="metric-label">Выход / удержание</span>
++                                <strong class="metric-value">
++                                    {{ analytics_metrics.multikill.by_phase.entry|default:"0" }} /
++                                    {{ analytics_metrics.multikill.by_phase.hold|default:"0" }}
++                                </strong>
++                            </div>
+                         </div>
+                     {% else %}
+-                        <div class="analytics-empty">Not enough data</div>
++                        <div class="analytics-empty">Недостаточно данных</div>
+                     {% endif %}
+                 </div>
+ 
+                 <div id="heatmaps-root"
+                      class="heatmaps-card"
+                      data-profile-id="{{ player_profile.id }}"
+                      data-map="{{ analytics_map|default:'de_mirage' }}"
+                      data-period="{{ analytics_period|default:'last_20' }}"
+                      data-version="{{ analytics_version|default:'v2' }}"
+                      data-resolution="256"
+                      data-metric="kills"
+                      data-slice="{{ heatmap_default_slice|default:'0-15' }}"
+                      data-slices="{{ heatmap_time_slices|join:',' }}"
+                      data-can-trigger="{% if can_trigger_analytics %}1{% else %}0{% endif %}">
+                     <div class="heatmaps-header">
+                         <div>
+-                            <h3>Heatmaps</h3>
++                            <h3>Тепловые карты</h3>
+                             <div class="heatmaps-controls">
+                                 <label class="heatmaps-label" for="hm-map">Карта</label>
+                                 <select id="hm-map" class="heatmaps-select">
+                                     {% for map_name in available_maps %}
+                                         <option value="{{ map_name }}"
+                                                 {% if map_name == analytics_map %}selected{% endif %}>
+                                             {{ map_name }}
+                                         </option>
+                                     {% endfor %}
+                                 </select>
+                                 <label class="heatmaps-label" for="hm-slice">Время раунда</label>
+                                 <div class="heatmaps-slider">
+                                     <input id="hm-slice" type="range" min="0" max="{{ heatmap_time_slices|length|add:'-1' }}"
+                                            step="1" value="0" />
+                                     <span id="hm-slice-label" class="heatmaps-meta heatmaps-meta--inline"></span>
+                                 </div>
+-                                <label class="heatmaps-label" for="hm-resolution">Grid</label>
++                                <label class="heatmaps-label" for="hm-resolution">Сетка</label>
+                                 <select id="hm-resolution" class="heatmaps-select">
+                                     <option value="64">64</option>
+                                     <option value="128">128</option>
+                                     <option value="256">256</option>
+                                 </select>
+                             </div>
+                             <div class="heatmaps-tabs" data-group="metric">
+                                 <button type="button" class="hm-tab active" data-group="metric" data-value="kills">
+-                                    Kills
++                                    Убийства
+                                 </button>
+                                 <button type="button" class="hm-tab" data-group="metric" data-value="deaths">
+-                                    Deaths
++                                    Смерти
+                                 </button>
+                                 <button type="button" class="hm-tab" data-group="metric" data-value="presence">
+-                                    Presence
++                                    Присутствие
+                                 </button>
+                             </div>
++                            <div class="heatmaps-label heatmaps-label--inline">Сторона</div>
+                             <div class="heatmaps-tabs heatmaps-tabs--secondary" data-group="side">
+-                                <button type="button" class="hm-tab active" data-group="side" data-value="ALL">All</button>
+-                                <button type="button" class="hm-tab" data-group="side" data-value="CT">CT</button>
+-                                <button type="button" class="hm-tab" data-group="side" data-value="T">T</button>
++                                <button type="button" class="hm-tab active" data-group="side" data-value="all">Все</button>
++                                <button type="button" class="hm-tab" data-group="side" data-value="ct">CT</button>
++                                <button type="button" class="hm-tab" data-group="side" data-value="t">T</button>
+                             </div>
+                         </div>
+                     </div>
+ 
+                     <div id="hm-status" class="heatmaps-meta">Загрузка тепловой карты…</div>
+                     <div id="hm-spinner" class="heatmaps-spinner" aria-hidden="true"></div>
+                     <div class="heatmaps-body">
+-                        <img id="hm-img" class="heatmap-img" alt="heatmap" loading="lazy" />
++                        <img id="hm-img" class="heatmap-img" alt="тепловая карта" loading="lazy" />
+                         <div class="heatmaps-actions">
+                             <button id="hm-regenerate" type="button" class="heatmaps-btn">
+                                 Обновить картинки
+                             </button>
+                             <span id="hm-regenerate-status" class="heatmaps-meta heatmaps-meta--inline" aria-live="polite"></span>
+                         </div>
+                     </div>
+                 </div>
+ 
+                 <!-- Информация о последнем обновлении -->
+                 {% if player_profile.last_faceit_update %}
+                 <div class="update-info">
+                     <p>
+                         <small>
+                             Данные обновлены: {{ player_profile.last_faceit_update|date:"d.m.Y H:i" }}
+                             {% if days_since_update %}
+                                 ({{ days_since_update }} дней назад)
+                             {% endif %}
+                         </small>
+                     </p>
+                 </div>
+                 {% endif %}
+ 
+             </div>
+             {% else %}
+@@ -1226,50 +1246,54 @@
+         flex-wrap: wrap;
+     }
+ 
+     .heatmaps-controls {
+         display: flex;
+         align-items: center;
+         gap: 0.5rem;
+         margin-top: 0.5rem;
+     }
+ 
+     .heatmaps-slider {
+         display: flex;
+         align-items: center;
+         gap: 0.4rem;
+     }
+ 
+     #hm-slice {
+         width: 140px;
+     }
+ 
+     .heatmaps-label {
+         font-size: 0.85rem;
+         color: #6c757d;
+     }
+ 
++    .heatmaps-label--inline {
++        margin-top: 0.35rem;
++    }
++
+     .heatmaps-select {
+         padding: 0.4rem 0.6rem;
+         border-radius: 8px;
+         border: 1px solid rgba(0, 0, 0, 0.12);
+         background: #fff;
+     }
+ 
+     .heatmaps-tabs--secondary {
+         margin-top: 0.65rem;
+     }
+ 
+     .hm-tab {
+         padding: 0.5rem 0.9rem;
+         border-radius: 10px;
+         border: 1px solid rgba(0, 0, 0, 0.12);
+         background: transparent;
+         color: #343a40;
+         cursor: pointer;
+         transition: all 0.2s ease;
+     }
+ 
+     .hm-tab.active,
+     .hm-tab:hover {
+         background: rgba(67, 97, 238, 0.12);
+         border-color: rgba(67, 97, 238, 0.35);
+@@ -1599,71 +1623,71 @@
+         const mapSelect = document.getElementById("hm-map");
+         const resolutionSelect = document.getElementById("hm-resolution");
+         const sliceInput = document.getElementById("hm-slice");
+         const sliceLabel = document.getElementById("hm-slice-label");
+         const spinner = document.getElementById("hm-spinner");
+         const regenerateBtn = document.getElementById("hm-regenerate");
+         const regenerateStatus = document.getElementById("hm-regenerate-status");
+         const heatmapProfileId = (root?.dataset?.profileId || "").trim();
+         const defaultMap = (root?.dataset?.map || "de_mirage").trim() || "de_mirage";
+         const period = (root?.dataset?.period || "last_20").trim() || "last_20";
+         const version = (root?.dataset?.version || "v2").trim() || "v2";
+         const resolution = (root?.dataset?.resolution || "256").trim() || "256";
+         const defaultMetric = (root?.dataset?.metric || "kills").trim().toLowerCase() || "kills";
+         const sliceOptions = (root?.dataset?.slices || "0-15")
+             .split(",")
+             .map((v) => v.trim())
+             .filter(Boolean);
+         const defaultSlice = (root?.dataset?.slice || sliceOptions[0] || "0-15").trim();
+         const canTrigger = (root?.dataset?.canTrigger || "0").trim() === "1";
+ 
+         function setActive(tabs, value) {
+             tabs.forEach((t) => t.classList.toggle("active", t.dataset.value === value));
+         }
+ 
+         if (!heatmapProfileId) {
+-            status.textContent = "Heatmaps недоступны.";
++            status.textContent = "Тепловые карты недоступны.";
+             return;
+         }
+ 
+         if (mapSelect) {
+             mapSelect.value = defaultMap;
+         }
+         if (resolutionSelect) {
+             resolutionSelect.value = resolution;
+         }
+         let currentSliceIndex = Math.max(sliceOptions.indexOf(defaultSlice), 0);
+         let currentSlice = sliceOptions[currentSliceIndex] || defaultSlice;
+         if (sliceInput && sliceOptions.length) {
+             sliceInput.max = `${Math.max(sliceOptions.length - 1, 0)}`;
+             sliceInput.value = `${currentSliceIndex}`;
+         }
+         if (sliceLabel) {
+             sliceLabel.textContent = currentSlice;
+         }
+ 
+-        let currentSide = "ALL";
++        let currentSide = "all";
+         let currentMap = defaultMap;
+         let currentMetric = defaultMetric;
+         let currentResolution = resolution;
+         let pollingTimer = null;
+         let pollAttempts = 0;
+         const maxPollAttempts = 10;
+         const regenerateLabel = regenerateBtn ? regenerateBtn.textContent.trim() : "";
+ 
+         function setLoading(isLoading) {
+             if (spinner) {
+                 spinner.classList.toggle("is-active", isLoading);
+                 spinner.setAttribute("aria-hidden", isLoading ? "false" : "true");
+             }
+         }
+ 
+         function setRegenerating(isRegenerating) {
+             if (!regenerateBtn || !regenerateStatus) {
+                 return;
+             }
+             regenerateBtn.disabled = isRegenerating;
+             regenerateStatus.textContent = isRegenerating ? "Обновляю…" : "";
+             if (regenerateBtn) {
+                 regenerateBtn.textContent = isRegenerating ? "Обновляю…" : regenerateLabel;
+             }
+         }
+@@ -1680,103 +1704,103 @@
+             }
+             pollingTimer = null;
+         }
+ 
+         async function fetchHeatmap({ force = false } = {}) {
+             clearPolling();
+             pollAttempts = 0;
+             status.textContent = "Загрузка тепловой карты…";
+             setLoading(true);
+             img.style.display = "none";
+             let waitingForImage = false;
+ 
+             const apiUrl = `/api/heatmaps/me` +
+                 `?map=${encodeURIComponent(currentMap)}` +
+                 `&metric=${encodeURIComponent(currentMetric)}` +
+                 `&side=${encodeURIComponent(currentSide)}` +
+                 `&period=${encodeURIComponent(period)}` +
+                 `&slice=${encodeURIComponent(currentSlice)}` +
+                 `&v=${encodeURIComponent(version)}` +
+                 `&res=${encodeURIComponent(currentResolution)}` +
+                 (force ? "&force=1" : "");
+ 
+             try {
+                 const r = await fetch(apiUrl, { headers: { Accept: "application/json" } });
+                 if (!r.ok) {
+-                    status.textContent = "Не удалось загрузить heatmap.";
++                    status.textContent = "Не удалось загрузить тепловую карту.";
+                     if (force) {
+                         alert("Не удалось обновить картинку.");
+                     }
+                     setLoading(false);
+                     return;
+                 }
+                 const data = await r.json();
+                 if (data.status === "ready" && data.image_url) {
+                     img.style.display = "block";
+                     const cacheBusted = force
+                         ? `${data.image_url}${data.image_url.includes("?") ? "&" : "?"}cb=${Date.now()}`
+                         : data.image_url;
+                     waitingForImage = true;
+                     img.onload = () => {
+                         status.textContent = "";
+                         setLoading(false);
+                         setRegenerating(false);
+                     };
+                     img.onerror = () => {
+                         status.textContent = "Не удалось загрузить изображение.";
+                         setLoading(false);
+                         setRegenerating(false);
+                         if (force) {
+                             alert("Не удалось обновить картинку.");
+                         }
+                     };
+                     img.src = cacheBusted;
+                     return;
+                 }
+                 if (data.status === "processing") {
+-                    status.textContent = "Heatmap обрабатывается…";
++                    status.textContent = "Тепловая карта обрабатывается…";
+                     setLoading(true);
+                     pollAttempts += 1;
+                     if (pollAttempts <= maxPollAttempts) {
+                         pollingTimer = setTimeout(fetchHeatmap, 2500);
+                     } else {
+-                        status.textContent = "Heatmap ещё не готова. Попробуйте позже.";
++                        status.textContent = "Тепловая карта ещё не готова. Попробуйте позже.";
+                         setLoading(false);
+                     }
+                     return;
+                 }
+                 setMissingMessage();
+                 if (force) {
+                     alert("Не удалось обновить картинку.");
+                 }
+             } catch (e) {
+-                status.textContent = "Ошибка при загрузке heatmap.";
++                status.textContent = "Ошибка при загрузке тепловой карты.";
+                 if (force) {
+                     alert("Не удалось обновить картинку.");
+                 }
+             } finally {
+-                if (!waitingForImage && status.textContent !== "Heatmap обрабатывается…") {
++                if (!waitingForImage && status.textContent !== "Тепловая карта обрабатывается…") {
+                     setLoading(false);
+                 }
+                 if (!waitingForImage && status.textContent !== "") {
+                     setRegenerating(false);
+                 }
+             }
+         }
+ 
+         sideTabs.forEach((t) =>
+             t.addEventListener("click", () => {
+                 currentSide = t.dataset.value;
+                 setActive(sideTabs, currentSide);
+                 fetchHeatmap();
+             })
+         );
+ 
+         metricTabs.forEach((t) =>
+             t.addEventListener("click", () => {
+                 currentMetric = t.dataset.value;
+                 setActive(metricTabs, currentMetric);
+                 fetchHeatmap();
+             })
+         );
+ 
+         if (mapSelect) {

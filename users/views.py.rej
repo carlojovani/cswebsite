@@ -1,0 +1,142 @@
+diff a/users/views.py b/users/views.py	(rejected hunks)
+@@ -1,39 +1,39 @@
+ from django.core.cache import cache
+ from django.shortcuts import render, redirect, get_object_or_404
+ from django.contrib.auth import login
+ from django.contrib.auth.decorators import login_required
+ from django.conf import settings
+ from django.contrib import messages
+ from django.db.models import Q
+ from django.utils import timezone
+ from django.views.decorators.http import require_POST
+ 
+ from faceit_analytics.cache_keys import DEFAULT_TTL_SECONDS, profile_metrics_key
+ from faceit_analytics.constants import ANALYTICS_VERSION
+ from faceit_analytics.models import AnalyticsAggregate, HeatmapAggregate, ProcessingJob
+-from faceit_analytics.services.heatmaps import DEFAULT_MAPS
++from faceit_analytics.services.heatmaps import DEFAULT_MAPS, get_time_slice_labels, normalize_map_name
+ from faceit_analytics.tasks import task_full_pipeline
+ from .forms import (
+     RegistrationStep1Form,
+     PlayerRegistrationForm,
+     PlayerDetailsForm,
+     TeamRegistrationForm,
+     TeamDetailsForm
+ )
+ from .models import CustomUser, PlayerProfile, TeamProfile
+ from .faceit import check_faceit_nickname, fetch_faceit_profile_details
+ 
+ 
+ # ---------------------------
+ # HOME
+ # ---------------------------
+ def home(request):
+     """Главная страница"""
+     context = {}
+ 
+     if request.user.is_authenticated:
+         if request.user.user_type == 'player':
+             context['feed_title'] = 'Команды, которые ищут игроков'
+             context['feed_items'] = (
+                 TeamProfile.objects.select_related('user')
+                 .filter(is_active=True)
+@@ -225,86 +225,94 @@ def profile(request, user_id):
+ 
+     # Проверяем права доступа
+     if not request.user.is_superuser and request.user != user:
+         messages.error(request, 'У вас нет доступа к этому профилю.')
+         return redirect('home')
+ 
+     context = {'profile_user': user, 'steamid64': ''}
+ 
+     if user.user_type == CustomUser.USER_TYPE_PLAYER:
+         try:
+             player_profile = PlayerProfile.objects.get(user=user)
+             context['player_profile'] = player_profile
+             context['steamid64'] = (
+                 getattr(player_profile, "steamid64", None)
+                 or getattr(player_profile, "steam_id64", None)
+                 or getattr(player_profile, "steam_id", None)
+                 or ""
+             )
+             context['steamid64_debug'] = {
+                 "steamid64": getattr(player_profile, "steamid64", None),
+                 "steam_id64": getattr(player_profile, "steam_id64", None),
+                 "steam_id": getattr(player_profile, "steam_id", None),
+             }
+ 
+             period = "last_20"
+-            map_name = (request.GET.get("map") or "de_mirage").strip() or "de_mirage"
+-            slice_labels = [
+-                f"{int(start)}-{int(end)}" for start, end in getattr(settings, "HEATMAP_TIME_SLICES", [(0, 999)])
+-            ]
++            map_name = normalize_map_name(request.GET.get("map") or "de_mirage")
++            slice_labels = get_time_slice_labels()
+             cache_key = profile_metrics_key(player_profile.id, period, map_name, ANALYTICS_VERSION)
+             try:
+                 analytics_aggregates = cache.get(cache_key)
+             except Exception:
+                 analytics_aggregates = None
+             if analytics_aggregates is None:
+                 analytics_aggregates = list(
+                     AnalyticsAggregate.objects.filter(
+                         profile=player_profile,
+                         period=period,
+                         analytics_version=ANALYTICS_VERSION,
+                         map_name=map_name,
+                     )
+                 )
+                 try:
+                     cache.set(cache_key, analytics_aggregates, DEFAULT_TTL_SECONDS)
+                 except Exception:
+                     pass
+ 
+             context["analytics_period"] = period
+             context["analytics_map"] = map_name
+             context["available_maps"] = list(DEFAULT_MAPS)
+             context["heatmap_time_slices"] = slice_labels
+             context["heatmap_default_slice"] = getattr(settings, "HEATMAP_DEFAULT_SLICE", slice_labels[0])
+             context["analytics_aggregates"] = analytics_aggregates
+             context["analytics_ready"] = bool(analytics_aggregates)
+             context["analytics_version"] = ANALYTICS_VERSION
+             if analytics_aggregates:
+                 metrics_json = analytics_aggregates[0].metrics_json or {}
+                 context["analytics_metrics"] = metrics_json
++                label_map = {
++                    "win_rate": "Винрейт",
++                    "average_kd": "Средний KD",
++                    "average_hs": "Средний HS",
++                    "elo": "ELO",
++                    "matches": "Матчи",
++                    "wins": "Победы",
++                    "current_win_streak": "Текущая серия побед",
++                    "longest_win_streak": "Лучшая серия побед",
++                }
+                 context["analytics_simple_metrics"] = {
+-                    key: value
++                    label_map.get(key, key): value
+                     for key, value in metrics_json.items()
+                     if not isinstance(value, (dict, list))
+                 }
+             else:
+                 context["analytics_metrics"] = {}
+                 context["analytics_simple_metrics"] = {}
+             context["heatmap_ready"] = HeatmapAggregate.objects.filter(
+                 profile=player_profile,
+                 period=period,
+                 analytics_version=ANALYTICS_VERSION,
+                 map_name=map_name,
+             ).exists()
+             analytics_job = (
+                 ProcessingJob.objects.filter(
+                     profile=player_profile,
+                     job_type=ProcessingJob.JOB_FULL_PIPELINE,
+                 )
+                 .order_by("-created_at")
+                 .first()
+             )
+             context["analytics_job"] = analytics_job
+             context["analytics_job_active"] = bool(
+                 analytics_job
+                 and analytics_job.status
+                 in (

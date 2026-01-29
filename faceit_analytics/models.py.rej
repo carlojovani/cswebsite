@@ -1,0 +1,40 @@
+diff a/faceit_analytics/models.py b/faceit_analytics/models.py	(rejected hunks)
+@@ -1,35 +1,35 @@
+ from django.conf import settings
+ from django.db import models
+ 
+ from users.models import PlayerProfile
+ 
+ 
+ class AnalyticsAggregate(models.Model):
+-    SIDE_ALL = "ALL"
+-    SIDE_CT = "CT"
+-    SIDE_T = "T"
++    SIDE_ALL = "all"
++    SIDE_CT = "ct"
++    SIDE_T = "t"
+ 
+     SIDE_CHOICES = (
+         (SIDE_T, "T"),
+         (SIDE_CT, "CT"),
+         (SIDE_ALL, "ALL"),
+     )
+ 
+     profile = models.ForeignKey(PlayerProfile, on_delete=models.CASCADE, related_name="analytics_aggregates")
+     map_name = models.CharField(max_length=64)
+     side = models.CharField(max_length=3, choices=SIDE_CHOICES, default=SIDE_ALL)
+     period = models.CharField(max_length=20)
+     analytics_version = models.CharField(max_length=12, default="v1")
+     metrics_json = models.JSONField(default=dict)
+     updated_at = models.DateTimeField(auto_now=True)
+ 
+     class Meta:
+         unique_together = ("profile", "map_name", "side", "period", "analytics_version")
+ 
+     def __str__(self) -> str:
+         return f"AnalyticsAggregate({self.profile_id}, {self.map_name}, {self.side}, {self.period})"
+ 
+ 
+ def heatmap_upload_to(instance: "HeatmapAggregate", filename: str) -> str:
+     return (
+         "heatmaps/"

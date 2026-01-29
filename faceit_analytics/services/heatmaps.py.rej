@@ -1,0 +1,766 @@
+diff a/faceit_analytics/services/heatmaps.py b/faceit_analytics/services/heatmaps.py	(rejected hunks)
+@@ -1,130 +1,235 @@
+ from __future__ import annotations
+ 
+ import hashlib
++import logging
+ import os
+ import time
+ from pathlib import Path
+ from typing import Iterable, Sequence
+ from uuid import uuid4
+ 
+ import numpy as np
+ from django.conf import settings
+ from django.core.files.storage import default_storage
+ from django.db import transaction
+ from django.utils import timezone
+ from matplotlib import cm
+ from PIL import Image, ImageFilter
+ 
+ from faceit_analytics import analyzer
+ from faceit_analytics.constants import ANALYTICS_VERSION
+ from faceit_analytics.models import AnalyticsAggregate, HeatmapAggregate, heatmap_upload_to
+ from faceit_analytics.services.paths import get_demos_dir
+ from faceit_analytics.utils import to_jsonable
+ from users.models import PlayerProfile
+ 
+ DEFAULT_MAPS: Iterable[str] = ("de_mirage",)
+ 
++logger = logging.getLogger(__name__)
++
+ # Output image size (radar+heatmap)
+ HEATMAP_OUTPUT_SIZE = int(getattr(settings, "HEATMAP_OUTPUT_SIZE", 1024))
+ 
+ # Upscale filter for resizing
+ HEATMAP_UPSCALE_FILTER = str(getattr(settings, "HEATMAP_UPSCALE_FILTER", "LANCZOS")).upper()
+ 
+ # IMPORTANT: blur sigma is now interpreted in GRID units (cells), not pixels.
+ # For res=64: sigma 0.8..1.4 is typical. For "kills/deaths dots": lower.
+ # Backward compatible env names:
+ HEATMAP_BLUR_SIGMA_GRID = float(
+     getattr(
+         settings,
+         "HEATMAP_BLUR_SIGMA_GRID",
+         getattr(
+             settings,
+             "HEATMAP_BLUR_SIGMA",
+             getattr(settings, "HEATMAP_BLUR_FACTOR", getattr(settings, "HEATMAP_BLUR_RADIUS", 0.0)),
+         ),
+     )
+ )
+ 
+ # Optional post-upscale blur in output pixel space (default disabled)
+ HEATMAP_BLUR_SIGMA_OUTPUT = float(getattr(settings, "HEATMAP_BLUR_SIGMA_OUTPUT", 0.0))
+ 
+ # Per-metric blur overrides (optional)
+-HEATMAP_BLUR_SIGMA_KILLS = float(getattr(settings, "HEATMAP_BLUR_SIGMA_KILLS", HEATMAP_BLUR_SIGMA_GRID))
+-HEATMAP_BLUR_SIGMA_DEATHS = float(getattr(settings, "HEATMAP_BLUR_SIGMA_DEATHS", HEATMAP_BLUR_SIGMA_GRID))
+-HEATMAP_BLUR_SIGMA_PRESENCE = float(getattr(settings, "HEATMAP_BLUR_SIGMA_PRESENCE", HEATMAP_BLUR_SIGMA_GRID))
++HEATMAP_BLUR_SIGMA_KILLS = float(getattr(settings, "HEATMAP_BLUR_SIGMA_KILLS", HEATMAP_BLUR_SIGMA_GRID * 0.7))
++HEATMAP_BLUR_SIGMA_DEATHS = float(getattr(settings, "HEATMAP_BLUR_SIGMA_DEATHS", HEATMAP_BLUR_SIGMA_GRID * 0.7))
++HEATMAP_BLUR_SIGMA_PRESENCE = float(
++    getattr(settings, "HEATMAP_BLUR_SIGMA_PRESENCE", HEATMAP_BLUR_SIGMA_GRID * 1.15)
++)
+ 
+ # Percentile clip for normalization (higher -> less saturation)
+ HEATMAP_NORM_PERCENTILE = float(
+     getattr(
+         settings,
+         "HEATMAP_NORM_PERCENTILE",
+         getattr(settings, "HEATMAP_PERCENTILE_CLIP", getattr(settings, "HEATMAP_CLIP_PCT", 99.5)),
+     )
+ )
+ 
+ # Gamma (lower -> brighter tails, higher -> more contrast)
+ HEATMAP_GAMMA = float(getattr(settings, "HEATMAP_GAMMA", 0.75))
++HEATMAP_GAMMA_KILLS = float(getattr(settings, "HEATMAP_GAMMA_KILLS", HEATMAP_GAMMA + 0.15))
++HEATMAP_GAMMA_DEATHS = float(getattr(settings, "HEATMAP_GAMMA_DEATHS", HEATMAP_GAMMA + 0.1))
++HEATMAP_GAMMA_PRESENCE = float(getattr(settings, "HEATMAP_GAMMA_PRESENCE", max(0.35, HEATMAP_GAMMA - 0.1)))
+ 
+ # Global alpha multiplier
+ HEATMAP_ALPHA = float(getattr(settings, "HEATMAP_ALPHA", 0.98))
++HEATMAP_ALPHA_KILLS = float(getattr(settings, "HEATMAP_ALPHA_KILLS", HEATMAP_ALPHA))
++HEATMAP_ALPHA_DEATHS = float(getattr(settings, "HEATMAP_ALPHA_DEATHS", HEATMAP_ALPHA))
++HEATMAP_ALPHA_PRESENCE = float(getattr(settings, "HEATMAP_ALPHA_PRESENCE", max(0.85, HEATMAP_ALPHA - 0.05)))
++
++HEATMAP_CLIP_PCT_KILLS = float(getattr(settings, "HEATMAP_CLIP_PCT_KILLS", HEATMAP_NORM_PERCENTILE))
++HEATMAP_CLIP_PCT_DEATHS = float(getattr(settings, "HEATMAP_CLIP_PCT_DEATHS", HEATMAP_NORM_PERCENTILE))
++HEATMAP_CLIP_PCT_PRESENCE = float(getattr(settings, "HEATMAP_CLIP_PCT_PRESENCE", HEATMAP_NORM_PERCENTILE))
+ 
+ # Alpha curve power (lower -> more visible faint areas)
+ HEATMAP_ALPHA_POWER = float(getattr(settings, "HEATMAP_ALPHA_POWER", 0.55))
+ 
+ # Optional unsharp to increase clarity after resize (0 disables)
+ HEATMAP_UNSHARP_RADIUS = float(getattr(settings, "HEATMAP_UNSHARP_RADIUS", 0.0))
+ HEATMAP_UNSHARP_PERCENT = int(getattr(settings, "HEATMAP_UNSHARP_PERCENT", 140))
+ HEATMAP_UNSHARP_THRESHOLD = int(getattr(settings, "HEATMAP_UNSHARP_THRESHOLD", 2))
+ 
+ HEATMAP_TIME_SLICES = list(getattr(settings, "HEATMAP_TIME_SLICES", [(0, 999)]))
+ HEATMAP_DEFAULT_SLICE = str(getattr(settings, "HEATMAP_DEFAULT_SLICE", "all"))
+ 
++DEFAULT_PERIOD = "last_20"
+ 
+-def _slice_label(slice_range: tuple[int, int]) -> str:
+-    return f"{int(slice_range[0])}-{int(slice_range[1])}"
+ 
++def _slice_label(slice_range: tuple[int, int | None]) -> str:
++    start, end = slice_range
++    if end is None or int(end) >= 999:
++        return f"{int(start)}+"
++    return f"{int(start)}-{int(end)}"
+ 
+-def _get_time_slice_ranges() -> dict[str, tuple[int, int]]:
+-    ranges: dict[str, tuple[int, int]] = {}
++
++def _get_time_slice_ranges() -> dict[str, tuple[int, int | None]]:
++    ranges: dict[str, tuple[int, int | None]] = {}
+     for start, end in HEATMAP_TIME_SLICES:
+-        ranges[_slice_label((start, end))] = (int(start), int(end))
++        normalized_end = None if end is None or int(end) >= 999 else int(end)
++        ranges[_slice_label((start, end))] = (int(start), normalized_end)
+     return ranges
+ 
+ 
+ def normalize_time_slice(value: str | None) -> str:
+     if not value:
+         return HEATMAP_DEFAULT_SLICE
+     value = str(value).strip()
+     if not value:
+         return HEATMAP_DEFAULT_SLICE
+     if value.lower() == "all":
+         return "all"
++    parsed = parse_time_slice(value)
++    if parsed is None:
++        return HEATMAP_DEFAULT_SLICE
++    start, end = parsed
++    return _slice_label((start, end))
++
++
++def parse_time_slice(value: str | None) -> tuple[int, int | None] | None:
++    if not value:
++        return None
++    value = str(value).strip().lower()
++    if not value or value == "all":
++        return None
+     ranges = _get_time_slice_ranges()
+     if value in ranges:
+-        return value
+-    return HEATMAP_DEFAULT_SLICE
++        return ranges[value]
++    if "+" in value:
++        start = value.replace("+", "").strip()
++        if start.isdigit():
++            return int(start), None
++        return None
++    if "-" in value:
++        parts = value.split("-", 1)
++        if len(parts) != 2:
++            return None
++        start, end = parts
++        if start.strip().isdigit() and end.strip().isdigit():
++            return int(start), int(end)
++    return None
++
++
++def get_time_slice_labels() -> list[str]:
++    ranges = _get_time_slice_ranges()
++    labels = []
++    for start, end in HEATMAP_TIME_SLICES:
++        labels.append(_slice_label((int(start), int(end) if end is not None else None)))
++    return labels or ["0-15"]
++
++
++def normalize_side(value: str | None) -> str:
++    if not value:
++        return AnalyticsAggregate.SIDE_ALL
++    value_str = str(value).strip().lower()
++    if value_str in {"ct", "counterterrorist", "counter-terrorist", "counter_terrorist"}:
++        return AnalyticsAggregate.SIDE_CT
++    if value_str in {"t", "terrorist"}:
++        return AnalyticsAggregate.SIDE_T
++    if value_str in {"all", "any", "both"}:
++        return AnalyticsAggregate.SIDE_ALL
++    return AnalyticsAggregate.SIDE_ALL
++
++
++def normalize_metric(value: str | None) -> str:
++    if not value:
++        return HeatmapAggregate.METRIC_KILLS
++    value_str = str(value).strip().lower()
++    if value_str in {"kills", "kill"}:
++        return HeatmapAggregate.METRIC_KILLS
++    if value_str in {"deaths", "death"}:
++        return HeatmapAggregate.METRIC_DEATHS
++    if value_str in {"presence", "pos", "positions"}:
++        return HeatmapAggregate.METRIC_PRESENCE
++    return HeatmapAggregate.METRIC_KILLS
++
++
++def normalize_period(value: str | None) -> str:
++    if not value:
++        return DEFAULT_PERIOD
++    value_str = str(value).strip().lower()
++    if value_str in {"last_20", "20", "recent"}:
++        return "last_20"
++    if value_str in {"last_50", "50"}:
++        return "last_50"
++    if value_str in {"all_time", "all", "alltime"}:
++        return "all_time"
++    return DEFAULT_PERIOD
++
++
++def normalize_map_name(value: str | None) -> str:
++    if not value:
++        return next(iter(DEFAULT_MAPS), "de_mirage")
++    return str(value).strip().lower()
++
++
++def normalize_version(value: str | None) -> str:
++    if not value:
++        return ANALYTICS_VERSION
++    return str(value).strip().lower()
+ 
+ 
+ def _period_to_limit(period: str) -> int:
+     mapping = {"last_20": 20, "last_50": 50, "all_time": 200}
+     return mapping.get(period, 5)
+ 
+ 
+ def _profile_steamid64(profile) -> str:
+     for attr in ("steamid64", "steam_id64", "steam_id"):
+         value = getattr(profile, attr, None)
+         if value:
+             return str(value).strip()
+     return ""
+ 
+ 
+ def _get_resample_filter(filter_name: str | None) -> int:
+     name = (filter_name or HEATMAP_UPSCALE_FILTER).upper()
+     return {
+         "NEAREST": Image.Resampling.NEAREST,
+         "BILINEAR": Image.Resampling.BILINEAR,
+         "BICUBIC": Image.Resampling.BICUBIC,
+         "LANCZOS": Image.Resampling.LANCZOS,
+     }.get(name, Image.Resampling.LANCZOS)
+ 
+ 
+@@ -184,58 +289,80 @@ def _convolve1d_reflect(arr: np.ndarray, kernel: np.ndarray, axis: int) -> np.nd
+     pad_width = [(0, 0)] * arr.ndim
+     pad_width[axis] = (pad, pad)
+     padded = np.pad(arr, pad_width, mode="reflect")
+     # convolve along axis
+     out = np.apply_along_axis(lambda m: np.convolve(m, kernel, mode="valid"), axis, padded)
+     return out.astype(np.float32, copy=False)
+ 
+ 
+ def _gaussian_blur_grid(arr: np.ndarray, sigma_grid: float) -> np.ndarray:
+     if sigma_grid <= 0:
+         return arr
+     k = _gaussian_kernel1d(float(sigma_grid))
+     out = _convolve1d_reflect(arr, k, axis=0)
+     out = _convolve1d_reflect(out, k, axis=1)
+     return out
+ 
+ 
+ def _metric_blur_sigma(metric: str) -> float:
+     if metric == HeatmapAggregate.METRIC_KILLS:
+         return HEATMAP_BLUR_SIGMA_KILLS
+     if metric == HeatmapAggregate.METRIC_DEATHS:
+         return HEATMAP_BLUR_SIGMA_DEATHS
+     return HEATMAP_BLUR_SIGMA_PRESENCE
+ 
+ 
++def _metric_render_defaults(metric: str) -> dict[str, float]:
++    if metric == HeatmapAggregate.METRIC_KILLS:
++        return {
++            "gamma": HEATMAP_GAMMA_KILLS,
++            "alpha": HEATMAP_ALPHA_KILLS,
++            "clip": HEATMAP_CLIP_PCT_KILLS,
++        }
++    if metric == HeatmapAggregate.METRIC_DEATHS:
++        return {
++            "gamma": HEATMAP_GAMMA_DEATHS,
++            "alpha": HEATMAP_ALPHA_DEATHS,
++            "clip": HEATMAP_CLIP_PCT_DEATHS,
++        }
++    return {
++        "gamma": HEATMAP_GAMMA_PRESENCE,
++        "alpha": HEATMAP_ALPHA_PRESENCE,
++        "clip": HEATMAP_CLIP_PCT_PRESENCE,
++    }
++
++
+ def render_heatmap_image(
+     grid: list[list[float]],
+     *,
+     output_size: int | None = None,
+     blur_sigma_grid: float | None = None,
+     blur_sigma_output: float | None = None,
+     clip_pct: float | None = None,
+     gamma: float | None = None,
++    alpha: float | None = None,
++    alpha_power: float | None = None,
+     upscale_filter: str | None = None,
+     cmap_name: str = analyzer.CMAP_ALL,
+ ) -> Image.Image:
+     h = len(grid)
+     w = len(grid[0]) if grid else 0
+     if not w or not h:
+         raise ValueError("Grid is empty")
+ 
+     target_size = int(max(output_size or HEATMAP_OUTPUT_SIZE, 1))
+ 
+     arr = np.array(grid, dtype=np.float32)
+     arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+     arr[arr < 0] = 0.0
+ 
+     # blur in GRID space (res units) BEFORE resizing, to keep details crisp
+     sigma = float(blur_sigma_grid) if blur_sigma_grid is not None else float(HEATMAP_BLUR_SIGMA_GRID)
+     if sigma > 0:
+         arr = _gaussian_blur_grid(arr, sigma_grid=sigma)
+ 
+     # resize float mask to target_size (still float32)
+     if target_size != w or target_size != h:
+         resample = _get_resample_filter(upscale_filter)
+         mask_f = Image.fromarray(arr, mode="F").resize((target_size, target_size), resample=resample)
+         arr = np.array(mask_f, dtype=np.float32)
+         arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+@@ -243,150 +370,161 @@ def render_heatmap_image(
+ 
+     # optional blur in OUTPUT pixel space (post-upscale)
+     sigma_output = float(blur_sigma_output) if blur_sigma_output is not None else float(HEATMAP_BLUR_SIGMA_OUTPUT)
+     if sigma_output > 0:
+         arr = _gaussian_blur_grid(arr, sigma_grid=sigma_output)
+ 
+     # normalize using percentile of positive values
+     pos = arr[arr > 0]
+     pct = float(clip_pct) if clip_pct is not None else float(HEATMAP_NORM_PERCENTILE)
+     clip_value = float(np.percentile(pos, pct)) if pos.size else float(arr.max())
+     if not clip_value or clip_value <= 0:
+         clip_value = 1.0
+     mask = np.clip(arr / clip_value, 0.0, 1.0)
+ 
+     # gamma
+     g = float(gamma) if gamma is not None else float(HEATMAP_GAMMA)
+     if g > 0:
+         mask = mask ** g
+ 
+     # colormap to RGBA
+     cmap = cm.get_cmap(cmap_name)
+     rgba = cmap(mask)  # float64
+     rgba = rgba.astype(np.float32)
+ 
+     # alpha curve (controls visibility on top of radar)
+-    alpha_mul = float(max(0.0, HEATMAP_ALPHA))
+-    alpha_pow = float(max(0.01, HEATMAP_ALPHA_POWER))
++    alpha_mul = float(max(0.0, alpha if alpha is not None else HEATMAP_ALPHA))
++    alpha_pow = float(max(0.01, alpha_power if alpha_power is not None else HEATMAP_ALPHA_POWER))
+     rgba[:, :, 3] = np.clip((mask ** alpha_pow) * alpha_mul, 0.0, 1.0)
+ 
+     out = (rgba * 255.0).clip(0, 255).astype(np.uint8)
+     img = Image.fromarray(out, mode="RGBA")
+ 
+     # optional unsharp to enhance details without “pixelation”
+     if HEATMAP_UNSHARP_RADIUS and HEATMAP_UNSHARP_RADIUS > 0:
+         img = img.filter(
+             ImageFilter.UnsharpMask(
+                 radius=float(HEATMAP_UNSHARP_RADIUS),
+                 percent=int(HEATMAP_UNSHARP_PERCENT),
+                 threshold=int(HEATMAP_UNSHARP_THRESHOLD),
+             )
+         )
+     return img
+ 
+ 
+ def _build_heatmap_filename(aggregate: HeatmapAggregate, grid_array: np.ndarray) -> str:
+     digest = hashlib.sha256(grid_array.tobytes()).hexdigest()[:8]
+     timestamp = time.time_ns()
+     return (
+         f"heatmap_{aggregate.analytics_version}_{aggregate.metric}_slice{aggregate.time_slice}_"
+         f"res{aggregate.resolution}_"
+         f"out{HEATMAP_OUTPUT_SIZE}_{digest}_{timestamp}.png"
+     )
+ 
+ 
+ def _atomic_write_png(final_path: Path, render_callable) -> None:
+     final_path.parent.mkdir(parents=True, exist_ok=True)
+     tmp_path = final_path.with_name(f"{final_path.name}.tmp.{uuid4().hex}")
+     try:
+         render_callable(tmp_path)
+         os.replace(tmp_path, final_path)
+     finally:
+         if tmp_path.exists():
+             try:
+                 tmp_path.unlink()
+             except OSError:
+                 pass
+ 
+ 
+ def ensure_heatmap_image(
+     aggregate: HeatmapAggregate,
+     *,
+     radar_path: Path | None = None,
+     force: bool = False,
++    blur: float | None = None,
++    gamma: float | None = None,
++    alpha: float | None = None,
++    clip_pct: float | None = None,
+ ) -> HeatmapAggregate:
+     storage = aggregate.image.storage if aggregate.image else default_storage
+ 
+     # if file missing -> force regenerate
+     if aggregate.image and aggregate.image.name:
+         try:
+             exists = storage.exists(aggregate.image.name)
+         except Exception:
+             exists = False
+         if not exists:
+             aggregate.image = None
+             force = True
+ 
+     # if force -> remove old file if possible
+     if aggregate.image and force:
+         try:
+             storage.delete(aggregate.image.name)
+         except Exception:
+             pass
+         aggregate.image = None
+ 
+     if aggregate.image and not force:
+         return aggregate
+ 
+     if not aggregate.grid:
+         return aggregate
+ 
+     media_root = Path(getattr(settings, "MEDIA_ROOT", "media"))
+     media_root.mkdir(parents=True, exist_ok=True)
+ 
+     # choose cmap by metric
+     if aggregate.metric == HeatmapAggregate.METRIC_KILLS:
+         cmap_name = analyzer.CMAP_KILLS
+     elif aggregate.metric == HeatmapAggregate.METRIC_DEATHS:
+         cmap_name = analyzer.CMAP_DEATHS
+     else:
+         cmap_name = {
+             AnalyticsAggregate.SIDE_CT: analyzer.CMAP_CT,
+             AnalyticsAggregate.SIDE_T: analyzer.CMAP_T,
+             AnalyticsAggregate.SIDE_ALL: analyzer.CMAP_ALL,
+         }.get(aggregate.side, analyzer.CMAP_ALL)
+ 
+-    # IMPORTANT: use per-metric sigma in GRID units
+-    blur_sigma = _metric_blur_sigma(aggregate.metric)
++    # IMPORTANT: use per-metric sigma in output pixel space, scaled by resolution
++    blur_base = float(blur) if blur is not None else _metric_blur_sigma(aggregate.metric)
++    resolution = max(int(aggregate.resolution or 1), 1)
++    blur_sigma_output = blur_base * (HEATMAP_OUTPUT_SIZE / resolution)
++    render_defaults = _metric_render_defaults(aggregate.metric)
++    gamma_value = gamma if gamma is not None else render_defaults["gamma"]
++    alpha_value = alpha if alpha is not None else render_defaults["alpha"]
++    clip_value = clip_pct if clip_pct is not None else render_defaults["clip"]
+ 
+     heatmap_image = render_heatmap_image(
+         aggregate.grid,
+         output_size=HEATMAP_OUTPUT_SIZE,
+-        blur_sigma_grid=blur_sigma,
+-        blur_sigma_output=HEATMAP_BLUR_SIGMA_OUTPUT,
+-        clip_pct=HEATMAP_NORM_PERCENTILE,
+-        gamma=HEATMAP_GAMMA,
++        blur_sigma_grid=0.0,
++        blur_sigma_output=blur_sigma_output,
++        clip_pct=clip_value,
++        gamma=gamma_value,
++        alpha=alpha_value,
+         upscale_filter=HEATMAP_UPSCALE_FILTER,
+         cmap_name=cmap_name,
+     )
+ 
+     # load radar
+     radar_image = None
+     if radar_path:
+         try:
+             radar_image = Image.open(radar_path).convert("RGBA")
+         except OSError:
+             radar_image = None
+     if radar_image is None:
+         try:
+             radar_image, _meta, _radar_name = analyzer.load_radar_and_meta(aggregate.map_name)
+             radar_image = radar_image.convert("RGBA")
+         except Exception:
+             radar_image = None
+ 
+     # composite
+     if radar_image is not None:
+         radar_image = radar_image.resize(
+             (heatmap_image.width, heatmap_image.height),
+             resample=_get_resample_filter(HEATMAP_UPSCALE_FILTER),
+         )
+         composite = Image.alpha_composite(radar_image, heatmap_image)
+@@ -407,99 +545,118 @@ def ensure_heatmap_image(
+     aggregate.save(update_fields=["image", "updated_at"])
+     return aggregate
+ 
+ 
+ def _collect_points_from_cache(
+     demos_dir: Path,
+     steamid64: str,
+     map_name: str,
+     period: str,
+     side: str,
+     metric: str,
+     time_slice: str,
+ ) -> tuple[list[tuple[float, float, float]], tuple[int, int]]:
+     media_root = Path(getattr(settings, "MEDIA_ROOT", "media"))
+     cache_dir = media_root / "heatmaps_cache" / steamid64 / map_name
+     out_dir = media_root / "heatmaps_local" / steamid64 / "aggregate" / map_name
+ 
+     demo_paths = sorted(demos_dir.glob("*.dem"), key=lambda p: p.stat().st_mtime, reverse=True)
+     demo_paths = demo_paths[: max(_period_to_limit(period), 1)]
+     if not demo_paths:
+         return [], (0, 0)
+ 
+     radar, _meta, radar_name = analyzer.load_radar_and_meta(map_name)
+     radar_size = radar.size
+ 
+-    if metric == HeatmapAggregate.METRIC_PRESENCE or time_slice == "all":
+-        cache_dir.mkdir(parents=True, exist_ok=True)
+-        cache_paths: list[Path] = []
+-        for dem_path in demo_paths:
+-            cache_name = analyzer._demo_cache_hash(dem_path, radar_name, radar_size)
+-            cache_paths.append(cache_dir / f"{cache_name}.npz")
+-
+-        if not all(path.exists() for path in cache_paths):
+-            analyzer.build_heatmaps_aggregate(
+-                steamid64=steamid64,
+-                map_name=map_name,
+-                limit=_period_to_limit(period),
+-                demos_dir=demos_dir,
+-                out_dir=out_dir,
+-                cache_dir=media_root / "heatmaps_cache",
+-            )
++    cache_dir.mkdir(parents=True, exist_ok=True)
++    cache_paths: list[Path] = []
++    for dem_path in demo_paths:
++        cache_name = analyzer._demo_cache_hash(dem_path, radar_name, radar_size)
++        cache_paths.append(cache_dir / f"{cache_name}.npz")
++
++    if not all(path.exists() for path in cache_paths):
++        analyzer.build_heatmaps_aggregate(
++            steamid64=steamid64,
++            map_name=map_name,
++            limit=_period_to_limit(period),
++            demos_dir=demos_dir,
++            out_dir=out_dir,
++            cache_dir=media_root / "heatmaps_cache",
++        )
+ 
+-        points: list[tuple[float, float, float]] = []
+-        if metric == HeatmapAggregate.METRIC_KILLS:
+-            array_key = "kills_px"
+-        elif metric == HeatmapAggregate.METRIC_DEATHS:
+-            array_key = "deaths_px"
+-        else:
+-            array_key = {
+-                AnalyticsAggregate.SIDE_ALL: "presence_all_px",
+-                AnalyticsAggregate.SIDE_CT: "presence_ct_px",
+-                AnalyticsAggregate.SIDE_T: "presence_t_px",
+-            }.get(side, "presence_all_px")
+-
+-        for cache_path in cache_paths:
+-            if not cache_path.exists():
+-                continue
+-            with np.load(cache_path) as cached:
++    points: list[tuple[float, float, float]] = []
++    if metric == HeatmapAggregate.METRIC_KILLS:
++        array_key = "kills_px"
++        array_key_time = "kills_pxt"
++    elif metric == HeatmapAggregate.METRIC_DEATHS:
++        array_key = "deaths_px"
++        array_key_time = "deaths_pxt"
++    else:
++        array_key = {
++            AnalyticsAggregate.SIDE_ALL: "presence_all_px",
++            AnalyticsAggregate.SIDE_CT: "presence_ct_px",
++            AnalyticsAggregate.SIDE_T: "presence_t_px",
++        }.get(side, "presence_all_px")
++        array_key_time = {
++            AnalyticsAggregate.SIDE_ALL: "presence_all_pxt",
++            AnalyticsAggregate.SIDE_CT: "presence_ct_pxt",
++            AnalyticsAggregate.SIDE_T: "presence_t_pxt",
++        }.get(side, "presence_all_pxt")
++
++    slice_range = parse_time_slice(time_slice)
++    for cache_path in cache_paths:
++        if not cache_path.exists():
++            continue
++        with np.load(cache_path) as cached:
++            data = cached.get(array_key_time)
++            if data is None or data.size == 0:
+                 data = cached.get(array_key)
+                 if data is None:
+                     continue
++                if slice_range:
++                    logger.debug(
++                        "Heatmap cache missing time slice data for %s, slice=%s",
++                        cache_path.name,
++                        time_slice,
++                    )
+                 for x, y in data.tolist():
+                     points.append((float(x), float(y), 1.0))
++                continue
++            for row in data.tolist():
++                if len(row) < 3:
++                    continue
++                x, y, t_round = row
++                if slice_range:
++                    start_sec, end_sec = slice_range
++                    if t_round is None:
++                        continue
++                    if end_sec is not None and not (start_sec <= t_round < end_sec):
++                        continue
++                    if end_sec is None and t_round < start_sec:
++                        continue
++                points.append((float(x), float(y), 1.0))
+ 
+-        return points, radar_size
+-
+-    points = _collect_time_sliced_points(
+-        demo_paths,
+-        steamid64,
+-        map_name,
+-        metric,
+-        time_slice,
+-        radar_size,
+-    )
+     return points, radar_size
+ 
+ 
+ def _collect_time_sliced_points(
+     demo_paths: Sequence[Path],
+     steamid64: str,
+     map_name: str,
+     metric: str,
+     time_slice: str,
+     radar_size: tuple[int, int],
+ ) -> list[tuple[float, float, float]]:
+     from faceit_analytics.services import demo_events
+ 
+     ranges = _get_time_slice_ranges()
+     slice_range = ranges.get(time_slice)
+     if not slice_range:
+         slice_range = ranges.get(HEATMAP_DEFAULT_SLICE, (0, 999))
+     start_sec, end_sec = slice_range
+ 
+     radar, meta, _radar_name = analyzer.load_radar_and_meta(map_name)
+     points: list[tuple[float, float, float]] = []
+ 
+     for dem_path in demo_paths:
+         demo = analyzer.Demo(str(dem_path), verbose=False)
+         demo.parse()
+@@ -526,91 +683,102 @@ def _collect_time_sliced_points(
+             if not attacker_col:
+                 continue
+             filtered = analyzer._filter_by_steamid_numeric(kills_df, attacker_col, steamid64)
+         else:
+             x_col = demo_events._pick_column(kills_df, ["victim_X", "victim_x"])
+             y_col = demo_events._pick_column(kills_df, ["victim_Y", "victim_y"])
+             if not victim_col:
+                 continue
+             filtered = analyzer._filter_by_steamid_numeric(kills_df, victim_col, steamid64)
+ 
+         if filtered.empty or not x_col or not y_col:
+             continue
+ 
+         for _, row in filtered.iterrows():
+             round_number = demo_events._safe_int(row.get(round_col)) if round_col else None
+             tick_value = demo_events._safe_int(row.get(tick_col)) if tick_col else None
+             t_round = demo_events._round_time_seconds(
+                 row, round_number, round_start_ticks, round_start_times, tick_rate
+             )
+             if t_round is None and tick_value is not None:
+                 start_tick = round_start_ticks.get(round_number) if round_number is not None else None
+                 if start_tick is not None and tick_rate:
+                     t_round = max((tick_value - start_tick) / tick_rate, 0.0)
+             if t_round is None:
+                 continue
+-            if not (start_sec <= t_round < end_sec):
+-                continue
++            if end_sec is not None:
++                if not (start_sec <= t_round < end_sec):
++                    continue
++            else:
++                if t_round < start_sec:
++                    continue
+             points_xy = analyzer._to_points_xy(filtered.loc[[row.name]], x_col, y_col)
+             if points_xy.size == 0:
+                 continue
+             pixels = analyzer._world_to_pixel(points_xy, meta, radar_size)
+             for x_val, y_val in pixels.tolist():
+                 points.append((float(x_val), float(y_val), 1.0))
+ 
+     return points
+ 
+ 
+ @transaction.atomic
+ def get_or_build_heatmap(
+     profile_id: int,
+     map_name: str,
+     metric: str,
+     side: str,
+     period: str,
+     time_slice: str = "all",
+     version: str = ANALYTICS_VERSION,
+     resolution: int = 64,
+     *,
+     force_rebuild: bool = False,
++    render_options: dict[str, float | None] | None = None,
+ ) -> HeatmapAggregate:
++    map_name = normalize_map_name(map_name)
++    metric = normalize_metric(metric)
++    side = normalize_side(side)
++    period = normalize_period(period)
++    time_slice = normalize_time_slice(time_slice)
++    version = normalize_version(version)
+     aggregate = HeatmapAggregate.objects.filter(
+         profile_id=profile_id,
+         map_name=map_name,
+         metric=metric,
+         side=side,
+         period=period,
+         time_slice=time_slice,
+         analytics_version=version,
+         resolution=resolution,
+     ).first()
+ 
+     if aggregate and not force_rebuild:
+-        return ensure_heatmap_image(aggregate)
++        return ensure_heatmap_image(aggregate, **(render_options or {}))
+ 
+     profile = PlayerProfile.objects.get(id=profile_id)
+     steamid64 = _profile_steamid64(profile)
+     if not steamid64:
+         raise ValueError("SteamID64 is missing on player profile")
+ 
+     demos_dir = get_demos_dir(profile, map_name)
+     points, radar_size = _collect_points_from_cache(demos_dir, steamid64, map_name, period, side, metric, time_slice)
+     bounds = (0.0, 0.0, float(radar_size[0] or 1), float(radar_size[1] or 1))
+     grid, max_value = build_heatmap_grid(points, resolution=resolution, bounds=bounds)
+ 
+     aggregate, _ = HeatmapAggregate.objects.update_or_create(
+         profile_id=profile_id,
+         map_name=map_name,
+         metric=metric,
+         side=side,
+         period=period,
+         time_slice=time_slice,
+         analytics_version=version,
+         resolution=resolution,
+         defaults={
+             "grid": to_jsonable(grid),
+             "max_value": to_jsonable(max_value),
+             "updated_at": timezone.now(),
+         },
+     )
+ 
+-    return ensure_heatmap_image(aggregate, force=True)
++    return ensure_heatmap_image(aggregate, force=True, **(render_options or {}))
