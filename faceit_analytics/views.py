@@ -1,3 +1,4 @@
+import json
 import time
 from pathlib import Path
 
@@ -16,9 +17,9 @@ from .analyzer import build_heatmaps
 from .demo_fetch import get_demo_dem_path
 from .faceit_client import FaceitClient
 from .models import AnalyticsAggregate, HeatmapAggregate, ProcessingJob
-from .services.heatmaps import ensure_heatmap_image, get_or_build_heatmap
+from .services.heatmaps import ensure_heatmap_image, get_or_build_heatmap, normalize_time_slice
 from .tasks import task_full_pipeline
-from .utils import deep_json_sanitize, to_jsonable
+from .utils import to_jsonable
 from users.models import PlayerProfile
 
 
@@ -193,6 +194,15 @@ def start_analytics_processing(request, profile_id: int):
     if not request.user.is_superuser and request.user != profile.user:
         return JsonResponse({"error": "forbidden"}, status=403)
 
+    map_name = (request.POST.get("map") or "").strip()
+    if not map_name:
+        try:
+            payload = json.loads(request.body.decode("utf-8") or "{}")
+        except json.JSONDecodeError:
+            payload = {}
+        map_name = str(payload.get("map") or "").strip()
+    map_name = map_name or "de_mirage"
+
     job = ProcessingJob.objects.create(
         profile=profile,
         job_type=ProcessingJob.JOB_FULL_PIPELINE,
@@ -202,7 +212,13 @@ def start_analytics_processing(request, profile_id: int):
     )
 
     try:
-        task = task_full_pipeline.delay(profile.id, job.id, period="last_20", resolution=64)
+        task = task_full_pipeline.delay(
+            profile.id,
+            job.id,
+            period="last_20",
+            map_name=map_name,
+            resolution=64,
+        )
         ProcessingJob.objects.filter(id=job.id).update(celery_task_id=task.id)
     except Exception:
         ProcessingJob.objects.filter(id=job.id).update(
@@ -257,6 +273,7 @@ def _heatmap_response(request, profile: PlayerProfile) -> JsonResponse:
     if side not in {AnalyticsAggregate.SIDE_ALL, AnalyticsAggregate.SIDE_CT, AnalyticsAggregate.SIDE_T}:
         side = AnalyticsAggregate.SIDE_ALL
     version = request.GET.get("v", ANALYTICS_VERSION).strip() or ANALYTICS_VERSION
+    time_slice = normalize_time_slice(request.GET.get("slice") or request.GET.get("t"))
     try:
         resolution = int(request.GET.get("res", 64))
     except (TypeError, ValueError):
@@ -270,6 +287,7 @@ def _heatmap_response(request, profile: PlayerProfile) -> JsonResponse:
         metric=kind,
         side=side,
         period=period,
+        time_slice=time_slice,
         version=version,
         resolution=resolution,
     )
@@ -300,6 +318,7 @@ def _heatmap_response(request, profile: PlayerProfile) -> JsonResponse:
         side=side,
         analytics_version=version,
         resolution=resolution,
+        time_slice=time_slice,
     ).first()
 
     response = {
@@ -313,11 +332,13 @@ def _heatmap_response(request, profile: PlayerProfile) -> JsonResponse:
         "side": side,
         "map": map_name,
         "period": period,
+        "slice": time_slice,
         "res": resolution,
         "meta": {
             "map": map_name,
             "side": side,
             "period": period,
+            "slice": time_slice,
             "kind": kind,
             "metric": kind,
             "resolution": resolution,
@@ -332,6 +353,7 @@ def _heatmap_response(request, profile: PlayerProfile) -> JsonResponse:
             metric=kind,
             side=side,
             period=period,
+            time_slice=time_slice,
             version=version,
             resolution=resolution,
             force_rebuild=True,
@@ -407,17 +429,20 @@ def profile_heatmaps(request, profile_id: int):
 def analytics_me(request):
     profile = _get_request_profile(request)
     period = request.GET.get("period", "last_20").strip() or "last_20"
+    map_name = request.GET.get("map", "de_mirage").strip() or "de_mirage"
     version = request.GET.get("v", ANALYTICS_VERSION).strip() or ANALYTICS_VERSION
     aggregates = list(
         AnalyticsAggregate.objects.filter(
             profile=profile,
             period=period,
             analytics_version=version,
+            map_name=map_name,
         )
     )
     payload = {
         "profile_id": profile.id,
         "period": period,
+        "map": map_name,
         "version": version,
         "ready": bool(aggregates),
         "aggregates": [
@@ -426,10 +451,10 @@ def analytics_me(request):
                 "side": aggregate.side,
                 "period": aggregate.period,
                 "version": aggregate.analytics_version,
-                "metrics": deep_json_sanitize(aggregate.metrics_json or {}),
+                "metrics": to_jsonable(aggregate.metrics_json or {}),
                 "updated_at": aggregate.updated_at.isoformat() if aggregate.updated_at else None,
             }
             for aggregate in aggregates
         ],
     }
-    return JsonResponse(deep_json_sanitize(payload))
+    return JsonResponse(to_jsonable(payload))

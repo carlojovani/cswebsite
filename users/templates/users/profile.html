@@ -235,6 +235,7 @@
                             <form method="post" action="{% url 'analyze_profile' player_profile.id %}">
                                 {% csrf_token %}
                                 <input type="hidden" name="force_heatmaps" value="1">
+                                <input type="hidden" name="map" value="{{ analytics_map|default:'de_mirage' }}">
                                 <button type="submit"
                                         id="analytics-start"
                                         class="btn btn-update"
@@ -246,6 +247,7 @@
                                 {% csrf_token %}
                                 <input type="hidden" name="force" value="1">
                                 <input type="hidden" name="force_heatmaps" value="1">
+                                <input type="hidden" name="map" value="{{ analytics_map|default:'de_mirage' }}">
                                 <button type="submit"
                                         class="btn btn-link"
                                         {% if analytics_job_active or not can_trigger_analytics %}disabled{% endif %}>
@@ -291,6 +293,32 @@
                                 </div>
                             {% endfor %}
                         </div>
+                        {% if analytics_metrics.kda %}
+                            <div class="analytics-metrics analytics-metrics--kda">
+                                <div class="analytics-metric">
+                                    <span class="metric-label">Kills</span>
+                                    <strong class="metric-value">{{ analytics_metrics.kda.kills }}</strong>
+                                </div>
+                                <div class="analytics-metric">
+                                    <span class="metric-label">Deaths</span>
+                                    <strong class="metric-value">{{ analytics_metrics.kda.deaths }}</strong>
+                                </div>
+                                <div class="analytics-metric">
+                                    <span class="metric-label">Assists</span>
+                                    <strong class="metric-value">{{ analytics_metrics.kda.assists }}</strong>
+                                </div>
+                                <div class="analytics-metric">
+                                    <span class="metric-label">KDA</span>
+                                    <strong class="metric-value">
+                                        {% if analytics_metrics.kda.kda_ratio != None %}
+                                            {{ analytics_metrics.kda.kda_ratio|floatformat:2 }}
+                                        {% else %}
+                                            —
+                                        {% endif %}
+                                    </strong>
+                                </div>
+                            </div>
+                        {% endif %}
                     {% endif %}
                 </div>
 
@@ -381,6 +409,29 @@
                                 </strong>
                             </div>
                         </div>
+                    {% else %}
+                        <div class="analytics-empty">Not enough data</div>
+                    {% endif %}
+                </div>
+
+                <div class="analytics-card playstyle-card">
+                    <div class="analytics-header">
+                        <h3>Playstyle archetype</h3>
+                    </div>
+                    {% if analytics_metrics.playstyle %}
+                        <div class="playstyle-label">
+                            <strong>{{ analytics_metrics.playstyle.label }}</strong>
+                            {% if analytics_metrics.playstyle.approx %}
+                                <span class="role-chip role-chip--approx">approx</span>
+                            {% endif %}
+                        </div>
+                        <ul class="playstyle-reasons">
+                            {% for reason in analytics_metrics.playstyle.reasons %}
+                                <li>{{ reason }}</li>
+                            {% empty %}
+                                <li>Not enough data for reasons.</li>
+                            {% endfor %}
+                        </ul>
                     {% else %}
                         <div class="analytics-empty">Not enough data</div>
                     {% endif %}
@@ -480,14 +531,79 @@
                     {% endif %}
                 </div>
 
+                <div class="analytics-card awareness-card">
+                    <div class="analytics-header">
+                        <h3>Awareness before death</h3>
+                    </div>
+                    {% if analytics_metrics.awareness_before_death %}
+                        <div class="analytics-metrics">
+                            <div class="analytics-metric">
+                                <span class="metric-label">Awareness %</span>
+                                <strong class="metric-value">
+                                    {% if analytics_metrics.awareness_before_death.awareness_before_death_rate != None %}
+                                        {{ analytics_metrics.awareness_before_death.awareness_before_death_rate|floatformat:2 }}%
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </strong>
+                            </div>
+                            <div class="analytics-metric">
+                                <span class="metric-label">Aware deaths</span>
+                                <strong class="metric-value">{{ analytics_metrics.awareness_before_death.aware_deaths }}</strong>
+                            </div>
+                            <div class="analytics-metric">
+                                <span class="metric-label">Total deaths</span>
+                                <strong class="metric-value">{{ analytics_metrics.awareness_before_death.total_deaths }}</strong>
+                            </div>
+                        </div>
+                    {% else %}
+                        <div class="analytics-empty">Not enough data</div>
+                    {% endif %}
+                </div>
+
+                <div class="analytics-card multikill-card">
+                    <div class="analytics-header">
+                        <h3>Multi-kill breakdown</h3>
+                    </div>
+                    {% if analytics_metrics.multikill %}
+                        <div class="analytics-metrics">
+                            <div class="analytics-metric">
+                                <span class="metric-label">Multi-kill rate</span>
+                                <strong class="metric-value">
+                                    {% if analytics_metrics.multikill.multikill_round_rate != None %}
+                                        {{ analytics_metrics.multikill.multikill_round_rate|floatformat:2 }}%
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </strong>
+                            </div>
+                            <div class="analytics-metric">
+                                <span class="metric-label">Events</span>
+                                <strong class="metric-value">{{ analytics_metrics.multikill.multikill_events }}</strong>
+                            </div>
+                            <div class="analytics-metric">
+                                <span class="metric-label">Early/late</span>
+                                <strong class="metric-value">
+                                    {{ analytics_metrics.multikill.by_timing.early|default:"0" }} /
+                                    {{ analytics_metrics.multikill.by_timing.late|default:"0" }}
+                                </strong>
+                            </div>
+                        </div>
+                    {% else %}
+                        <div class="analytics-empty">Not enough data</div>
+                    {% endif %}
+                </div>
+
                 <div id="heatmaps-root"
                      class="heatmaps-card"
                      data-profile-id="{{ player_profile.id }}"
-                     data-map="de_mirage"
+                     data-map="{{ analytics_map|default:'de_mirage' }}"
                      data-period="{{ analytics_period|default:'last_20' }}"
                      data-version="{{ analytics_version|default:'v2' }}"
                      data-resolution="256"
                      data-metric="kills"
+                     data-slice="{{ heatmap_default_slice|default:'0-15' }}"
+                     data-slices="{{ heatmap_time_slices|join:',' }}"
                      data-can-trigger="{% if can_trigger_analytics %}1{% else %}0{% endif %}">
                     <div class="heatmaps-header">
                         <div>
@@ -495,8 +611,19 @@
                             <div class="heatmaps-controls">
                                 <label class="heatmaps-label" for="hm-map">Карта</label>
                                 <select id="hm-map" class="heatmaps-select">
-                                    <option value="de_mirage">de_mirage</option>
+                                    {% for map_name in available_maps %}
+                                        <option value="{{ map_name }}"
+                                                {% if map_name == analytics_map %}selected{% endif %}>
+                                            {{ map_name }}
+                                        </option>
+                                    {% endfor %}
                                 </select>
+                                <label class="heatmaps-label" for="hm-slice">Время раунда</label>
+                                <div class="heatmaps-slider">
+                                    <input id="hm-slice" type="range" min="0" max="{{ heatmap_time_slices|length|add:'-1' }}"
+                                           step="1" value="0" />
+                                    <span id="hm-slice-label" class="heatmaps-meta heatmaps-meta--inline"></span>
+                                </div>
                                 <label class="heatmaps-label" for="hm-resolution">Grid</label>
                                 <select id="hm-resolution" class="heatmaps-select">
                                     <option value="64">64</option>
@@ -928,6 +1055,10 @@
         gap: 1rem;
     }
 
+    .analytics-metrics--kda {
+        margin-top: 0.75rem;
+    }
+
     .analytics-metric {
         background: #fff;
         border-radius: 10px;
@@ -979,6 +1110,19 @@
         margin-top: 0.75rem;
         color: #495057;
         font-size: 0.95rem;
+    }
+
+    .playstyle-card .playstyle-label {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-top: 0.75rem;
+    }
+
+    .playstyle-reasons {
+        margin: 0.5rem 0 0;
+        padding-left: 1.1rem;
+        color: #6c757d;
     }
 
     .role-metrics-grid {
@@ -1087,6 +1231,16 @@
         align-items: center;
         gap: 0.5rem;
         margin-top: 0.5rem;
+    }
+
+    .heatmaps-slider {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    #hm-slice {
+        width: 140px;
     }
 
     .heatmaps-label {
@@ -1402,13 +1556,14 @@
                 analyticsStart.disabled = true;
                 setAnalyticsStatus("Запуск обработки…");
                 try {
+                    const mapValue = (document.getElementById("hm-map")?.value || "de_mirage").trim();
                     const r = await fetch(`/api/analytics/${profileId}/start`, {
                         method: "POST",
                         headers: {
                             "Content-Type": "application/json",
                             "X-CSRFToken": getCookie("csrftoken"),
                         },
-                        body: JSON.stringify({}),
+                        body: JSON.stringify({ map: mapValue }),
                     });
                     let data = null;
                     if (r.ok) {
@@ -1443,6 +1598,8 @@
         const metricTabs = Array.from(document.querySelectorAll('.hm-tab[data-group="metric"]'));
         const mapSelect = document.getElementById("hm-map");
         const resolutionSelect = document.getElementById("hm-resolution");
+        const sliceInput = document.getElementById("hm-slice");
+        const sliceLabel = document.getElementById("hm-slice-label");
         const spinner = document.getElementById("hm-spinner");
         const regenerateBtn = document.getElementById("hm-regenerate");
         const regenerateStatus = document.getElementById("hm-regenerate-status");
@@ -1452,6 +1609,11 @@
         const version = (root?.dataset?.version || "v2").trim() || "v2";
         const resolution = (root?.dataset?.resolution || "256").trim() || "256";
         const defaultMetric = (root?.dataset?.metric || "kills").trim().toLowerCase() || "kills";
+        const sliceOptions = (root?.dataset?.slices || "0-15")
+            .split(",")
+            .map((v) => v.trim())
+            .filter(Boolean);
+        const defaultSlice = (root?.dataset?.slice || sliceOptions[0] || "0-15").trim();
         const canTrigger = (root?.dataset?.canTrigger || "0").trim() === "1";
 
         function setActive(tabs, value) {
@@ -1468,6 +1630,15 @@
         }
         if (resolutionSelect) {
             resolutionSelect.value = resolution;
+        }
+        let currentSliceIndex = Math.max(sliceOptions.indexOf(defaultSlice), 0);
+        let currentSlice = sliceOptions[currentSliceIndex] || defaultSlice;
+        if (sliceInput && sliceOptions.length) {
+            sliceInput.max = `${Math.max(sliceOptions.length - 1, 0)}`;
+            sliceInput.value = `${currentSliceIndex}`;
+        }
+        if (sliceLabel) {
+            sliceLabel.textContent = currentSlice;
         }
 
         let currentSide = "ALL";
@@ -1523,6 +1694,7 @@
                 `&metric=${encodeURIComponent(currentMetric)}` +
                 `&side=${encodeURIComponent(currentSide)}` +
                 `&period=${encodeURIComponent(period)}` +
+                `&slice=${encodeURIComponent(currentSlice)}` +
                 `&v=${encodeURIComponent(version)}` +
                 `&res=${encodeURIComponent(currentResolution)}` +
                 (force ? "&force=1" : "");
@@ -1610,12 +1782,27 @@
         if (mapSelect) {
             mapSelect.addEventListener("change", () => {
                 currentMap = mapSelect.value;
-                fetchHeatmap();
+                document.querySelectorAll('input[name="map"]').forEach((input) => {
+                    input.value = currentMap;
+                });
+                const url = new URL(window.location.href);
+                url.searchParams.set("map", currentMap);
+                window.location.href = url.toString();
             });
         }
         if (resolutionSelect) {
             resolutionSelect.addEventListener("change", () => {
                 currentResolution = resolutionSelect.value;
+                fetchHeatmap();
+            });
+        }
+        if (sliceInput) {
+            sliceInput.addEventListener("input", () => {
+                currentSliceIndex = parseInt(sliceInput.value, 10);
+                currentSlice = sliceOptions[currentSliceIndex] || defaultSlice;
+                if (sliceLabel) {
+                    sliceLabel.textContent = currentSlice;
+                }
                 fetchHeatmap();
             });
         }

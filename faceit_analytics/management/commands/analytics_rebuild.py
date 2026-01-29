@@ -15,6 +15,7 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--profile-id", type=int, required=True)
         parser.add_argument("--period", type=str, default="last_20")
+        parser.add_argument("--map", type=str, default="de_mirage")
         parser.add_argument("--resolution", type=int, default=64)
         parser.add_argument("--force", action="store_true")
         parser.add_argument("--sync", action="store_true")
@@ -22,6 +23,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         profile_id = options["profile_id"]
         period = options["period"]
+        map_name = options["map"]
         resolution = options["resolution"]
         force_rebuild = options["force"]
         run_sync = options["sync"]
@@ -39,6 +41,7 @@ class Command(BaseCommand):
                 profile_id=profile.id,
                 job_id=job.id,
                 period=period,
+                map_name=map_name,
                 resolution=resolution,
                 force_rebuild=force_rebuild,
             )
@@ -51,6 +54,7 @@ class Command(BaseCommand):
                 profile_id=profile.id,
                 job_id=job.id,
                 period=period,
+                map_name=map_name,
                 resolution=resolution,
                 force_rebuild=force_rebuild,
             )

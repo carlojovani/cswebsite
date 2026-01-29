@@ -33,7 +33,7 @@ class HeatmapMeApiTests(TestCase):
         self.profile2 = PlayerProfile.objects.create(user=self.user2, steam_id="76561198000000002")
         self.client = Client()
 
-    def _create_heatmap(self, profile_id: int, tmp_dir: str) -> HeatmapAggregate:
+    def _create_heatmap(self, profile_id: int, tmp_dir: str, time_slice: str = "0-15") -> HeatmapAggregate:
         grid = [[0.0, 1.0], [0.0, 0.0]]
         aggregate = HeatmapAggregate.objects.create(
             profile_id=profile_id,
@@ -41,6 +41,7 @@ class HeatmapMeApiTests(TestCase):
             metric=HeatmapAggregate.METRIC_KILLS,
             side="ALL",
             period="last_20",
+            time_slice=time_slice,
             analytics_version="v2",
             resolution=64,
             grid=grid,
@@ -62,7 +63,7 @@ class HeatmapMeApiTests(TestCase):
             assert self.client.login(username="user1", password="pass") is True
             with override_settings(MEDIA_ROOT=tmp_dir, MEDIA_URL="/media/"):
                 response = self.client.get(
-                    "/api/heatmaps/me?map=de_mirage&metric=kills&side=ALL&period=last_20&v=v2&res=64"
+                    "/api/heatmaps/me?map=de_mirage&metric=kills&side=ALL&period=last_20&slice=0-15&v=v2&res=64"
                 )
             assert response.status_code == 200
             payload = response.json()
@@ -80,7 +81,7 @@ class HeatmapMeApiTests(TestCase):
 
             with override_settings(MEDIA_ROOT=tmp_dir, MEDIA_URL="/media/"):
                 response = self.client.get(
-                    "/api/heatmaps/me?map=de_mirage&metric=kills&side=ALL&period=last_20&v=v2&res=64"
+                    "/api/heatmaps/me?map=de_mirage&metric=kills&side=ALL&period=last_20&slice=0-15&v=v2&res=64"
                 )
             assert response.status_code == 200
             payload = response.json()

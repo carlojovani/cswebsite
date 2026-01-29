@@ -18,7 +18,8 @@ from PIL import Image, ImageFilter
 from faceit_analytics import analyzer
 from faceit_analytics.constants import ANALYTICS_VERSION
 from faceit_analytics.models import AnalyticsAggregate, HeatmapAggregate, heatmap_upload_to
-from faceit_analytics.utils import deep_json_sanitize
+from faceit_analytics.services.paths import get_demos_dir
+from faceit_analytics.utils import to_jsonable
 from users.models import PlayerProfile
 
 DEFAULT_MAPS: Iterable[str] = ("de_mirage",)
@@ -74,6 +75,34 @@ HEATMAP_ALPHA_POWER = float(getattr(settings, "HEATMAP_ALPHA_POWER", 0.55))
 HEATMAP_UNSHARP_RADIUS = float(getattr(settings, "HEATMAP_UNSHARP_RADIUS", 0.0))
 HEATMAP_UNSHARP_PERCENT = int(getattr(settings, "HEATMAP_UNSHARP_PERCENT", 140))
 HEATMAP_UNSHARP_THRESHOLD = int(getattr(settings, "HEATMAP_UNSHARP_THRESHOLD", 2))
+
+HEATMAP_TIME_SLICES = list(getattr(settings, "HEATMAP_TIME_SLICES", [(0, 999)]))
+HEATMAP_DEFAULT_SLICE = str(getattr(settings, "HEATMAP_DEFAULT_SLICE", "all"))
+
+
+def _slice_label(slice_range: tuple[int, int]) -> str:
+    return f"{int(slice_range[0])}-{int(slice_range[1])}"
+
+
+def _get_time_slice_ranges() -> dict[str, tuple[int, int]]:
+    ranges: dict[str, tuple[int, int]] = {}
+    for start, end in HEATMAP_TIME_SLICES:
+        ranges[_slice_label((start, end))] = (int(start), int(end))
+    return ranges
+
+
+def normalize_time_slice(value: str | None) -> str:
+    if not value:
+        return HEATMAP_DEFAULT_SLICE
+    value = str(value).strip()
+    if not value:
+        return HEATMAP_DEFAULT_SLICE
+    if value.lower() == "all":
+        return "all"
+    ranges = _get_time_slice_ranges()
+    if value in ranges:
+        return value
+    return HEATMAP_DEFAULT_SLICE
 
 
 def _period_to_limit(period: str) -> int:
@@ -259,7 +288,8 @@ def _build_heatmap_filename(aggregate: HeatmapAggregate, grid_array: np.ndarray)
     digest = hashlib.sha256(grid_array.tobytes()).hexdigest()[:8]
     timestamp = time.time_ns()
     return (
-        f"heatmap_{aggregate.analytics_version}_{aggregate.metric}_res{aggregate.resolution}_"
+        f"heatmap_{aggregate.analytics_version}_{aggregate.metric}_slice{aggregate.time_slice}_"
+        f"res{aggregate.resolution}_"
         f"out{HEATMAP_OUTPUT_SIZE}_{digest}_{timestamp}.png"
     )
 
@@ -379,17 +409,15 @@ def ensure_heatmap_image(
 
 
 def _collect_points_from_cache(
+    demos_dir: Path,
     steamid64: str,
     map_name: str,
     period: str,
     side: str,
     metric: str,
+    time_slice: str,
 ) -> tuple[list[tuple[float, float, float]], tuple[int, int]]:
     media_root = Path(getattr(settings, "MEDIA_ROOT", "media"))
-    demos_root = Path(
-        getattr(settings, "LOCAL_DEMOS_ROOT", media_root / "local_demos")
-    )
-    demos_dir = demos_root / steamid64 / map_name
     cache_dir = media_root / "heatmaps_cache" / steamid64 / map_name
     out_dir = media_root / "heatmaps_local" / steamid64 / "aggregate" / map_name
 
@@ -401,45 +429,135 @@ def _collect_points_from_cache(
     radar, _meta, radar_name = analyzer.load_radar_and_meta(map_name)
     radar_size = radar.size
 
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_paths: list[Path] = []
-    for dem_path in demo_paths:
-        cache_name = analyzer._demo_cache_hash(dem_path, radar_name, radar_size)
-        cache_paths.append(cache_dir / f"{cache_name}.npz")
+    if metric == HeatmapAggregate.METRIC_PRESENCE or time_slice == "all":
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_paths: list[Path] = []
+        for dem_path in demo_paths:
+            cache_name = analyzer._demo_cache_hash(dem_path, radar_name, radar_size)
+            cache_paths.append(cache_dir / f"{cache_name}.npz")
 
-    if not all(path.exists() for path in cache_paths):
-        analyzer.build_heatmaps_aggregate(
-            steamid64=steamid64,
-            map_name=map_name,
-            limit=_period_to_limit(period),
-            demos_dir=demos_dir,
-            out_dir=out_dir,
-            cache_dir=media_root / "heatmaps_cache",
-        )
+        if not all(path.exists() for path in cache_paths):
+            analyzer.build_heatmaps_aggregate(
+                steamid64=steamid64,
+                map_name=map_name,
+                limit=_period_to_limit(period),
+                demos_dir=demos_dir,
+                out_dir=out_dir,
+                cache_dir=media_root / "heatmaps_cache",
+            )
 
-    points: list[tuple[float, float, float]] = []
-    if metric == HeatmapAggregate.METRIC_KILLS:
-        array_key = "kills_px"
-    elif metric == HeatmapAggregate.METRIC_DEATHS:
-        array_key = "deaths_px"
-    else:
-        array_key = {
-            AnalyticsAggregate.SIDE_ALL: "presence_all_px",
-            AnalyticsAggregate.SIDE_CT: "presence_ct_px",
-            AnalyticsAggregate.SIDE_T: "presence_t_px",
-        }.get(side, "presence_all_px")
+        points: list[tuple[float, float, float]] = []
+        if metric == HeatmapAggregate.METRIC_KILLS:
+            array_key = "kills_px"
+        elif metric == HeatmapAggregate.METRIC_DEATHS:
+            array_key = "deaths_px"
+        else:
+            array_key = {
+                AnalyticsAggregate.SIDE_ALL: "presence_all_px",
+                AnalyticsAggregate.SIDE_CT: "presence_ct_px",
+                AnalyticsAggregate.SIDE_T: "presence_t_px",
+            }.get(side, "presence_all_px")
 
-    for cache_path in cache_paths:
-        if not cache_path.exists():
-            continue
-        with np.load(cache_path) as cached:
-            data = cached.get(array_key)
-            if data is None:
+        for cache_path in cache_paths:
+            if not cache_path.exists():
                 continue
-            for x, y in data.tolist():
-                points.append((float(x), float(y), 1.0))
+            with np.load(cache_path) as cached:
+                data = cached.get(array_key)
+                if data is None:
+                    continue
+                for x, y in data.tolist():
+                    points.append((float(x), float(y), 1.0))
 
+        return points, radar_size
+
+    points = _collect_time_sliced_points(
+        demo_paths,
+        steamid64,
+        map_name,
+        metric,
+        time_slice,
+        radar_size,
+    )
     return points, radar_size
+
+
+def _collect_time_sliced_points(
+    demo_paths: Sequence[Path],
+    steamid64: str,
+    map_name: str,
+    metric: str,
+    time_slice: str,
+    radar_size: tuple[int, int],
+) -> list[tuple[float, float, float]]:
+    from faceit_analytics.services import demo_events
+
+    ranges = _get_time_slice_ranges()
+    slice_range = ranges.get(time_slice)
+    if not slice_range:
+        slice_range = ranges.get(HEATMAP_DEFAULT_SLICE, (0, 999))
+    start_sec, end_sec = slice_range
+
+    radar, meta, _radar_name = analyzer.load_radar_and_meta(map_name)
+    points: list[tuple[float, float, float]] = []
+
+    for dem_path in demo_paths:
+        demo = analyzer.Demo(str(dem_path), verbose=False)
+        demo.parse()
+
+        kills_df = demo.kills.to_pandas()
+        if kills_df is None or kills_df.empty:
+            continue
+
+        rounds_df = demo.rounds.to_pandas() if getattr(demo, "rounds", None) is not None else None
+        round_start_ticks, round_start_times, _winners, _rounds = demo_events._build_round_meta(rounds_df)
+        tick_rate = demo_events._tick_rate_from_demo(demo)
+
+        attacker_col = demo_events._pick_column(
+            kills_df,
+            ["attacker_steamid", "killer_steamid", "attackerSteamID", "killerSteamID"],
+        )
+        victim_col = demo_events._pick_column(kills_df, ["victim_steamid", "victimSteamID"])
+        tick_col = demo_events._pick_column(kills_df, ["tick", "tick_num", "ticks"])
+        round_col = demo_events._pick_column(kills_df, ["round", "round_num", "round_number"])
+
+        if metric == HeatmapAggregate.METRIC_KILLS:
+            x_col = demo_events._pick_column(kills_df, ["attacker_X", "attacker_x"])
+            y_col = demo_events._pick_column(kills_df, ["attacker_Y", "attacker_y"])
+            if not attacker_col:
+                continue
+            filtered = analyzer._filter_by_steamid_numeric(kills_df, attacker_col, steamid64)
+        else:
+            x_col = demo_events._pick_column(kills_df, ["victim_X", "victim_x"])
+            y_col = demo_events._pick_column(kills_df, ["victim_Y", "victim_y"])
+            if not victim_col:
+                continue
+            filtered = analyzer._filter_by_steamid_numeric(kills_df, victim_col, steamid64)
+
+        if filtered.empty or not x_col or not y_col:
+            continue
+
+        for _, row in filtered.iterrows():
+            round_number = demo_events._safe_int(row.get(round_col)) if round_col else None
+            tick_value = demo_events._safe_int(row.get(tick_col)) if tick_col else None
+            t_round = demo_events._round_time_seconds(
+                row, round_number, round_start_ticks, round_start_times, tick_rate
+            )
+            if t_round is None and tick_value is not None:
+                start_tick = round_start_ticks.get(round_number) if round_number is not None else None
+                if start_tick is not None and tick_rate:
+                    t_round = max((tick_value - start_tick) / tick_rate, 0.0)
+            if t_round is None:
+                continue
+            if not (start_sec <= t_round < end_sec):
+                continue
+            points_xy = analyzer._to_points_xy(filtered.loc[[row.name]], x_col, y_col)
+            if points_xy.size == 0:
+                continue
+            pixels = analyzer._world_to_pixel(points_xy, meta, radar_size)
+            for x_val, y_val in pixels.tolist():
+                points.append((float(x_val), float(y_val), 1.0))
+
+    return points
 
 
 @transaction.atomic
@@ -449,6 +567,7 @@ def get_or_build_heatmap(
     metric: str,
     side: str,
     period: str,
+    time_slice: str = "all",
     version: str = ANALYTICS_VERSION,
     resolution: int = 64,
     *,
@@ -460,6 +579,7 @@ def get_or_build_heatmap(
         metric=metric,
         side=side,
         period=period,
+        time_slice=time_slice,
         analytics_version=version,
         resolution=resolution,
     ).first()
@@ -472,7 +592,8 @@ def get_or_build_heatmap(
     if not steamid64:
         raise ValueError("SteamID64 is missing on player profile")
 
-    points, radar_size = _collect_points_from_cache(steamid64, map_name, period, side, metric)
+    demos_dir = get_demos_dir(profile, map_name)
+    points, radar_size = _collect_points_from_cache(demos_dir, steamid64, map_name, period, side, metric, time_slice)
     bounds = (0.0, 0.0, float(radar_size[0] or 1), float(radar_size[1] or 1))
     grid, max_value = build_heatmap_grid(points, resolution=resolution, bounds=bounds)
 
@@ -482,11 +603,12 @@ def get_or_build_heatmap(
         metric=metric,
         side=side,
         period=period,
+        time_slice=time_slice,
         analytics_version=version,
         resolution=resolution,
         defaults={
-            "grid": deep_json_sanitize(grid),
-            "max_value": deep_json_sanitize(max_value),
+            "grid": to_jsonable(grid),
+            "max_value": to_jsonable(max_value),
             "updated_at": timezone.now(),
         },
     )

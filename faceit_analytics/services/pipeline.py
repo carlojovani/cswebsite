@@ -49,13 +49,14 @@ def build_heatmaps(
     job: ProcessingJob,
     profile: PlayerProfile,
     period: str,
+    map_name: str,
     resolution: int = 64,
     *,
     force_rebuild: bool = False,
     progress_start: int = 70,
     progress_end: int = 100,
 ) -> None:
-    maps = list(DEFAULT_MAPS)
+    maps = list(DEFAULT_MAPS) if map_name == "all" else [map_name]
     metrics = [HeatmapAggregate.METRIC_KILLS, HeatmapAggregate.METRIC_DEATHS]
     sides = [
         AnalyticsAggregate.SIDE_ALL,
@@ -75,6 +76,7 @@ def build_heatmaps(
                     metric=metric,
                     side=side,
                     period=period,
+                    time_slice="all",
                     resolution=resolution,
                     version=ANALYTICS_VERSION,
                     force_rebuild=force_rebuild,
@@ -89,10 +91,11 @@ def _update_job(job: ProcessingJob, **fields) -> None:
     job.save(update_fields=list(fields.keys()) + ["updated_at"])
 
 
-def _invalidate_cache(profile_id: int, period: str, resolution: int) -> None:
+def _invalidate_cache(profile_id: int, period: str, resolution: int, map_name: str) -> None:
     try:
-        cache.delete(profile_metrics_key(profile_id, period, ANALYTICS_VERSION))
-        for map_name in DEFAULT_MAPS:
+        cache.delete(profile_metrics_key(profile_id, period, map_name, ANALYTICS_VERSION))
+        maps = list(DEFAULT_MAPS) if map_name == "all" else [map_name]
+        for map_name in maps:
             for side in (
                 AnalyticsAggregate.SIDE_ALL,
                 AnalyticsAggregate.SIDE_CT,
@@ -108,6 +111,7 @@ def _invalidate_cache(profile_id: int, period: str, resolution: int) -> None:
                         metric=metric,
                         side=side,
                         period=period,
+                        time_slice="all",
                         version=ANALYTICS_VERSION,
                         resolution=resolution,
                     )
@@ -121,6 +125,7 @@ def run_full_pipeline(
     profile_id: int,
     job_id: int,
     period: str = "last_20",
+    map_name: str = "de_mirage",
     resolution: int = 64,
     force_rebuild: bool = False,
     force_heatmaps: bool = False,
@@ -141,12 +146,13 @@ def run_full_pipeline(
         sync_faceit_profile(profile)
         _update_job(job, progress=10)
 
-        aggregates = build_metrics(profile, period=period, analytics_version=ANALYTICS_VERSION)
+        aggregates = build_metrics(profile, period=period, analytics_version=ANALYTICS_VERSION, map_name=map_name)
         _update_job(job, progress=20)
 
         demo_features = get_or_build_demo_features(
             profile,
             period=period,
+            map_name=map_name,
             analytics_version=ANALYTICS_VERSION,
             force_rebuild=force_demo_features or force_rebuild,
             progress_callback=lambda progress: _update_job(job, progress=progress),
@@ -161,10 +167,11 @@ def run_full_pipeline(
             job,
             profile,
             period=period,
+            map_name=map_name,
             resolution=resolution,
             force_rebuild=force_heatmaps or force_rebuild,
         )
-        _invalidate_cache(profile.id, period, resolution)
+        _invalidate_cache(profile.id, period, resolution, map_name)
         _update_job(
             job,
             status=ProcessingJob.STATUS_SUCCESS,

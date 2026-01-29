@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from faceit_analytics.utils import deep_json_sanitize
+from faceit_analytics.utils import deep_json_sanitize, to_jsonable
 
 
 def test_json_sanitize_numpy_scalars():
@@ -23,3 +23,9 @@ def test_json_sanitize_numpy_scalars():
     assert result["decimal"] == 3.5
     assert result["path"] == "/tmp/demo.dem"
     assert result["when"].startswith("2024-01-01T12:30")
+
+
+def test_to_jsonable_converts_numpy_uint64():
+    payload = {"value": np.uint64(123)}
+    result = to_jsonable(payload)
+    assert result["value"] == 123
