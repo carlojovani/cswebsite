@@ -1,4 +1,5 @@
 import time
+from pathlib import Path
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
@@ -17,7 +18,7 @@ from .faceit_client import FaceitClient
 from .models import AnalyticsAggregate, HeatmapAggregate, ProcessingJob
 from .services.heatmaps import ensure_heatmap_image, get_or_build_heatmap
 from .tasks import task_full_pipeline
-from .utils import to_jsonable
+from .utils import deep_json_sanitize, to_jsonable
 from users.models import PlayerProfile
 
 
@@ -238,13 +239,11 @@ def analytics_job_status(request, job_id: int):
     return JsonResponse(payload)
 
 
-@login_required
-@require_GET
-def profile_heatmaps(request, profile_id: int):
-    profile = get_object_or_404(PlayerProfile, id=profile_id)
-    if not request.user.is_superuser and request.user != profile.user:
-        return JsonResponse({"error": "forbidden"}, status=403)
+def _get_request_profile(request) -> PlayerProfile:
+    return get_object_or_404(PlayerProfile, user=request.user)
 
+
+def _heatmap_response(request, profile: PlayerProfile) -> JsonResponse:
     period = request.GET.get("period", "last_20").strip() or "last_20"
     map_name = request.GET.get("map", "de_mirage").strip() or "de_mirage"
     side = request.GET.get("side", AnalyticsAggregate.SIDE_ALL).strip().upper() or AnalyticsAggregate.SIDE_ALL
@@ -385,3 +384,52 @@ def profile_heatmaps(request, profile_id: int):
             pass
 
     return JsonResponse(to_jsonable(response))
+
+
+@login_required
+@require_GET
+def heatmaps_me(request):
+    profile = _get_request_profile(request)
+    return _heatmap_response(request, profile)
+
+
+@login_required
+@require_GET
+def profile_heatmaps(request, profile_id: int):
+    profile = get_object_or_404(PlayerProfile, id=profile_id)
+    if not request.user.is_superuser and request.user != profile.user:
+        return JsonResponse({"error": "forbidden"}, status=403)
+    return _heatmap_response(request, profile)
+
+
+@login_required
+@require_GET
+def analytics_me(request):
+    profile = _get_request_profile(request)
+    period = request.GET.get("period", "last_20").strip() or "last_20"
+    version = request.GET.get("v", ANALYTICS_VERSION).strip() or ANALYTICS_VERSION
+    aggregates = list(
+        AnalyticsAggregate.objects.filter(
+            profile=profile,
+            period=period,
+            analytics_version=version,
+        )
+    )
+    payload = {
+        "profile_id": profile.id,
+        "period": period,
+        "version": version,
+        "ready": bool(aggregates),
+        "aggregates": [
+            {
+                "map": aggregate.map_name,
+                "side": aggregate.side,
+                "period": aggregate.period,
+                "version": aggregate.analytics_version,
+                "metrics": deep_json_sanitize(aggregate.metrics_json or {}),
+                "updated_at": aggregate.updated_at.isoformat() if aggregate.updated_at else None,
+            }
+            for aggregate in aggregates
+        ],
+    }
+    return JsonResponse(deep_json_sanitize(payload))

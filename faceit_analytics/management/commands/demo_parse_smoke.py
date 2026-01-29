@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from faceit_analytics.constants import ANALYTICS_VERSION
 from faceit_analytics.services.demo_events import get_or_build_demo_features, safe_json
@@ -30,6 +30,22 @@ class Command(BaseCommand):
             force_rebuild=force,
         )
         debug = payload.get("debug") or {}
+        timing_slices = payload.get("timing_slices")
+        if timing_slices is None:
+            raise CommandError("timing_slices is missing from demo features payload")
+        approx_expected = bool(
+            debug.get("demos_count") == 0
+            or debug.get("rounds_count") == 0
+            or debug.get("tickrate_assumed")
+            or debug.get("approx_time_kills")
+            or debug.get("missing_time_kills")
+        )
+        approx_actual = bool(timing_slices.get("approx"))
+        if approx_expected != approx_actual:
+            self.stderr.write(
+                "Warning: timing_slices approx flag does not match expected "
+                f"(expected={approx_expected}, actual={approx_actual})"
+            )
         output = {
             "profile_id": profile_id,
             "period": period,
@@ -46,7 +62,7 @@ class Command(BaseCommand):
             "debug": debug,
             "role_fingerprint": payload.get("role_fingerprint"),
             "utility_iq": payload.get("utility_iq"),
-            "timing_slices": payload.get("timing_slices"),
+            "timing_slices": timing_slices,
             "sample_event": debug.get("kill_event_sample"),
         }
         self.stdout.write(json.dumps(safe_json(output), ensure_ascii=False, indent=2))

@@ -7,7 +7,7 @@ from faceit_analytics.services.features import (
     compute_timing_slices,
     compute_utility_iq,
 )
-from faceit_analytics.utils import to_jsonable
+from faceit_analytics.utils import deep_json_sanitize
 
 DEFAULT_MAP_NAME = "all"
 DEFAULT_SIDE = AnalyticsAggregate.SIDE_ALL
@@ -33,7 +33,7 @@ def build_metrics(profile, period: str, analytics_version: str = "v1") -> list[A
         side=DEFAULT_SIDE,
         period=period,
         analytics_version=analytics_version,
-        defaults={"metrics_json": metrics},
+        defaults={"metrics_json": deep_json_sanitize(metrics)},
     )
 
     return [aggregate]
@@ -76,6 +76,6 @@ def enrich_metrics_with_role_features(
     metrics["timing_slices"] = timing_slices
     metrics["demo_features_debug"] = demo_features_debug
     metrics["demo_features_approx"] = demo_features_approx
-    aggregate.metrics_json = to_jsonable(metrics)
+    aggregate.metrics_json = deep_json_sanitize(metrics)
     aggregate.save(update_fields=["metrics_json", "updated_at"])
     return aggregate

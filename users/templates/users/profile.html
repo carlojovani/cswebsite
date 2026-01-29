@@ -529,7 +529,7 @@
                         <img id="hm-img" class="heatmap-img" alt="heatmap" loading="lazy" />
                         <div class="heatmaps-actions">
                             <button id="hm-regenerate" type="button" class="heatmaps-btn">
-                                Обновить изображение
+                                Обновить картинки
                             </button>
                             <span id="hm-regenerate-status" class="heatmaps-meta heatmaps-meta--inline" aria-live="polite"></span>
                         </div>
@@ -1499,7 +1499,7 @@
 
         function setMissingMessage() {
             status.textContent = canTrigger
-                ? "Нет данных. Нажмите «Analyze» в блоке аналитики."
+                ? "Нет данных. Нажмите «Проанализировать» в блоке аналитики."
                 : "Нет данных.";
         }
 
@@ -1518,7 +1518,7 @@
             img.style.display = "none";
             let waitingForImage = false;
 
-            const apiUrl = `/api/heatmaps/${encodeURIComponent(heatmapProfileId)}` +
+            const apiUrl = `/api/heatmaps/me` +
                 `?map=${encodeURIComponent(currentMap)}` +
                 `&metric=${encodeURIComponent(currentMetric)}` +
                 `&side=${encodeURIComponent(currentSide)}` +

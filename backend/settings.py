@@ -67,6 +67,7 @@ STATIC_URL = '/static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+LOCAL_DEMOS_ROOT = MEDIA_ROOT / "local_demos"
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 

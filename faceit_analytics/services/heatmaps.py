@@ -18,7 +18,7 @@ from PIL import Image, ImageFilter
 from faceit_analytics import analyzer
 from faceit_analytics.constants import ANALYTICS_VERSION
 from faceit_analytics.models import AnalyticsAggregate, HeatmapAggregate, heatmap_upload_to
-from faceit_analytics.utils import to_jsonable
+from faceit_analytics.utils import deep_json_sanitize
 from users.models import PlayerProfile
 
 DEFAULT_MAPS: Iterable[str] = ("de_mirage",)
@@ -79,6 +79,14 @@ HEATMAP_UNSHARP_THRESHOLD = int(getattr(settings, "HEATMAP_UNSHARP_THRESHOLD", 2
 def _period_to_limit(period: str) -> int:
     mapping = {"last_20": 20, "last_50": 50, "all_time": 200}
     return mapping.get(period, 5)
+
+
+def _profile_steamid64(profile) -> str:
+    for attr in ("steamid64", "steam_id64", "steam_id"):
+        value = getattr(profile, attr, None)
+        if value:
+            return str(value).strip()
+    return ""
 
 
 def _get_resample_filter(filter_name: str | None) -> int:
@@ -378,7 +386,10 @@ def _collect_points_from_cache(
     metric: str,
 ) -> tuple[list[tuple[float, float, float]], tuple[int, int]]:
     media_root = Path(getattr(settings, "MEDIA_ROOT", "media"))
-    demos_dir = media_root / "local_demos" / steamid64 / map_name
+    demos_root = Path(
+        getattr(settings, "LOCAL_DEMOS_ROOT", media_root / "local_demos")
+    )
+    demos_dir = demos_root / steamid64 / map_name
     cache_dir = media_root / "heatmaps_cache" / steamid64 / map_name
     out_dir = media_root / "heatmaps_local" / steamid64 / "aggregate" / map_name
 
@@ -457,7 +468,7 @@ def get_or_build_heatmap(
         return ensure_heatmap_image(aggregate)
 
     profile = PlayerProfile.objects.get(id=profile_id)
-    steamid64 = (profile.steam_id or "").strip()
+    steamid64 = _profile_steamid64(profile)
     if not steamid64:
         raise ValueError("SteamID64 is missing on player profile")
 
@@ -474,8 +485,8 @@ def get_or_build_heatmap(
         analytics_version=version,
         resolution=resolution,
         defaults={
-            "grid": to_jsonable(grid),
-            "max_value": to_jsonable(max_value),
+            "grid": deep_json_sanitize(grid),
+            "max_value": deep_json_sanitize(max_value),
             "updated_at": timezone.now(),
         },
     )
