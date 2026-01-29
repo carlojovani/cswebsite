@@ -12,14 +12,15 @@ from .demo_fetch import get_local_dem_path
 def local_heatmaps(request):
     """
     GET /api/local/heatmaps?steamid64=XXXX
-    Берёт демку из media/local_demos/match.dem(.zst) и строит heatmaps для steamid64.
+    Берёт демку из MEDIA_ROOT/local_demos/<steamid64>/match.dem(.zst) и строит heatmaps для steamid64.
     """
     steamid64 = request.GET.get("steamid64", "").strip()
     if not steamid64:
         return JsonResponse({"error": "steamid64 is required"}, status=400)
 
     media_root = Path(getattr(settings, "MEDIA_ROOT", "media"))
-    demo_dir = media_root / "local_demos"
+    demos_root = Path(getattr(settings, "LOCAL_DEMOS_ROOT", media_root / "local_demos"))
+    demo_dir = demos_root / steamid64
     out_dir = media_root / "heatmaps_local" / steamid64
 
     try:
@@ -50,7 +51,7 @@ def local_heatmaps(request):
 def local_heatmaps_aggregate(request):
     """
     GET /api/local/heatmaps_aggregate?steamid64=XXXX&map=de_mirage&limit=5
-    Берёт несколько демо в media/local_demos/<steamid64>/<map>/ и строит агрегированные heatmaps.
+    Берёт несколько демо в MEDIA_ROOT/local_demos/<steamid64>/<map>/ и строит агрегированные heatmaps.
     """
     steamid64 = request.GET.get("steamid64", "").strip()
     map_name = request.GET.get("map", "").strip()
@@ -68,7 +69,8 @@ def local_heatmaps_aggregate(request):
         return JsonResponse({"error": "limit must be an integer"}, status=400)
 
     media_root = Path(getattr(settings, "MEDIA_ROOT", "media"))
-    demos_dir = media_root / "local_demos" / steamid64 / map_name
+    demos_root = Path(getattr(settings, "LOCAL_DEMOS_ROOT", media_root / "local_demos"))
+    demos_dir = demos_root / steamid64 / map_name
     out_dir = media_root / "heatmaps_local" / steamid64 / "aggregate" / map_name
     cache_dir = media_root / "heatmaps_cache"
 
