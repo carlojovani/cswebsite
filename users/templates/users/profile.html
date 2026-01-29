@@ -215,9 +215,24 @@
                             </div>
                         </div>
                     </div>
-                    {% if player_profile.description %}
-                    <div class="role-description">
-                        {{ player_profile.description|linebreaks }}
+                    {% if description_ct or description_t or player_profile.description %}
+                    <div class="role-description role-description--split">
+                        <div class="role-description__col">
+                            <h4>CT</h4>
+                            {% if description_ct %}
+                                {{ description_ct|linebreaks }}
+                            {% else %}
+                                <span class="role-description__empty">Не указано</span>
+                            {% endif %}
+                        </div>
+                        <div class="role-description__col">
+                            <h4>T</h4>
+                            {% if description_t %}
+                                {{ description_t|linebreaks }}
+                            {% else %}
+                                <span class="role-description__empty">Не указано</span>
+                            {% endif %}
+                        </div>
                     </div>
                     {% endif %}
                 </div>
@@ -643,9 +658,9 @@
                                 </button>
                             </div>
                             <div class="heatmaps-tabs heatmaps-tabs--secondary" data-group="side">
-                                <button type="button" class="hm-tab active" data-group="side" data-value="ALL">All</button>
-                                <button type="button" class="hm-tab" data-group="side" data-value="CT">CT</button>
-                                <button type="button" class="hm-tab" data-group="side" data-value="T">T</button>
+                                <button type="button" class="hm-tab active" data-group="side" data-value="all">All</button>
+                                <button type="button" class="hm-tab" data-group="side" data-value="ct">CT</button>
+                                <button type="button" class="hm-tab" data-group="side" data-value="t">T</button>
                             </div>
                         </div>
                     </div>
@@ -1014,6 +1029,25 @@
         border-radius: 10px;
         background: #f8f9fa;
         color: #495057;
+    }
+
+    .role-description--split {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 1rem;
+    }
+
+    .role-description__col h4 {
+        margin: 0 0 0.5rem;
+        font-size: 0.95rem;
+        text-transform: uppercase;
+        color: #343a40;
+        letter-spacing: 0.6px;
+    }
+
+    .role-description__empty {
+        color: #9aa0a6;
+        font-style: italic;
     }
 
     .analytics-card {
@@ -1641,7 +1675,7 @@
             sliceLabel.textContent = currentSlice;
         }
 
-        let currentSide = "ALL";
+        let currentSide = "all";
         let currentMap = defaultMap;
         let currentMetric = defaultMetric;
         let currentResolution = resolution;

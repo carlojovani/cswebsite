@@ -226,6 +226,33 @@ def world_to_pixel(points_xy: np.ndarray, map_meta: dict, radar_size: tuple[int,
     return _world_to_pixel(points_xy, map_meta, radar_size)
 
 
+def _world_to_pixel_with_time(
+    points_xyt: np.ndarray,
+    map_meta: dict,
+    radar_size: tuple[int, int],
+) -> np.ndarray:
+    if points_xyt.size == 0:
+        return _empty_points_time()
+    w, h = radar_size
+    pos_x = float(map_meta["pos_x"])
+    pos_y = float(map_meta["pos_y"])
+    scale = float(map_meta["scale"])
+
+    xs = points_xyt[:, 0]
+    ys = points_xyt[:, 1]
+    ts = points_xyt[:, 2]
+    px = (xs - pos_x) / scale
+    py = (pos_y - ys) / scale
+
+    px = px + float(OFFSET_X_PX)
+    py = py + float(OFFSET_Y_PX)
+
+    m = (px >= 0) & (px < w) & (py >= 0) & (py < h)
+    if not m.any():
+        return _empty_points_time()
+    return np.stack([px[m], py[m], ts[m]], axis=1).astype(np.float32)
+
+
 def _downsample_by_tick(df: pd.DataFrame, tick_col: str) -> pd.DataFrame:
     if TIME_STEP_TICKS <= 1:
         return df
@@ -418,6 +445,10 @@ def _empty_points() -> np.ndarray:
     return np.empty((0, 2), dtype=np.float32)
 
 
+def _empty_points_time() -> np.ndarray:
+    return np.empty((0, 3), dtype=np.float32)
+
+
 def _extract_points_from_demo(
     dem_path: Path,
     steamid64: str,
@@ -430,11 +461,18 @@ def _extract_points_from_demo(
         dem = Demo(str(dem_path), verbose=False)
         dem.parse()
 
+    from faceit_analytics.services import demo_events
+
+    rounds_df = dem.rounds.to_pandas() if getattr(dem, "rounds", None) is not None else None
+    round_start_ticks, round_start_times, _round_winners, _rounds = demo_events._build_round_meta(rounds_df)
+    tick_rate = demo_events._tick_rate_from_demo(dem)
+
     ticks_df = dem.ticks.to_pandas()
     sid_col = _pick_existing(ticks_df, ["steamid", "steamID", "player_steamid", "playerSteamID"])
     xcol = _pick_existing(ticks_df, ["X", "x", "player_X", "player_x"])
     ycol = _pick_existing(ticks_df, ["Y", "y", "player_Y", "player_y"])
     tick_col = _pick_existing(ticks_df, ["tick", "ticks", "tick_num"])
+    round_col = demo_events._pick_column(ticks_df, ["round", "round_num", "round_number"])
 
     ticks_my = _filter_by_steamid_numeric(ticks_df, sid_col, steamid64)
     low = {c.lower(): c for c in ticks_my.columns}
@@ -445,7 +483,36 @@ def _extract_points_from_demo(
             ticks_my = alive
 
     ticks_my = _downsample_by_tick(ticks_my, tick_col)
+    t_round_values = []
+    valid_rows = []
+    for _, row in ticks_my.iterrows():
+        round_number = demo_events._safe_int(row.get(round_col)) if round_col else None
+        t_round = demo_events._round_time_seconds(row, round_number, round_start_ticks, round_start_times, tick_rate)
+        if t_round is None:
+            continue
+        t_round_values.append(float(t_round))
+        valid_rows.append(row)
+    if valid_rows:
+        ticks_my = pd.DataFrame(valid_rows)
+        ticks_my["__t_round"] = t_round_values
+    else:
+        ticks_my = ticks_my.iloc[0:0]
+        ticks_my["__t_round"] = []
+
     pts_px = _world_to_pixel(_to_points_xy(ticks_my, xcol, ycol), map_meta, radar_size)
+    pts_pxt = _empty_points_time()
+    if not ticks_my.empty and xcol and ycol and "__t_round" in ticks_my:
+        pts_pxt = _world_to_pixel_with_time(
+            np.column_stack(
+                [
+                    pd.to_numeric(ticks_my[xcol], errors="coerce").to_numpy(),
+                    pd.to_numeric(ticks_my[ycol], errors="coerce").to_numpy(),
+                    pd.to_numeric(ticks_my["__t_round"], errors="coerce").to_numpy(),
+                ]
+            ).astype(np.float32, copy=False),
+            map_meta,
+            radar_size,
+        )
 
     auto_dx = 0
     auto_dy = 0
@@ -453,9 +520,12 @@ def _extract_points_from_demo(
     if AUTO_OFFSET and pts_px.shape[0] > 200:
         auto_dx, auto_dy, auto_score = _auto_offset_shift(pts_px, map_mask_L)
         pts_px = _apply_shift(pts_px, auto_dx, auto_dy, radar_size)
+        pts_pxt[:, :2] = _apply_shift(pts_pxt[:, :2], auto_dx, auto_dy, radar_size)
 
     ct_pts = _empty_points()
     t_pts = _empty_points()
+    ct_pxt = _empty_points_time()
+    t_pxt = _empty_points_time()
     if "side" in low:
         side_col = low["side"]
         side_norm = ticks_my[side_col].map(_normalize_side_value)
@@ -465,34 +535,118 @@ def _extract_points_from_demo(
 
         ct_pts = _world_to_pixel(_to_points_xy(ct_df, xcol, ycol), map_meta, radar_size)
         t_pts = _world_to_pixel(_to_points_xy(t_df, xcol, ycol), map_meta, radar_size)
+        ct_pxt = _world_to_pixel_with_time(
+            np.column_stack(
+                [
+                    pd.to_numeric(ct_df[xcol], errors="coerce").to_numpy(),
+                    pd.to_numeric(ct_df[ycol], errors="coerce").to_numpy(),
+                    pd.to_numeric(ct_df["__t_round"], errors="coerce").to_numpy(),
+                ]
+            ).astype(np.float32, copy=False),
+            map_meta,
+            radar_size,
+        )
+        t_pxt = _world_to_pixel_with_time(
+            np.column_stack(
+                [
+                    pd.to_numeric(t_df[xcol], errors="coerce").to_numpy(),
+                    pd.to_numeric(t_df[ycol], errors="coerce").to_numpy(),
+                    pd.to_numeric(t_df["__t_round"], errors="coerce").to_numpy(),
+                ]
+            ).astype(np.float32, copy=False),
+            map_meta,
+            radar_size,
+        )
 
         if AUTO_OFFSET and (auto_dx or auto_dy):
             ct_pts = _apply_shift(ct_pts, auto_dx, auto_dy, radar_size)
             t_pts = _apply_shift(t_pts, auto_dx, auto_dy, radar_size)
+            ct_pxt[:, :2] = _apply_shift(ct_pxt[:, :2], auto_dx, auto_dy, radar_size)
+            t_pxt[:, :2] = _apply_shift(t_pxt[:, :2], auto_dx, auto_dy, radar_size)
 
     kills_df = dem.kills.to_pandas()
     attacker_col = _pick_existing(kills_df, ["attacker_steamid", "killer_steamid", "attackerSteamID", "killerSteamID"])
     kx = _pick_existing(kills_df, ["attacker_X", "attacker_x"])
     ky = _pick_existing(kills_df, ["attacker_Y", "attacker_y"])
+    round_kill_col = demo_events._pick_column(kills_df, ["round", "round_num", "round_number"])
     kills_my = _filter_by_steamid_numeric(kills_df, attacker_col, steamid64)
     kill_pts = _world_to_pixel(_to_points_xy(kills_my, kx, ky), map_meta, radar_size)
+    kills_pxt = _empty_points_time()
+    if not kills_my.empty and kx and ky:
+        kill_t_round = []
+        kill_rows = []
+        for _, row in kills_my.iterrows():
+            round_number = demo_events._safe_int(row.get(round_kill_col)) if round_kill_col else None
+            t_round = demo_events._round_time_seconds(row, round_number, round_start_ticks, round_start_times, tick_rate)
+            if t_round is None:
+                continue
+            kill_rows.append(row)
+            kill_t_round.append(float(t_round))
+        if kill_rows:
+            kill_df = pd.DataFrame(kill_rows)
+            kill_df["__t_round"] = kill_t_round
+            kills_pxt = _world_to_pixel_with_time(
+                np.column_stack(
+                    [
+                        pd.to_numeric(kill_df[kx], errors="coerce").to_numpy(),
+                        pd.to_numeric(kill_df[ky], errors="coerce").to_numpy(),
+                        pd.to_numeric(kill_df["__t_round"], errors="coerce").to_numpy(),
+                    ]
+                ).astype(np.float32, copy=False),
+                map_meta,
+                radar_size,
+            )
     if AUTO_OFFSET and (auto_dx or auto_dy):
         kill_pts = _apply_shift(kill_pts, auto_dx, auto_dy, radar_size)
+        if kills_pxt.size:
+            kills_pxt[:, :2] = _apply_shift(kills_pxt[:, :2], auto_dx, auto_dy, radar_size)
 
     victim_col = _pick_existing(kills_df, ["victim_steamid", "victimSteamID"])
     dx = _pick_existing(kills_df, ["victim_X", "victim_x"])
     dy = _pick_existing(kills_df, ["victim_Y", "victim_y"])
     deaths_my = _filter_by_steamid_numeric(kills_df, victim_col, steamid64)
     death_pts = _world_to_pixel(_to_points_xy(deaths_my, dx, dy), map_meta, radar_size)
+    deaths_pxt = _empty_points_time()
+    if not deaths_my.empty and dx and dy:
+        death_t_round = []
+        death_rows = []
+        for _, row in deaths_my.iterrows():
+            round_number = demo_events._safe_int(row.get(round_kill_col)) if round_kill_col else None
+            t_round = demo_events._round_time_seconds(row, round_number, round_start_ticks, round_start_times, tick_rate)
+            if t_round is None:
+                continue
+            death_rows.append(row)
+            death_t_round.append(float(t_round))
+        if death_rows:
+            death_df = pd.DataFrame(death_rows)
+            death_df["__t_round"] = death_t_round
+            deaths_pxt = _world_to_pixel_with_time(
+                np.column_stack(
+                    [
+                        pd.to_numeric(death_df[dx], errors="coerce").to_numpy(),
+                        pd.to_numeric(death_df[dy], errors="coerce").to_numpy(),
+                        pd.to_numeric(death_df["__t_round"], errors="coerce").to_numpy(),
+                    ]
+                ).astype(np.float32, copy=False),
+                map_meta,
+                radar_size,
+            )
     if AUTO_OFFSET and (auto_dx or auto_dy):
         death_pts = _apply_shift(death_pts, auto_dx, auto_dy, radar_size)
+        if deaths_pxt.size:
+            deaths_pxt[:, :2] = _apply_shift(deaths_pxt[:, :2], auto_dx, auto_dy, radar_size)
 
     points = {
         "presence_all_px": pts_px,
         "presence_ct_px": ct_pts,
         "presence_t_px": t_pts,
+        "presence_all_pxt": pts_pxt,
+        "presence_ct_pxt": ct_pxt,
+        "presence_t_pxt": t_pxt,
         "kills_px": kill_pts,
         "deaths_px": death_pts,
+        "kills_pxt": kills_pxt,
+        "deaths_pxt": deaths_pxt,
     }
     debug = {
         "auto_offset_px": [int(auto_dx), int(auto_dy)],
@@ -688,8 +842,13 @@ def build_heatmaps_aggregate(
                     "presence_all_px": cached.get("presence_all_px", _empty_points()),
                     "presence_ct_px": cached.get("presence_ct_px", _empty_points()),
                     "presence_t_px": cached.get("presence_t_px", _empty_points()),
+                    "presence_all_pxt": cached.get("presence_all_pxt", _empty_points_time()),
+                    "presence_ct_pxt": cached.get("presence_ct_pxt", _empty_points_time()),
+                    "presence_t_pxt": cached.get("presence_t_pxt", _empty_points_time()),
                     "kills_px": cached.get("kills_px", _empty_points()),
                     "deaths_px": cached.get("deaths_px", _empty_points()),
+                    "kills_pxt": cached.get("kills_pxt", _empty_points_time()),
+                    "deaths_pxt": cached.get("deaths_pxt", _empty_points_time()),
                 }
         else:
             demo_points, _ = _extract_points_from_demo(dem_path, steamid64, meta, (w, h), map_mask_L)
@@ -698,8 +857,13 @@ def build_heatmaps_aggregate(
                 presence_all_px=demo_points["presence_all_px"],
                 presence_ct_px=demo_points["presence_ct_px"],
                 presence_t_px=demo_points["presence_t_px"],
+                presence_all_pxt=demo_points["presence_all_pxt"],
+                presence_ct_pxt=demo_points["presence_ct_pxt"],
+                presence_t_pxt=demo_points["presence_t_pxt"],
                 kills_px=demo_points["kills_px"],
                 deaths_px=demo_points["deaths_px"],
+                kills_pxt=demo_points["kills_pxt"],
+                deaths_pxt=demo_points["deaths_pxt"],
             )
 
         presence_all.append(_limit_points(demo_points["presence_all_px"], 15000))

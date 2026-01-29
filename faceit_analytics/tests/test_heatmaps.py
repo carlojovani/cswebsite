@@ -61,7 +61,7 @@ def test_metric_affects_filename_or_url():
         profile_id=1,
         map_name="de_mirage",
         metric=HeatmapAggregate.METRIC_KILLS,
-        side="ALL",
+        side="all",
         period="last_20",
         time_slice="all",
         analytics_version="v2",
@@ -73,7 +73,7 @@ def test_metric_affects_filename_or_url():
         profile_id=1,
         map_name="de_mirage",
         metric=HeatmapAggregate.METRIC_DEATHS,
-        side="ALL",
+        side="all",
         period="last_20",
         time_slice="all",
         analytics_version="v2",
@@ -85,7 +85,7 @@ def test_metric_affects_filename_or_url():
         profile_id=1,
         map_name="de_mirage",
         metric=HeatmapAggregate.METRIC_PRESENCE,
-        side="ALL",
+        side="all",
         period="last_20",
         time_slice="all",
         analytics_version="v2",
@@ -110,7 +110,7 @@ def test_force_regenerates_version(tmp_path):
         profile_id=1,
         map_name="de_mirage",
         metric=HeatmapAggregate.METRIC_KILLS,
-        side="ALL",
+        side="all",
         period="last_20",
         time_slice="all",
         analytics_version="v2",
@@ -137,13 +137,41 @@ def test_force_regenerates_version(tmp_path):
     assert second_updated >= first_updated
 
 
+def test_force_regenerates_and_deletes_old_file(tmp_path):
+    grid = [[0.0, 1.0], [0.0, 0.0]]
+    aggregate = HeatmapAggregate(
+        profile_id=1,
+        map_name="de_mirage",
+        metric=HeatmapAggregate.METRIC_KILLS,
+        side="all",
+        period="last_20",
+        time_slice="all",
+        analytics_version="v2",
+        resolution=64,
+        grid=grid,
+        max_value=1.0,
+    )
+    aggregate.save = lambda *args, **kwargs: None
+
+    with override_settings(MEDIA_ROOT=str(tmp_path), MEDIA_URL="/media/"):
+        first = ensure_heatmap_image(aggregate, force=True)
+        first_path = Path(tmp_path) / first.image.name
+        assert first_path.exists()
+
+        second = ensure_heatmap_image(aggregate, force=True)
+        second_path = Path(tmp_path) / second.image.name
+
+    assert second_path.exists()
+    assert not first_path.exists()
+
+
 def test_missing_file_regenerates_heatmap(tmp_path):
     grid = [[0.0, 1.0], [0.0, 0.0]]
     aggregate = HeatmapAggregate(
         profile_id=1,
         map_name="de_mirage",
         metric=HeatmapAggregate.METRIC_KILLS,
-        side="ALL",
+        side="all",
         period="last_20",
         time_slice="all",
         analytics_version="v2",
@@ -193,7 +221,7 @@ def test_atomic_write_used(tmp_path):
         profile_id=1,
         map_name="de_mirage",
         metric=HeatmapAggregate.METRIC_KILLS,
-        side="ALL",
+        side="all",
         period="last_20",
         time_slice="all",
         analytics_version="v2",

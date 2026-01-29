@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import time
 from pathlib import Path
@@ -23,6 +24,8 @@ from faceit_analytics.utils import to_jsonable
 from users.models import PlayerProfile
 
 DEFAULT_MAPS: Iterable[str] = ("de_mirage",)
+
+logger = logging.getLogger(__name__)
 
 # Output image size (radar+heatmap)
 HEATMAP_OUTPUT_SIZE = int(getattr(settings, "HEATMAP_OUTPUT_SIZE", 1024))
@@ -49,9 +52,11 @@ HEATMAP_BLUR_SIGMA_GRID = float(
 HEATMAP_BLUR_SIGMA_OUTPUT = float(getattr(settings, "HEATMAP_BLUR_SIGMA_OUTPUT", 0.0))
 
 # Per-metric blur overrides (optional)
-HEATMAP_BLUR_SIGMA_KILLS = float(getattr(settings, "HEATMAP_BLUR_SIGMA_KILLS", HEATMAP_BLUR_SIGMA_GRID))
-HEATMAP_BLUR_SIGMA_DEATHS = float(getattr(settings, "HEATMAP_BLUR_SIGMA_DEATHS", HEATMAP_BLUR_SIGMA_GRID))
-HEATMAP_BLUR_SIGMA_PRESENCE = float(getattr(settings, "HEATMAP_BLUR_SIGMA_PRESENCE", HEATMAP_BLUR_SIGMA_GRID))
+HEATMAP_BLUR_SIGMA_KILLS = float(getattr(settings, "HEATMAP_BLUR_SIGMA_KILLS", HEATMAP_BLUR_SIGMA_GRID * 0.7))
+HEATMAP_BLUR_SIGMA_DEATHS = float(getattr(settings, "HEATMAP_BLUR_SIGMA_DEATHS", HEATMAP_BLUR_SIGMA_GRID * 0.7))
+HEATMAP_BLUR_SIGMA_PRESENCE = float(
+    getattr(settings, "HEATMAP_BLUR_SIGMA_PRESENCE", HEATMAP_BLUR_SIGMA_GRID * 1.15)
+)
 
 # Percentile clip for normalization (higher -> less saturation)
 HEATMAP_NORM_PERCENTILE = float(
@@ -64,9 +69,19 @@ HEATMAP_NORM_PERCENTILE = float(
 
 # Gamma (lower -> brighter tails, higher -> more contrast)
 HEATMAP_GAMMA = float(getattr(settings, "HEATMAP_GAMMA", 0.75))
+HEATMAP_GAMMA_KILLS = float(getattr(settings, "HEATMAP_GAMMA_KILLS", HEATMAP_GAMMA + 0.15))
+HEATMAP_GAMMA_DEATHS = float(getattr(settings, "HEATMAP_GAMMA_DEATHS", HEATMAP_GAMMA + 0.1))
+HEATMAP_GAMMA_PRESENCE = float(getattr(settings, "HEATMAP_GAMMA_PRESENCE", max(0.35, HEATMAP_GAMMA - 0.1)))
 
 # Global alpha multiplier
 HEATMAP_ALPHA = float(getattr(settings, "HEATMAP_ALPHA", 0.98))
+HEATMAP_ALPHA_KILLS = float(getattr(settings, "HEATMAP_ALPHA_KILLS", HEATMAP_ALPHA))
+HEATMAP_ALPHA_DEATHS = float(getattr(settings, "HEATMAP_ALPHA_DEATHS", HEATMAP_ALPHA))
+HEATMAP_ALPHA_PRESENCE = float(getattr(settings, "HEATMAP_ALPHA_PRESENCE", max(0.85, HEATMAP_ALPHA - 0.05)))
+
+HEATMAP_CLIP_PCT_KILLS = float(getattr(settings, "HEATMAP_CLIP_PCT_KILLS", HEATMAP_NORM_PERCENTILE))
+HEATMAP_CLIP_PCT_DEATHS = float(getattr(settings, "HEATMAP_CLIP_PCT_DEATHS", HEATMAP_NORM_PERCENTILE))
+HEATMAP_CLIP_PCT_PRESENCE = float(getattr(settings, "HEATMAP_CLIP_PCT_PRESENCE", HEATMAP_NORM_PERCENTILE))
 
 # Alpha curve power (lower -> more visible faint areas)
 HEATMAP_ALPHA_POWER = float(getattr(settings, "HEATMAP_ALPHA_POWER", 0.55))
@@ -79,15 +94,21 @@ HEATMAP_UNSHARP_THRESHOLD = int(getattr(settings, "HEATMAP_UNSHARP_THRESHOLD", 2
 HEATMAP_TIME_SLICES = list(getattr(settings, "HEATMAP_TIME_SLICES", [(0, 999)]))
 HEATMAP_DEFAULT_SLICE = str(getattr(settings, "HEATMAP_DEFAULT_SLICE", "all"))
 
-
-def _slice_label(slice_range: tuple[int, int]) -> str:
-    return f"{int(slice_range[0])}-{int(slice_range[1])}"
+DEFAULT_PERIOD = "last_20"
 
 
-def _get_time_slice_ranges() -> dict[str, tuple[int, int]]:
-    ranges: dict[str, tuple[int, int]] = {}
+def _slice_label(slice_range: tuple[int, int | None]) -> str:
+    start, end = slice_range
+    if end is None or int(end) >= 999:
+        return f"{int(start)}+"
+    return f"{int(start)}-{int(end)}"
+
+
+def _get_time_slice_ranges() -> dict[str, tuple[int, int | None]]:
+    ranges: dict[str, tuple[int, int | None]] = {}
     for start, end in HEATMAP_TIME_SLICES:
-        ranges[_slice_label((start, end))] = (int(start), int(end))
+        normalized_end = None if end is None or int(end) >= 999 else int(end)
+        ranges[_slice_label((start, end))] = (int(start), normalized_end)
     return ranges
 
 
@@ -99,10 +120,93 @@ def normalize_time_slice(value: str | None) -> str:
         return HEATMAP_DEFAULT_SLICE
     if value.lower() == "all":
         return "all"
+    parsed = parse_time_slice(value)
+    if parsed is None:
+        return HEATMAP_DEFAULT_SLICE
+    start, end = parsed
+    return _slice_label((start, end))
+
+
+def parse_time_slice(value: str | None) -> tuple[int, int | None] | None:
+    if not value:
+        return None
+    value = str(value).strip().lower()
+    if not value or value == "all":
+        return None
     ranges = _get_time_slice_ranges()
     if value in ranges:
-        return value
-    return HEATMAP_DEFAULT_SLICE
+        return ranges[value]
+    if "+" in value:
+        start = value.replace("+", "").strip()
+        if start.isdigit():
+            return int(start), None
+        return None
+    if "-" in value:
+        parts = value.split("-", 1)
+        if len(parts) != 2:
+            return None
+        start, end = parts
+        if start.strip().isdigit() and end.strip().isdigit():
+            return int(start), int(end)
+    return None
+
+
+def get_time_slice_labels() -> list[str]:
+    labels = []
+    for start, end in HEATMAP_TIME_SLICES:
+        labels.append(_slice_label((int(start), int(end) if end is not None else None)))
+    return labels or ["0-15"]
+
+
+def normalize_side(value: str | None) -> str:
+    if not value:
+        return AnalyticsAggregate.SIDE_ALL
+    value_str = str(value).strip().lower()
+    if value_str in {"ct", "counterterrorist", "counter-terrorist", "counter_terrorist"}:
+        return AnalyticsAggregate.SIDE_CT
+    if value_str in {"t", "terrorist"}:
+        return AnalyticsAggregate.SIDE_T
+    if value_str in {"all", "any", "both"}:
+        return AnalyticsAggregate.SIDE_ALL
+    return AnalyticsAggregate.SIDE_ALL
+
+
+def normalize_metric(value: str | None) -> str:
+    if not value:
+        return HeatmapAggregate.METRIC_KILLS
+    value_str = str(value).strip().lower()
+    if value_str in {"kills", "kill"}:
+        return HeatmapAggregate.METRIC_KILLS
+    if value_str in {"deaths", "death"}:
+        return HeatmapAggregate.METRIC_DEATHS
+    if value_str in {"presence", "pos", "positions"}:
+        return HeatmapAggregate.METRIC_PRESENCE
+    return HeatmapAggregate.METRIC_KILLS
+
+
+def normalize_period(value: str | None) -> str:
+    if not value:
+        return DEFAULT_PERIOD
+    value_str = str(value).strip().lower()
+    if value_str in {"last_20", "20", "recent"}:
+        return "last_20"
+    if value_str in {"last_50", "50"}:
+        return "last_50"
+    if value_str in {"all_time", "all", "alltime"}:
+        return "all_time"
+    return DEFAULT_PERIOD
+
+
+def normalize_map_name(value: str | None) -> str:
+    if not value:
+        return next(iter(DEFAULT_MAPS), "de_mirage")
+    return str(value).strip().lower()
+
+
+def normalize_version(value: str | None) -> str:
+    if not value:
+        return ANALYTICS_VERSION
+    return str(value).strip().lower()
 
 
 def _period_to_limit(period: str) -> int:
@@ -206,6 +310,26 @@ def _metric_blur_sigma(metric: str) -> float:
     return HEATMAP_BLUR_SIGMA_PRESENCE
 
 
+def _metric_render_defaults(metric: str) -> dict[str, float]:
+    if metric == HeatmapAggregate.METRIC_KILLS:
+        return {
+            "gamma": HEATMAP_GAMMA_KILLS,
+            "alpha": HEATMAP_ALPHA_KILLS,
+            "clip": HEATMAP_CLIP_PCT_KILLS,
+        }
+    if metric == HeatmapAggregate.METRIC_DEATHS:
+        return {
+            "gamma": HEATMAP_GAMMA_DEATHS,
+            "alpha": HEATMAP_ALPHA_DEATHS,
+            "clip": HEATMAP_CLIP_PCT_DEATHS,
+        }
+    return {
+        "gamma": HEATMAP_GAMMA_PRESENCE,
+        "alpha": HEATMAP_ALPHA_PRESENCE,
+        "clip": HEATMAP_CLIP_PCT_PRESENCE,
+    }
+
+
 def render_heatmap_image(
     grid: list[list[float]],
     *,
@@ -214,6 +338,8 @@ def render_heatmap_image(
     blur_sigma_output: float | None = None,
     clip_pct: float | None = None,
     gamma: float | None = None,
+    alpha: float | None = None,
+    alpha_power: float | None = None,
     upscale_filter: str | None = None,
     cmap_name: str = analyzer.CMAP_ALL,
 ) -> Image.Image:
@@ -265,8 +391,8 @@ def render_heatmap_image(
     rgba = rgba.astype(np.float32)
 
     # alpha curve (controls visibility on top of radar)
-    alpha_mul = float(max(0.0, HEATMAP_ALPHA))
-    alpha_pow = float(max(0.01, HEATMAP_ALPHA_POWER))
+    alpha_mul = float(max(0.0, alpha if alpha is not None else HEATMAP_ALPHA))
+    alpha_pow = float(max(0.01, alpha_power if alpha_power is not None else HEATMAP_ALPHA_POWER))
     rgba[:, :, 3] = np.clip((mask ** alpha_pow) * alpha_mul, 0.0, 1.0)
 
     out = (rgba * 255.0).clip(0, 255).astype(np.uint8)
@@ -313,6 +439,10 @@ def ensure_heatmap_image(
     *,
     radar_path: Path | None = None,
     force: bool = False,
+    blur: float | None = None,
+    gamma: float | None = None,
+    alpha: float | None = None,
+    clip_pct: float | None = None,
 ) -> HeatmapAggregate:
     storage = aggregate.image.storage if aggregate.image else default_storage
 
@@ -355,16 +485,23 @@ def ensure_heatmap_image(
             AnalyticsAggregate.SIDE_ALL: analyzer.CMAP_ALL,
         }.get(aggregate.side, analyzer.CMAP_ALL)
 
-    # IMPORTANT: use per-metric sigma in GRID units
-    blur_sigma = _metric_blur_sigma(aggregate.metric)
+    # IMPORTANT: use per-metric sigma in output pixel space, scaled by resolution
+    blur_base = float(blur) if blur is not None else _metric_blur_sigma(aggregate.metric)
+    resolution = max(int(aggregate.resolution or 1), 1)
+    blur_sigma_output = blur_base * (HEATMAP_OUTPUT_SIZE / resolution)
+    render_defaults = _metric_render_defaults(aggregate.metric)
+    gamma_value = gamma if gamma is not None else render_defaults["gamma"]
+    alpha_value = alpha if alpha is not None else render_defaults["alpha"]
+    clip_value = clip_pct if clip_pct is not None else render_defaults["clip"]
 
     heatmap_image = render_heatmap_image(
         aggregate.grid,
         output_size=HEATMAP_OUTPUT_SIZE,
-        blur_sigma_grid=blur_sigma,
-        blur_sigma_output=HEATMAP_BLUR_SIGMA_OUTPUT,
-        clip_pct=HEATMAP_NORM_PERCENTILE,
-        gamma=HEATMAP_GAMMA,
+        blur_sigma_grid=0.0,
+        blur_sigma_output=blur_sigma_output,
+        clip_pct=clip_value,
+        gamma=gamma_value,
+        alpha=alpha_value,
         upscale_filter=HEATMAP_UPSCALE_FILTER,
         cmap_name=cmap_name,
     )
@@ -429,55 +566,74 @@ def _collect_points_from_cache(
     radar, _meta, radar_name = analyzer.load_radar_and_meta(map_name)
     radar_size = radar.size
 
-    if metric == HeatmapAggregate.METRIC_PRESENCE or time_slice == "all":
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_paths: list[Path] = []
-        for dem_path in demo_paths:
-            cache_name = analyzer._demo_cache_hash(dem_path, radar_name, radar_size)
-            cache_paths.append(cache_dir / f"{cache_name}.npz")
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_paths: list[Path] = []
+    for dem_path in demo_paths:
+        cache_name = analyzer._demo_cache_hash(dem_path, radar_name, radar_size)
+        cache_paths.append(cache_dir / f"{cache_name}.npz")
 
-        if not all(path.exists() for path in cache_paths):
-            analyzer.build_heatmaps_aggregate(
-                steamid64=steamid64,
-                map_name=map_name,
-                limit=_period_to_limit(period),
-                demos_dir=demos_dir,
-                out_dir=out_dir,
-                cache_dir=media_root / "heatmaps_cache",
-            )
+    if not all(path.exists() for path in cache_paths):
+        analyzer.build_heatmaps_aggregate(
+            steamid64=steamid64,
+            map_name=map_name,
+            limit=_period_to_limit(period),
+            demos_dir=demos_dir,
+            out_dir=out_dir,
+            cache_dir=media_root / "heatmaps_cache",
+        )
 
-        points: list[tuple[float, float, float]] = []
-        if metric == HeatmapAggregate.METRIC_KILLS:
-            array_key = "kills_px"
-        elif metric == HeatmapAggregate.METRIC_DEATHS:
-            array_key = "deaths_px"
-        else:
-            array_key = {
-                AnalyticsAggregate.SIDE_ALL: "presence_all_px",
-                AnalyticsAggregate.SIDE_CT: "presence_ct_px",
-                AnalyticsAggregate.SIDE_T: "presence_t_px",
-            }.get(side, "presence_all_px")
+    points: list[tuple[float, float, float]] = []
+    if metric == HeatmapAggregate.METRIC_KILLS:
+        array_key = "kills_px"
+        array_key_time = "kills_pxt"
+    elif metric == HeatmapAggregate.METRIC_DEATHS:
+        array_key = "deaths_px"
+        array_key_time = "deaths_pxt"
+    else:
+        array_key = {
+            AnalyticsAggregate.SIDE_ALL: "presence_all_px",
+            AnalyticsAggregate.SIDE_CT: "presence_ct_px",
+            AnalyticsAggregate.SIDE_T: "presence_t_px",
+        }.get(side, "presence_all_px")
+        array_key_time = {
+            AnalyticsAggregate.SIDE_ALL: "presence_all_pxt",
+            AnalyticsAggregate.SIDE_CT: "presence_ct_pxt",
+            AnalyticsAggregate.SIDE_T: "presence_t_pxt",
+        }.get(side, "presence_all_pxt")
 
-        for cache_path in cache_paths:
-            if not cache_path.exists():
-                continue
-            with np.load(cache_path) as cached:
+    slice_range = parse_time_slice(time_slice)
+    for cache_path in cache_paths:
+        if not cache_path.exists():
+            continue
+        with np.load(cache_path) as cached:
+            data = cached.get(array_key_time)
+            if data is None or data.size == 0:
                 data = cached.get(array_key)
                 if data is None:
                     continue
+                if slice_range:
+                    logger.debug(
+                        "Heatmap cache missing time slice data for %s, slice=%s",
+                        cache_path.name,
+                        time_slice,
+                    )
                 for x, y in data.tolist():
                     points.append((float(x), float(y), 1.0))
+                continue
+            for row in data.tolist():
+                if len(row) < 3:
+                    continue
+                x, y, t_round = row
+                if slice_range:
+                    start_sec, end_sec = slice_range
+                    if t_round is None:
+                        continue
+                    if end_sec is not None and not (start_sec <= t_round < end_sec):
+                        continue
+                    if end_sec is None and t_round < start_sec:
+                        continue
+                points.append((float(x), float(y), 1.0))
 
-        return points, radar_size
-
-    points = _collect_time_sliced_points(
-        demo_paths,
-        steamid64,
-        map_name,
-        metric,
-        time_slice,
-        radar_size,
-    )
     return points, radar_size
 
 
@@ -548,8 +704,12 @@ def _collect_time_sliced_points(
                     t_round = max((tick_value - start_tick) / tick_rate, 0.0)
             if t_round is None:
                 continue
-            if not (start_sec <= t_round < end_sec):
-                continue
+            if end_sec is not None:
+                if not (start_sec <= t_round < end_sec):
+                    continue
+            else:
+                if t_round < start_sec:
+                    continue
             points_xy = analyzer._to_points_xy(filtered.loc[[row.name]], x_col, y_col)
             if points_xy.size == 0:
                 continue
@@ -572,7 +732,14 @@ def get_or_build_heatmap(
     resolution: int = 64,
     *,
     force_rebuild: bool = False,
+    render_options: dict[str, float | None] | None = None,
 ) -> HeatmapAggregate:
+    map_name = normalize_map_name(map_name)
+    metric = normalize_metric(metric)
+    side = normalize_side(side)
+    period = normalize_period(period)
+    time_slice = normalize_time_slice(time_slice)
+    version = normalize_version(version)
     aggregate = HeatmapAggregate.objects.filter(
         profile_id=profile_id,
         map_name=map_name,
@@ -585,7 +752,7 @@ def get_or_build_heatmap(
     ).first()
 
     if aggregate and not force_rebuild:
-        return ensure_heatmap_image(aggregate)
+        return ensure_heatmap_image(aggregate, **(render_options or {}))
 
     profile = PlayerProfile.objects.get(id=profile_id)
     steamid64 = _profile_steamid64(profile)
@@ -613,4 +780,4 @@ def get_or_build_heatmap(
         },
     )
 
-    return ensure_heatmap_image(aggregate, force=True)
+    return ensure_heatmap_image(aggregate, force=True, **(render_options or {}))
