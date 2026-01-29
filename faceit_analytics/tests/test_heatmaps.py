@@ -10,6 +10,7 @@ from django.test import override_settings
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "backend.settings")
 django.setup()
 
+from faceit_analytics import analyzer  # noqa: E402
 from faceit_analytics.models import HeatmapAggregate  # noqa: E402
 from faceit_analytics.services.heatmaps import (  # noqa: E402
     _build_heatmap_filename,
@@ -25,9 +26,9 @@ def test_render_heatmap_image_output_size():
         [0.0, 0.0, 4.0, 0.0],
         [0.0, 0.0, 0.0, 0.0],
     ]
-    with override_settings(HEATMAP_OUTPUT_SIZE=72):
-        image = render_heatmap_image(grid, output_size=72)
-    assert image.size == (72, 72)
+    image = render_heatmap_image(grid, output_size=1024)
+    assert image.size == (1024, 1024)
+    assert image.mode == "RGBA"
     pixels = np.array(image)
     assert pixels.std() > 0
 
@@ -40,12 +41,13 @@ def test_render_heatmap_no_blur_keeps_hotspot_visible():
         [0.0, 0.0, 0.0, 0.0],
     ]
     with override_settings(
-        HEATMAP_BLUR_SIGMA=0,
+        HEATMAP_BLUR_SIGMA_GRID=0,
+        HEATMAP_BLUR_SIGMA_OUTPUT=0,
         HEATMAP_ALPHA=0.6,
         HEATMAP_GAMMA=0.85,
         HEATMAP_NORM_PERCENTILE=99,
     ):
-        image = render_heatmap_image(grid, output_size=64, blur_radius=None)
+        image = render_heatmap_image(grid, output_size=64, blur_sigma_grid=0)
     pixels = np.array(image)
     alpha = pixels[:, :, 3]
     assert alpha.max() > 120
@@ -77,12 +79,26 @@ def test_metric_affects_filename_or_url():
         grid=grid,
         max_value=1.0,
     )
+    presence = HeatmapAggregate(
+        profile_id=1,
+        map_name="de_mirage",
+        metric=HeatmapAggregate.METRIC_PRESENCE,
+        side="ALL",
+        period="last_20",
+        analytics_version="v2",
+        resolution=64,
+        grid=grid,
+        max_value=1.0,
+    )
     grid_array = np.array(grid, dtype=np.float32)
     kills_name = _build_heatmap_filename(kills, grid_array)
     deaths_name = _build_heatmap_filename(deaths, grid_array)
+    presence_name = _build_heatmap_filename(presence, grid_array)
     assert kills_name != deaths_name
+    assert kills_name != presence_name
     assert "kills" in kills_name
     assert "deaths" in deaths_name
+    assert "presence" in presence_name
 
 
 def test_force_regenerates_version(tmp_path):
@@ -105,13 +121,16 @@ def test_force_regenerates_version(tmp_path):
         first_name = first.image.name
         first_path = Path(tmp_path) / first_name
         first_version = int(first_path.stat().st_mtime)
+        first_updated = first.updated_at
 
         second = ensure_heatmap_image(aggregate, force=True)
         second_name = second.image.name
         second_path = Path(tmp_path) / second_name
         second_version = int(second_path.stat().st_mtime)
+        second_updated = second.updated_at
 
     assert first_name != second_name or first_version != second_version
+    assert second_updated >= first_updated
 
 
 def test_missing_file_regenerates_heatmap(tmp_path):
@@ -150,7 +169,8 @@ def test_heat_overlay_not_invisible():
     ]
     with override_settings(
         HEATMAP_OUTPUT_SIZE=64,
-        HEATMAP_BLUR_SIGMA=0.6,
+        HEATMAP_BLUR_SIGMA_GRID=0.6,
+        HEATMAP_BLUR_SIGMA_OUTPUT=0.0,
         HEATMAP_GAMMA=0.6,
         HEATMAP_ALPHA=0.75,
         HEATMAP_NORM_PERCENTILE=99.5,
@@ -185,3 +205,27 @@ def test_atomic_write_used(tmp_path):
         tmp_files = list(Path(tmp_path).rglob("*.tmp.*"))
         assert not tmp_files
         assert aggregate.image.storage.exists(aggregate.image.name)
+
+
+def test_metric_renders_different_palettes():
+    grid = [
+        [0.0, 0.0, 0.0, 0.0],
+        [0.0, 3.0, 6.0, 0.0],
+        [0.0, 2.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 0.0],
+    ]
+    with override_settings(
+        HEATMAP_BLUR_SIGMA_GRID=0,
+        HEATMAP_BLUR_SIGMA_OUTPUT=0,
+        HEATMAP_GAMMA=1.0,
+        HEATMAP_ALPHA=1.0,
+        HEATMAP_NORM_PERCENTILE=100,
+    ):
+        kills = render_heatmap_image(grid, output_size=32, blur_sigma_grid=0, cmap_name=analyzer.CMAP_KILLS)
+        deaths = render_heatmap_image(grid, output_size=32, blur_sigma_grid=0, cmap_name=analyzer.CMAP_DEATHS)
+        presence = render_heatmap_image(grid, output_size=32, blur_sigma_grid=0, cmap_name=analyzer.CMAP_ALL)
+    kills_pixels = np.array(kills)
+    deaths_pixels = np.array(deaths)
+    presence_pixels = np.array(presence)
+    assert not np.array_equal(kills_pixels, deaths_pixels)
+    assert not np.array_equal(kills_pixels, presence_pixels)
