@@ -41,9 +41,11 @@ def heatmap_upload_to(instance: "HeatmapAggregate", filename: str) -> str:
 class HeatmapAggregate(models.Model):
     METRIC_KILLS = "kills"
     METRIC_DEATHS = "deaths"
+    METRIC_PRESENCE = "presence"
     METRIC_CHOICES = (
         (METRIC_KILLS, "Kills"),
         (METRIC_DEATHS, "Deaths"),
+        (METRIC_PRESENCE, "Presence"),
     )
 
     profile = models.ForeignKey(PlayerProfile, on_delete=models.CASCADE, related_name="heatmap_aggregates")

@@ -18,6 +18,7 @@ from PIL import Image, ImageFilter
 from faceit_analytics import analyzer
 from faceit_analytics.constants import ANALYTICS_VERSION
 from faceit_analytics.models import AnalyticsAggregate, HeatmapAggregate, heatmap_upload_to
+from faceit_analytics.utils import to_jsonable
 from users.models import PlayerProfile
 
 DEFAULT_MAPS: Iterable[str] = ("de_mirage",)
@@ -43,10 +44,13 @@ HEATMAP_BLUR_SIGMA_GRID = float(
     )
 )
 
+# Optional post-upscale blur in output pixel space (default disabled)
+HEATMAP_BLUR_SIGMA_OUTPUT = float(getattr(settings, "HEATMAP_BLUR_SIGMA_OUTPUT", 0.0))
+
 # Per-metric blur overrides (optional)
-HEATMAP_BLUR_SIGMA_KILLS = float(getattr(settings, "HEATMAP_BLUR_SIGMA_KILLS", 0.2))
-HEATMAP_BLUR_SIGMA_DEATHS = float(getattr(settings, "HEATMAP_BLUR_SIGMA_DEATHS", 0.25))
-HEATMAP_BLUR_SIGMA_PRESENCE = float(getattr(settings, "HEATMAP_BLUR_SIGMA_PRESENCE", 0.6))
+HEATMAP_BLUR_SIGMA_KILLS = float(getattr(settings, "HEATMAP_BLUR_SIGMA_KILLS", HEATMAP_BLUR_SIGMA_GRID))
+HEATMAP_BLUR_SIGMA_DEATHS = float(getattr(settings, "HEATMAP_BLUR_SIGMA_DEATHS", HEATMAP_BLUR_SIGMA_GRID))
+HEATMAP_BLUR_SIGMA_PRESENCE = float(getattr(settings, "HEATMAP_BLUR_SIGMA_PRESENCE", HEATMAP_BLUR_SIGMA_GRID))
 
 # Percentile clip for normalization (higher -> less saturation)
 HEATMAP_NORM_PERCENTILE = float(
@@ -170,6 +174,7 @@ def render_heatmap_image(
     *,
     output_size: int | None = None,
     blur_sigma_grid: float | None = None,
+    blur_sigma_output: float | None = None,
     clip_pct: float | None = None,
     gamma: float | None = None,
     upscale_filter: str | None = None,
@@ -198,6 +203,11 @@ def render_heatmap_image(
         arr = np.array(mask_f, dtype=np.float32)
         arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
         arr[arr < 0] = 0.0
+
+    # optional blur in OUTPUT pixel space (post-upscale)
+    sigma_output = float(blur_sigma_output) if blur_sigma_output is not None else float(HEATMAP_BLUR_SIGMA_OUTPUT)
+    if sigma_output > 0:
+        arr = _gaussian_blur_grid(arr, sigma_grid=sigma_output)
 
     # normalize using percentile of positive values
     pos = arr[arr > 0]
@@ -314,6 +324,7 @@ def ensure_heatmap_image(
         aggregate.grid,
         output_size=HEATMAP_OUTPUT_SIZE,
         blur_sigma_grid=blur_sigma,
+        blur_sigma_output=HEATMAP_BLUR_SIGMA_OUTPUT,
         clip_pct=HEATMAP_NORM_PERCENTILE,
         gamma=HEATMAP_GAMMA,
         upscale_filter=HEATMAP_UPSCALE_FILTER,
@@ -463,8 +474,8 @@ def get_or_build_heatmap(
         analytics_version=version,
         resolution=resolution,
         defaults={
-            "grid": grid,
-            "max_value": max_value,
+            "grid": to_jsonable(grid),
+            "max_value": to_jsonable(max_value),
             "updated_at": timezone.now(),
         },
     )

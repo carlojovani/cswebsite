@@ -486,7 +486,7 @@
                      data-map="de_mirage"
                      data-period="{{ analytics_period|default:'last_20' }}"
                      data-version="{{ analytics_version|default:'v2' }}"
-                     data-resolution="64"
+                     data-resolution="256"
                      data-metric="kills"
                      data-can-trigger="{% if can_trigger_analytics %}1{% else %}0{% endif %}">
                     <div class="heatmaps-header">
@@ -497,6 +497,12 @@
                                 <select id="hm-map" class="heatmaps-select">
                                     <option value="de_mirage">de_mirage</option>
                                 </select>
+                                <label class="heatmaps-label" for="hm-resolution">Grid</label>
+                                <select id="hm-resolution" class="heatmaps-select">
+                                    <option value="64">64</option>
+                                    <option value="128">128</option>
+                                    <option value="256">256</option>
+                                </select>
                             </div>
                             <div class="heatmaps-tabs" data-group="metric">
                                 <button type="button" class="hm-tab active" data-group="metric" data-value="kills">
@@ -504,6 +510,9 @@
                                 </button>
                                 <button type="button" class="hm-tab" data-group="metric" data-value="deaths">
                                     Deaths
+                                </button>
+                                <button type="button" class="hm-tab" data-group="metric" data-value="presence">
+                                    Presence
                                 </button>
                             </div>
                             <div class="heatmaps-tabs heatmaps-tabs--secondary" data-group="side">
@@ -1433,6 +1442,7 @@
         const sideTabs = Array.from(document.querySelectorAll('.hm-tab[data-group="side"]'));
         const metricTabs = Array.from(document.querySelectorAll('.hm-tab[data-group="metric"]'));
         const mapSelect = document.getElementById("hm-map");
+        const resolutionSelect = document.getElementById("hm-resolution");
         const spinner = document.getElementById("hm-spinner");
         const regenerateBtn = document.getElementById("hm-regenerate");
         const regenerateStatus = document.getElementById("hm-regenerate-status");
@@ -1440,8 +1450,8 @@
         const defaultMap = (root?.dataset?.map || "de_mirage").trim() || "de_mirage";
         const period = (root?.dataset?.period || "last_20").trim() || "last_20";
         const version = (root?.dataset?.version || "v2").trim() || "v2";
-        const resolution = (root?.dataset?.resolution || "64").trim() || "64";
-        const defaultKind = (root?.dataset?.metric || "kills").trim().toLowerCase() || "kills";
+        const resolution = (root?.dataset?.resolution || "256").trim() || "256";
+        const defaultMetric = (root?.dataset?.metric || "kills").trim().toLowerCase() || "kills";
         const canTrigger = (root?.dataset?.canTrigger || "0").trim() === "1";
 
         function setActive(tabs, value) {
@@ -1456,10 +1466,14 @@
         if (mapSelect) {
             mapSelect.value = defaultMap;
         }
+        if (resolutionSelect) {
+            resolutionSelect.value = resolution;
+        }
 
         let currentSide = "ALL";
         let currentMap = defaultMap;
-        let currentKind = defaultKind;
+        let currentMetric = defaultMetric;
+        let currentResolution = resolution;
         let pollingTimer = null;
         let pollAttempts = 0;
         const maxPollAttempts = 10;
@@ -1506,11 +1520,11 @@
 
             const apiUrl = `/api/heatmaps/${encodeURIComponent(heatmapProfileId)}` +
                 `?map=${encodeURIComponent(currentMap)}` +
-                `&kind=${encodeURIComponent(currentKind)}` +
+                `&metric=${encodeURIComponent(currentMetric)}` +
                 `&side=${encodeURIComponent(currentSide)}` +
                 `&period=${encodeURIComponent(period)}` +
                 `&v=${encodeURIComponent(version)}` +
-                `&res=${encodeURIComponent(resolution)}` +
+                `&res=${encodeURIComponent(currentResolution)}` +
                 (force ? "&force=1" : "");
 
             try {
@@ -1587,8 +1601,8 @@
 
         metricTabs.forEach((t) =>
             t.addEventListener("click", () => {
-                currentKind = t.dataset.value;
-                setActive(metricTabs, currentKind);
+                currentMetric = t.dataset.value;
+                setActive(metricTabs, currentMetric);
                 fetchHeatmap();
             })
         );
@@ -1596,6 +1610,12 @@
         if (mapSelect) {
             mapSelect.addEventListener("change", () => {
                 currentMap = mapSelect.value;
+                fetchHeatmap();
+            });
+        }
+        if (resolutionSelect) {
+            resolutionSelect.addEventListener("change", () => {
+                currentResolution = resolutionSelect.value;
                 fetchHeatmap();
             });
         }
@@ -1614,7 +1634,7 @@
         }
 
         setActive(sideTabs, currentSide);
-        setActive(metricTabs, currentKind);
+        setActive(metricTabs, currentMetric);
         fetchHeatmap();
     });
 </script>

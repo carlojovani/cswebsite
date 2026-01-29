@@ -1,4 +1,3 @@
-from pathlib import Path
 import time
 
 from django.conf import settings
@@ -16,8 +15,9 @@ from .analyzer import build_heatmaps
 from .demo_fetch import get_demo_dem_path
 from .faceit_client import FaceitClient
 from .models import AnalyticsAggregate, HeatmapAggregate, ProcessingJob
-from .services.heatmaps import ensure_heatmap_image
+from .services.heatmaps import ensure_heatmap_image, get_or_build_heatmap
 from .tasks import task_full_pipeline
+from .utils import to_jsonable
 from users.models import PlayerProfile
 
 
@@ -27,33 +27,6 @@ def _with_cache_buster(url: str | None, version: int | None) -> str | None:
     version = int(version if version is not None else time.time())
     separator = "&" if "?" in url else "?"
     return f"{url}{separator}v={version}"
-
-
-def to_jsonable(value):
-    try:
-        import numpy as np  # type: ignore
-    except Exception:  # pragma: no cover - optional dependency
-        np = None
-
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, Path):
-        return str(value)
-    if isinstance(value, dict):
-        return {str(key): to_jsonable(val) for key, val in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [to_jsonable(item) for item in value]
-    if np is not None:
-        if isinstance(value, np.generic):
-            return value.item()
-        if isinstance(value, np.ndarray):
-            return value.tolist()
-    if hasattr(value, "isoformat"):
-        try:
-            return value.isoformat()
-        except Exception:
-            pass
-    return str(value)
 
 
 @require_GET
@@ -276,7 +249,11 @@ def profile_heatmaps(request, profile_id: int):
     map_name = request.GET.get("map", "de_mirage").strip() or "de_mirage"
     side = request.GET.get("side", AnalyticsAggregate.SIDE_ALL).strip().upper() or AnalyticsAggregate.SIDE_ALL
     kind = (request.GET.get("kind") or request.GET.get("metric") or HeatmapAggregate.METRIC_KILLS).strip().lower()
-    if kind not in {HeatmapAggregate.METRIC_KILLS, HeatmapAggregate.METRIC_DEATHS}:
+    if kind not in {
+        HeatmapAggregate.METRIC_KILLS,
+        HeatmapAggregate.METRIC_DEATHS,
+        HeatmapAggregate.METRIC_PRESENCE,
+    }:
         kind = HeatmapAggregate.METRIC_KILLS
     if side not in {AnalyticsAggregate.SIDE_ALL, AnalyticsAggregate.SIDE_CT, AnalyticsAggregate.SIDE_T}:
         side = AnalyticsAggregate.SIDE_ALL
@@ -285,7 +262,7 @@ def profile_heatmaps(request, profile_id: int):
         resolution = int(request.GET.get("res", 64))
     except (TypeError, ValueError):
         resolution = 64
-    if resolution <= 0:
+    if resolution not in {64, 128, 256}:
         resolution = 64
 
     parts = HeatmapKeyParts(
@@ -349,8 +326,19 @@ def profile_heatmaps(request, profile_id: int):
         },
     }
 
-    if aggregate:
-        aggregate = ensure_heatmap_image(aggregate, force=force_regen)
+    if force_regen:
+        aggregate = get_or_build_heatmap(
+            profile_id=profile.id,
+            map_name=map_name,
+            metric=kind,
+            side=side,
+            period=period,
+            version=version,
+            resolution=resolution,
+            force_rebuild=True,
+        )
+    elif aggregate:
+        aggregate = ensure_heatmap_image(aggregate, force=False)
 
     if aggregate and aggregate.image:
         updated_at = aggregate.updated_at.isoformat() if aggregate.updated_at else None
