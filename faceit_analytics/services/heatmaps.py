@@ -2,18 +2,18 @@ from __future__ import annotations
 
 import hashlib
 import os
-from pathlib import Path
 import time
-from uuid import uuid4
+from pathlib import Path
 from typing import Iterable, Sequence
+from uuid import uuid4
 
 import numpy as np
 from django.conf import settings
 from django.core.files.storage import default_storage
 from django.db import transaction
 from django.utils import timezone
-from PIL import Image, ImageFilter
 from matplotlib import cm
+from PIL import Image, ImageFilter
 
 from faceit_analytics import analyzer
 from faceit_analytics.constants import ANALYTICS_VERSION
@@ -21,33 +21,70 @@ from faceit_analytics.models import AnalyticsAggregate, HeatmapAggregate, heatma
 from users.models import PlayerProfile
 
 DEFAULT_MAPS: Iterable[str] = ("de_mirage",)
-HEATMAP_OUTPUT_SIZE = int(getattr(settings, "HEATMAP_OUTPUT_SIZE", 768))
-HEATMAP_UPSCALE_FILTER = str(getattr(settings, "HEATMAP_UPSCALE_FILTER", "BICUBIC")).upper()
-HEATMAP_BLUR_SIGMA = float(
+
+# Output image size (radar+heatmap)
+HEATMAP_OUTPUT_SIZE = int(getattr(settings, "HEATMAP_OUTPUT_SIZE", 1024))
+
+# Upscale filter for resizing
+HEATMAP_UPSCALE_FILTER = str(getattr(settings, "HEATMAP_UPSCALE_FILTER", "LANCZOS")).upper()
+
+# IMPORTANT: blur sigma is now interpreted in GRID units (cells), not pixels.
+# For res=64: sigma 0.8..1.4 is typical. For "kills/deaths dots": lower.
+# Backward compatible env names:
+HEATMAP_BLUR_SIGMA_GRID = float(
     getattr(
         settings,
-        "HEATMAP_BLUR_SIGMA",
-        getattr(settings, "HEATMAP_BLUR_FACTOR", getattr(settings, "HEATMAP_BLUR_RADIUS", 0.6)),
+        "HEATMAP_BLUR_SIGMA_GRID",
+        getattr(
+            settings,
+            "HEATMAP_BLUR_SIGMA",
+            getattr(settings, "HEATMAP_BLUR_FACTOR", getattr(settings, "HEATMAP_BLUR_RADIUS", 0.0)),
+        ),
     )
 )
+
+# Per-metric blur overrides (optional)
+HEATMAP_BLUR_SIGMA_KILLS = float(getattr(settings, "HEATMAP_BLUR_SIGMA_KILLS", 0.2))
+HEATMAP_BLUR_SIGMA_DEATHS = float(getattr(settings, "HEATMAP_BLUR_SIGMA_DEATHS", 0.25))
+HEATMAP_BLUR_SIGMA_PRESENCE = float(getattr(settings, "HEATMAP_BLUR_SIGMA_PRESENCE", 0.6))
+
+# Percentile clip for normalization (higher -> less saturation)
 HEATMAP_NORM_PERCENTILE = float(
     getattr(
         settings,
         "HEATMAP_NORM_PERCENTILE",
-        getattr(settings, "HEATMAP_PERCENTILE_CLIP", getattr(settings, "HEATMAP_CLIP_PCT", 99.5)),
+        getattr(settings, "HEATMAP_PERCENTILE_CLIP", getattr(settings, "HEATMAP_CLIP_PCT", 99.0)),
     )
 )
-HEATMAP_GAMMA = float(getattr(settings, "HEATMAP_GAMMA", 0.6))
-HEATMAP_ALPHA = float(getattr(settings, "HEATMAP_ALPHA", 0.75))
+
+# Gamma (lower -> brighter tails, higher -> more contrast)
+HEATMAP_GAMMA = float(getattr(settings, "HEATMAP_GAMMA", 0.55))
+
+# Global alpha multiplier
+HEATMAP_ALPHA = float(getattr(settings, "HEATMAP_ALPHA", 0.98))
+
+# Alpha curve power (lower -> more visible faint areas)
+HEATMAP_ALPHA_POWER = float(getattr(settings, "HEATMAP_ALPHA_POWER", 0.55))
+
+# Optional unsharp to increase clarity after resize (0 disables)
+HEATMAP_UNSHARP_RADIUS = float(getattr(settings, "HEATMAP_UNSHARP_RADIUS", 0.0))
+HEATMAP_UNSHARP_PERCENT = int(getattr(settings, "HEATMAP_UNSHARP_PERCENT", 140))
+HEATMAP_UNSHARP_THRESHOLD = int(getattr(settings, "HEATMAP_UNSHARP_THRESHOLD", 2))
 
 
 def _period_to_limit(period: str) -> int:
-    mapping = {
-        "last_20": 20,
-        "last_50": 50,
-        "all_time": 200,
-    }
+    mapping = {"last_20": 20, "last_50": 50, "all_time": 200}
     return mapping.get(period, 5)
+
+
+def _get_resample_filter(filter_name: str | None) -> int:
+    name = (filter_name or HEATMAP_UPSCALE_FILTER).upper()
+    return {
+        "NEAREST": Image.Resampling.NEAREST,
+        "BILINEAR": Image.Resampling.BILINEAR,
+        "BICUBIC": Image.Resampling.BICUBIC,
+        "LANCZOS": Image.Resampling.LANCZOS,
+    }.get(name, Image.Resampling.LANCZOS)
 
 
 def build_heatmap_grid(
@@ -87,81 +124,117 @@ def build_heatmap_grid(
     return grid, float(max_value)
 
 
+# ---------- core image ops (NO uint8 until final) ----------
+
+def _gaussian_kernel1d(sigma: float) -> np.ndarray:
+    if sigma <= 0:
+        return np.array([1.0], dtype=np.float32)
+    radius = int(max(1, np.ceil(3.0 * sigma)))
+    x = np.arange(-radius, radius + 1, dtype=np.float32)
+    k = np.exp(-(x * x) / (2.0 * sigma * sigma)).astype(np.float32)
+    s = float(k.sum())
+    return k / s if s > 0 else k
+
+
+def _convolve1d_reflect(arr: np.ndarray, kernel: np.ndarray, axis: int) -> np.ndarray:
+    pad = (kernel.size - 1) // 2
+    if pad <= 0:
+        return arr
+    pad_width = [(0, 0)] * arr.ndim
+    pad_width[axis] = (pad, pad)
+    padded = np.pad(arr, pad_width, mode="reflect")
+    # convolve along axis
+    out = np.apply_along_axis(lambda m: np.convolve(m, kernel, mode="valid"), axis, padded)
+    return out.astype(np.float32, copy=False)
+
+
+def _gaussian_blur_grid(arr: np.ndarray, sigma_grid: float) -> np.ndarray:
+    if sigma_grid <= 0:
+        return arr
+    k = _gaussian_kernel1d(float(sigma_grid))
+    out = _convolve1d_reflect(arr, k, axis=0)
+    out = _convolve1d_reflect(out, k, axis=1)
+    return out
+
+
+def _metric_blur_sigma(metric: str) -> float:
+    if metric == HeatmapAggregate.METRIC_KILLS:
+        return HEATMAP_BLUR_SIGMA_KILLS
+    if metric == HeatmapAggregate.METRIC_DEATHS:
+        return HEATMAP_BLUR_SIGMA_DEATHS
+    return HEATMAP_BLUR_SIGMA_PRESENCE
+
+
 def render_heatmap_image(
     grid: list[list[float]],
     *,
     output_size: int | None = None,
-    blur_radius: float | None = None,
+    blur_sigma_grid: float | None = None,
     clip_pct: float | None = None,
     gamma: float | None = None,
     upscale_filter: str | None = None,
     cmap_name: str = analyzer.CMAP_ALL,
 ) -> Image.Image:
-    height = len(grid)
-    width = len(grid[0]) if grid else 0
-    if not width or not height:
+    h = len(grid)
+    w = len(grid[0]) if grid else 0
+    if not w or not h:
         raise ValueError("Grid is empty")
+
+    target_size = int(max(output_size or HEATMAP_OUTPUT_SIZE, 1))
 
     arr = np.array(grid, dtype=np.float32)
     arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
-    max_value = float(arr.max()) if arr.size else 0.0
-    if max_value <= 0:
-        max_value = 1.0
+    arr[arr < 0] = 0.0
 
-    arr = np.clip(arr, 0, max_value) / max_value
-    mask_bytes = (arr * 255).astype(np.uint8)
-    mask_image = Image.fromarray(mask_bytes, mode="L")
-    target_size = max(output_size or HEATMAP_OUTPUT_SIZE, 1)
-    if target_size != width or target_size != height:
+    # blur in GRID space (res units) BEFORE resizing, to keep details crisp
+    sigma = float(blur_sigma_grid) if blur_sigma_grid is not None else float(HEATMAP_BLUR_SIGMA_GRID)
+    if sigma > 0:
+        arr = _gaussian_blur_grid(arr, sigma_grid=sigma)
+
+    # resize float mask to target_size (still float32)
+    if target_size != w or target_size != h:
         resample = _get_resample_filter(upscale_filter)
-        mask_image = mask_image.resize((target_size, target_size), resample=resample)
+        mask_f = Image.fromarray(arr, mode="F").resize((target_size, target_size), resample=resample)
+        arr = np.array(mask_f, dtype=np.float32)
+        arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+        arr[arr < 0] = 0.0
 
-    blur_radius = max(0.0, float(blur_radius if blur_radius is not None else HEATMAP_BLUR_SIGMA))
-    if blur_radius:
-        mask_image = mask_image.filter(ImageFilter.GaussianBlur(blur_radius))
-
-    mask_arr = np.array(mask_image, dtype=np.float32) / 255.0
-    positive = mask_arr[mask_arr > 0]
-    clip_value = (
-        np.percentile(positive, clip_pct if clip_pct is not None else HEATMAP_NORM_PERCENTILE)
-        if positive.size
-        else float(mask_arr.max())
-    )
+    # normalize using percentile of positive values
+    pos = arr[arr > 0]
+    pct = float(clip_pct) if clip_pct is not None else float(HEATMAP_NORM_PERCENTILE)
+    clip_value = float(np.percentile(pos, pct)) if pos.size else float(arr.max())
     if not clip_value or clip_value <= 0:
         clip_value = 1.0
-    mask_arr = np.clip(mask_arr / clip_value, 0, 1)
+    mask = np.clip(arr / clip_value, 0.0, 1.0)
 
-    gamma_value = gamma if gamma is not None else HEATMAP_GAMMA
-    if gamma_value and gamma_value > 0:
-        mask_arr = mask_arr ** gamma_value
+    # gamma
+    g = float(gamma) if gamma is not None else float(HEATMAP_GAMMA)
+    if g > 0:
+        mask = mask ** g
+
+    # colormap to RGBA
     cmap = cm.get_cmap(cmap_name)
-    rgba = cmap(mask_arr)
-    alpha_value = max(0.0, float(HEATMAP_ALPHA))
-    rgba[:, :, 3] = np.clip((mask_arr ** 0.8) * alpha_value, 0, 1)
-    rgb_bytes = (rgba[:, :, :3] * 255).astype(np.uint8)
-    alpha_bytes = (rgba[:, :, 3] * 255).astype(np.uint8)
-    out = np.dstack([rgb_bytes, alpha_bytes])
-    image = Image.fromarray(out, mode="RGBA")
-    return image
+    rgba = cmap(mask)  # float64
+    rgba = rgba.astype(np.float32)
 
+    # alpha curve (controls visibility on top of radar)
+    alpha_mul = float(max(0.0, HEATMAP_ALPHA))
+    alpha_pow = float(max(0.01, HEATMAP_ALPHA_POWER))
+    rgba[:, :, 3] = np.clip((mask ** alpha_pow) * alpha_mul, 0.0, 1.0)
 
-def render_heatmap_png(
-    grid: list[list[float]],
-    output_path: Path,
-) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    image = render_heatmap_image(grid)
-    image.save(output_path, format="PNG")
+    out = (rgba * 255.0).clip(0, 255).astype(np.uint8)
+    img = Image.fromarray(out, mode="RGBA")
 
-
-def _get_resample_filter(filter_name: str | None) -> int:
-    name = (filter_name or HEATMAP_UPSCALE_FILTER).upper()
-    return {
-        "NEAREST": Image.Resampling.NEAREST,
-        "BILINEAR": Image.Resampling.BILINEAR,
-        "BICUBIC": Image.Resampling.BICUBIC,
-        "LANCZOS": Image.Resampling.LANCZOS,
-    }.get(name, Image.Resampling.LANCZOS)
+    # optional unsharp to enhance details without “pixelation”
+    if HEATMAP_UNSHARP_RADIUS and HEATMAP_UNSHARP_RADIUS > 0:
+        img = img.filter(
+            ImageFilter.UnsharpMask(
+                radius=float(HEATMAP_UNSHARP_RADIUS),
+                percent=int(HEATMAP_UNSHARP_PERCENT),
+                threshold=int(HEATMAP_UNSHARP_THRESHOLD),
+            )
+        )
+    return img
 
 
 def _build_heatmap_filename(aggregate: HeatmapAggregate, grid_array: np.ndarray) -> str:
@@ -194,16 +267,24 @@ def ensure_heatmap_image(
     force: bool = False,
 ) -> HeatmapAggregate:
     storage = aggregate.image.storage if aggregate.image else default_storage
+
+    # if file missing -> force regenerate
     if aggregate.image and aggregate.image.name:
-        if not storage.exists(aggregate.image.name):
+        try:
+            exists = storage.exists(aggregate.image.name)
+        except Exception:
+            exists = False
+        if not exists:
             aggregate.image = None
             force = True
 
+    # if force -> remove old file if possible
     if aggregate.image and force:
         try:
             storage.delete(aggregate.image.name)
         except Exception:
             pass
+        aggregate.image = None
 
     if aggregate.image and not force:
         return aggregate
@@ -214,6 +295,7 @@ def ensure_heatmap_image(
     media_root = Path(getattr(settings, "MEDIA_ROOT", "media"))
     media_root.mkdir(parents=True, exist_ok=True)
 
+    # choose cmap by metric
     if aggregate.metric == HeatmapAggregate.METRIC_KILLS:
         cmap_name = analyzer.CMAP_KILLS
     elif aggregate.metric == HeatmapAggregate.METRIC_DEATHS:
@@ -225,16 +307,20 @@ def ensure_heatmap_image(
             AnalyticsAggregate.SIDE_ALL: analyzer.CMAP_ALL,
         }.get(aggregate.side, analyzer.CMAP_ALL)
 
+    # IMPORTANT: use per-metric sigma in GRID units
+    blur_sigma = _metric_blur_sigma(aggregate.metric)
+
     heatmap_image = render_heatmap_image(
         aggregate.grid,
         output_size=HEATMAP_OUTPUT_SIZE,
-        blur_radius=HEATMAP_BLUR_SIGMA,
+        blur_sigma_grid=blur_sigma,
         clip_pct=HEATMAP_NORM_PERCENTILE,
         gamma=HEATMAP_GAMMA,
         upscale_filter=HEATMAP_UPSCALE_FILTER,
         cmap_name=cmap_name,
     )
 
+    # load radar
     radar_image = None
     if radar_path:
         try:
@@ -248,6 +334,7 @@ def ensure_heatmap_image(
         except Exception:
             radar_image = None
 
+    # composite
     if radar_image is not None:
         radar_image = radar_image.resize(
             (heatmap_image.width, heatmap_image.height),
@@ -354,11 +441,11 @@ def get_or_build_heatmap(
         analytics_version=version,
         resolution=resolution,
     ).first()
+
     if aggregate and not force_rebuild:
         return ensure_heatmap_image(aggregate)
 
     profile = PlayerProfile.objects.get(id=profile_id)
-
     steamid64 = (profile.steam_id or "").strip()
     if not steamid64:
         raise ValueError("SteamID64 is missing on player profile")
