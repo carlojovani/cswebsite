@@ -9,6 +9,7 @@ from faceit_analytics.models import AnalyticsAggregate, HeatmapAggregate, Proces
 from faceit_analytics.services.aggregates import build_metrics, enrich_metrics_with_role_features
 from faceit_analytics.services.demo_events import get_or_build_demo_features
 from faceit_analytics.services.heatmaps import DEFAULT_MAPS, get_or_build_heatmap
+from faceit_analytics.services.paths import ensure_profile_dirs
 from users.faceit import fetch_faceit_profile_details
 from users.models import PlayerProfile
 
@@ -143,6 +144,7 @@ def run_full_pipeline(
 
     try:
         profile = job.profile
+        ensure_profile_dirs(profile)
         sync_faceit_profile(profile)
         _update_job(job, progress=10)
 

@@ -31,7 +31,7 @@ def test_profile_dirs_created_and_idempotent(tmp_path):
             media_root / "local_demos" / profile.steam_id / map_name,
             media_root / "heatmaps_cache" / profile.steam_id / map_name,
             media_root / "heatmaps_local" / profile.steam_id / "aggregate" / map_name,
-            media_root / "heatmaps" / str(profile.id) / map_name / "ALL" / "last_20",
+            media_root / "heatmaps" / str(profile.id) / map_name / "all" / "last_20",
         ]
         for path in expected_dirs:
             assert Path(path).exists()

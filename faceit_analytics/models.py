@@ -5,9 +5,9 @@ from users.models import PlayerProfile
 
 
 class AnalyticsAggregate(models.Model):
-    SIDE_ALL = "ALL"
-    SIDE_CT = "CT"
-    SIDE_T = "T"
+    SIDE_ALL = "all"
+    SIDE_CT = "ct"
+    SIDE_T = "t"
 
     SIDE_CHOICES = (
         (SIDE_T, "T"),

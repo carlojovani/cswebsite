@@ -2,7 +2,16 @@ from django.core.management.base import BaseCommand
 
 from faceit_analytics.constants import ANALYTICS_VERSION
 from faceit_analytics.models import AnalyticsAggregate, HeatmapAggregate
-from faceit_analytics.services.heatmaps import ensure_heatmap_image, get_or_build_heatmap
+from faceit_analytics.services.heatmaps import (
+    ensure_heatmap_image,
+    get_or_build_heatmap,
+    normalize_map_name,
+    normalize_metric,
+    normalize_period,
+    normalize_side,
+    normalize_time_slice,
+    normalize_version,
+)
 
 
 class Command(BaseCommand):
@@ -21,16 +30,14 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options) -> None:
         profile_id = options["profile_id"]
-        period = options["period"]
-        map_name = options["map_name"]
-        side = options["side"].upper()
-        metric = options["metric"].lower()
-        time_slice = options["time_slice"]
-        if metric not in {HeatmapAggregate.METRIC_KILLS, HeatmapAggregate.METRIC_DEATHS}:
-            metric = HeatmapAggregate.METRIC_KILLS
+        period = normalize_period(options["period"])
+        map_name = normalize_map_name(options["map_name"])
+        side = normalize_side(options["side"])
+        metric = normalize_metric(options["metric"])
+        time_slice = normalize_time_slice(options["time_slice"])
         resolution = options["res"]
         force = options["force"]
-        version = options["analytics_version"]
+        version = normalize_version(options["analytics_version"])
 
         aggregates = HeatmapAggregate.objects.filter(
             profile_id=profile_id,

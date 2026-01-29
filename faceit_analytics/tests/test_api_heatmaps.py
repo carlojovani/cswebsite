@@ -39,7 +39,7 @@ class HeatmapMeApiTests(TestCase):
             profile_id=profile_id,
             map_name="de_mirage",
             metric=HeatmapAggregate.METRIC_KILLS,
-            side="ALL",
+            side="all",
             period="last_20",
             time_slice=time_slice,
             analytics_version="v2",

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 from collections import Counter
+from functools import lru_cache
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -204,10 +206,7 @@ def _profile_steamid64(profile) -> str:
 
 
 def discover_demo_files(profile, period: str, map_name: str, demos_dir: Path | None = None) -> list[Path]:
-    if demos_dir is not None:
-        demos_root = Path(demos_dir)
-    else:
-        demos_root = get_demos_dir(profile, map_name)
+    demos_root = get_demos_dir(profile, map_name)
     steam_id = _profile_steamid64(profile)
     if not steam_id:
         return []
@@ -1114,7 +1113,10 @@ def aggregate_player_features(
 
 
 def _slice_label(bounds: tuple[int, int]) -> str:
-    return f"{int(bounds[0])}-{int(bounds[1])}"
+    start, end = bounds
+    if int(end) >= 999:
+        return f"{int(start)}+"
+    return f"{int(start)}-{int(end)}"
 
 
 def _slice_for_time(seconds: float | None) -> str:
@@ -1191,7 +1193,77 @@ def _quadrant_from_coords(x: float | None, y: float | None) -> str:
     return "SW"
 
 
-def compute_multikill_metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
+@lru_cache(maxsize=16)
+def _load_zone_config(map_name: str | None) -> dict[str, Any]:
+    if not map_name:
+        return {}
+    zones_path = Path(__file__).resolve().parent.parent / "maps" / "zones.json"
+    if not zones_path.exists():
+        return {}
+    try:
+        payload = json.loads(zones_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    return payload.get(map_name, {})
+
+
+def _normalize_place(place: str | None) -> str:
+    if not place:
+        return ""
+    return str(place).strip().lower()
+
+
+def _zone_from_place(place: str | None, config: dict[str, Any]) -> str | None:
+    if not place or not config:
+        return None
+    place_norm = _normalize_place(place)
+    for zone, tokens in (config.get("place_map") or {}).items():
+        for token in tokens:
+            if token in place_norm:
+                return zone
+    return None
+
+
+def _zone_from_coords(map_name: str | None, x: float | None, y: float | None, config: dict[str, Any]) -> str | None:
+    if not map_name or x is None or y is None or not config:
+        return None
+    bboxes = config.get("bbox") or {}
+    if not bboxes:
+        return None
+    try:
+        from faceit_analytics import analyzer
+
+        radar, meta, _radar_name = analyzer.load_radar_and_meta(map_name)
+        w, h = radar.size
+        pixel = analyzer._world_to_pixel(np.array([[x, y]], dtype=np.float32), meta, (w, h))
+        if pixel.size == 0:
+            return None
+        px, py = float(pixel[0][0]), float(pixel[0][1])
+        nx = px / max(w, 1)
+        ny = py / max(h, 1)
+    except Exception:
+        return None
+
+    for zone, boxes in bboxes.items():
+        for box in boxes:
+            x1, y1, x2, y2 = box
+            if x1 <= nx <= x2 and y1 <= ny <= y2:
+                return zone
+    return None
+
+
+def _kill_zone(kill: dict[str, Any], map_name: str | None) -> str:
+    config = _load_zone_config(map_name)
+    zone = _zone_from_place(kill.get("attacker_place"), config)
+    if zone:
+        return zone
+    zone = _zone_from_coords(map_name, kill.get("attacker_x"), kill.get("attacker_y"), config)
+    if zone:
+        return zone
+    return _quadrant_from_coords(kill.get("attacker_x"), kill.get("attacker_y"))
+
+
+def compute_multikill_metrics(events: list[dict[str, Any]], map_name: str | None = None) -> dict[str, Any]:
     kills = [event for event in events if event.get("type") == "kill" and event.get("time") is not None]
     if not kills:
         return {
@@ -1200,6 +1272,7 @@ def compute_multikill_metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
             "multikill_events": 0,
             "rounds_with_multikill": 0,
             "by_timing": {"early": 0, "late": 0},
+            "by_phase": {"entry": 0, "hold": 0},
             "by_zone": {},
             "window_sec": MULTIKILL_WINDOW_SEC,
             "early_threshold_sec": MULTIKILL_EARLY_THRESHOLD_SEC,
@@ -1208,6 +1281,7 @@ def compute_multikill_metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
     rounds_with_multikill = set()
     multikill_events = 0
     timing_breakdown = {"early": 0, "late": 0}
+    phase_breakdown = {"entry": 0, "hold": 0}
     zone_breakdown: dict[str, int] = {}
 
     kills_by_round: dict[int | None, list[dict[str, Any]]] = {}
@@ -1233,11 +1307,13 @@ def compute_multikill_metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
                     start_time = float(streak[0].get("time") or 0)
                     key = "early" if start_time <= MULTIKILL_EARLY_THRESHOLD_SEC else "late"
                     timing_breakdown[key] += 1
-                    zone = streak[0].get("attacker_place") or _quadrant_from_coords(
-                        streak[0].get("attacker_x"),
-                        streak[0].get("attacker_y"),
-                    )
+                    zone = _kill_zone(streak[0], map_name)
                     zone_breakdown[zone] = zone_breakdown.get(zone, 0) + 1
+                    if zone in {"A", "B", "ENTRY"}:
+                        if start_time <= MULTIKILL_EARLY_THRESHOLD_SEC:
+                            phase_breakdown["entry"] += 1
+                        else:
+                            phase_breakdown["hold"] += 1
                 streak = [kill]
         if len(streak) >= 2:
             multikill_events += 1
@@ -1245,11 +1321,13 @@ def compute_multikill_metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
             start_time = float(streak[0].get("time") or 0)
             key = "early" if start_time <= MULTIKILL_EARLY_THRESHOLD_SEC else "late"
             timing_breakdown[key] += 1
-            zone = streak[0].get("attacker_place") or _quadrant_from_coords(
-                streak[0].get("attacker_x"),
-                streak[0].get("attacker_y"),
-            )
+            zone = _kill_zone(streak[0], map_name)
             zone_breakdown[zone] = zone_breakdown.get(zone, 0) + 1
+            if zone in {"A", "B", "ENTRY"}:
+                if start_time <= MULTIKILL_EARLY_THRESHOLD_SEC:
+                    phase_breakdown["entry"] += 1
+                else:
+                    phase_breakdown["hold"] += 1
 
     rounds_total = _rounds_from_events(events)
     total_kills = len(kills)
@@ -1259,6 +1337,7 @@ def compute_multikill_metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
         "multikill_events": multikill_events,
         "rounds_with_multikill": len(rounds_with_multikill),
         "by_timing": timing_breakdown,
+        "by_phase": phase_breakdown,
         "by_zone": zone_breakdown,
         "window_sec": MULTIKILL_WINDOW_SEC,
         "early_threshold_sec": MULTIKILL_EARLY_THRESHOLD_SEC,
@@ -1411,7 +1490,7 @@ def get_or_build_demo_features(
     rounds_total = meta.get("rounds") or 0
 
     awareness = compute_awareness_before_death(events)
-    multikill = compute_multikill_metrics(events)
+    multikill = compute_multikill_metrics(events, map_name)
 
     kills = debug.get("player_kills", 0) or 0
     deaths = debug.get("player_deaths", 0) or 0

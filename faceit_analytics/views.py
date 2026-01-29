@@ -17,7 +17,16 @@ from .analyzer import build_heatmaps
 from .demo_fetch import get_demo_dem_path
 from .faceit_client import FaceitClient
 from .models import AnalyticsAggregate, HeatmapAggregate, ProcessingJob
-from .services.heatmaps import ensure_heatmap_image, get_or_build_heatmap, normalize_time_slice
+from .services.heatmaps import (
+    ensure_heatmap_image,
+    get_or_build_heatmap,
+    normalize_map_name,
+    normalize_metric,
+    normalize_period,
+    normalize_side,
+    normalize_time_slice,
+    normalize_version,
+)
 from .tasks import task_full_pipeline
 from .utils import to_jsonable
 from users.models import PlayerProfile
@@ -260,19 +269,11 @@ def _get_request_profile(request) -> PlayerProfile:
 
 
 def _heatmap_response(request, profile: PlayerProfile) -> JsonResponse:
-    period = request.GET.get("period", "last_20").strip() or "last_20"
-    map_name = request.GET.get("map", "de_mirage").strip() or "de_mirage"
-    side = request.GET.get("side", AnalyticsAggregate.SIDE_ALL).strip().upper() or AnalyticsAggregate.SIDE_ALL
-    kind = (request.GET.get("kind") or request.GET.get("metric") or HeatmapAggregate.METRIC_KILLS).strip().lower()
-    if kind not in {
-        HeatmapAggregate.METRIC_KILLS,
-        HeatmapAggregate.METRIC_DEATHS,
-        HeatmapAggregate.METRIC_PRESENCE,
-    }:
-        kind = HeatmapAggregate.METRIC_KILLS
-    if side not in {AnalyticsAggregate.SIDE_ALL, AnalyticsAggregate.SIDE_CT, AnalyticsAggregate.SIDE_T}:
-        side = AnalyticsAggregate.SIDE_ALL
-    version = request.GET.get("v", ANALYTICS_VERSION).strip() or ANALYTICS_VERSION
+    period = normalize_period(request.GET.get("period", "last_20"))
+    map_name = normalize_map_name(request.GET.get("map", "de_mirage"))
+    side = normalize_side(request.GET.get("side", AnalyticsAggregate.SIDE_ALL))
+    kind = normalize_metric(request.GET.get("kind") or request.GET.get("metric") or HeatmapAggregate.METRIC_KILLS)
+    version = normalize_version(request.GET.get("v", ANALYTICS_VERSION))
     time_slice = normalize_time_slice(request.GET.get("slice") or request.GET.get("t"))
     try:
         resolution = int(request.GET.get("res", 64))
@@ -280,6 +281,20 @@ def _heatmap_response(request, profile: PlayerProfile) -> JsonResponse:
         resolution = 64
     if resolution not in {64, 128, 256}:
         resolution = 64
+    render_options: dict[str, float] = {}
+    for key, target in (
+        ("blur", "blur"),
+        ("gamma", "gamma"),
+        ("alpha", "alpha"),
+        ("clip", "clip_pct"),
+    ):
+        raw = request.GET.get(key)
+        if raw is None or raw == "":
+            continue
+        try:
+            render_options[target] = float(raw)
+        except (TypeError, ValueError):
+            continue
 
     parts = HeatmapKeyParts(
         profile_id=profile.id,
@@ -293,6 +308,8 @@ def _heatmap_response(request, profile: PlayerProfile) -> JsonResponse:
     )
     cache_key = heatmap_meta_key(parts)
     force_regen = request.GET.get("force") == "1"
+    if render_options:
+        force_regen = True
     if not force_regen:
         try:
             cached = cache.get(cache_key)
@@ -346,6 +363,8 @@ def _heatmap_response(request, profile: PlayerProfile) -> JsonResponse:
         },
     }
 
+    render_options_payload = render_options or None
+
     if force_regen:
         aggregate = get_or_build_heatmap(
             profile_id=profile.id,
@@ -357,9 +376,10 @@ def _heatmap_response(request, profile: PlayerProfile) -> JsonResponse:
             version=version,
             resolution=resolution,
             force_rebuild=True,
+            render_options=render_options_payload,
         )
     elif aggregate:
-        aggregate = ensure_heatmap_image(aggregate, force=False)
+        aggregate = ensure_heatmap_image(aggregate, force=False, **(render_options_payload or {}))
 
     if aggregate and aggregate.image:
         updated_at = aggregate.updated_at.isoformat() if aggregate.updated_at else None

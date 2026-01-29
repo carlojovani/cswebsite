@@ -11,7 +11,7 @@ from django.views.decorators.http import require_POST
 from faceit_analytics.cache_keys import DEFAULT_TTL_SECONDS, profile_metrics_key
 from faceit_analytics.constants import ANALYTICS_VERSION
 from faceit_analytics.models import AnalyticsAggregate, HeatmapAggregate, ProcessingJob
-from faceit_analytics.services.heatmaps import DEFAULT_MAPS
+from faceit_analytics.services.heatmaps import DEFAULT_MAPS, get_time_slice_labels, normalize_map_name
 from faceit_analytics.tasks import task_full_pipeline
 from .forms import (
     RegistrationStep1Form,
@@ -22,6 +22,34 @@ from .forms import (
 )
 from .models import CustomUser, PlayerProfile, TeamProfile
 from .faceit import check_faceit_nickname, fetch_faceit_profile_details
+
+
+def _split_profile_description(description: str | None) -> dict[str, str]:
+    if not description:
+        return {"ct": "", "t": ""}
+    ct_lines: list[str] = []
+    t_lines: list[str] = []
+    current = None
+    for raw_line in description.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        lower = line.lower()
+        if lower.startswith("ct:") or lower.startswith("ct -") or lower == "ct":
+            current = "ct"
+            line = line.split(":", 1)[-1].strip() if ":" in line else ""
+        elif lower.startswith("t:") or lower.startswith("t -") or lower == "t":
+            current = "t"
+            line = line.split(":", 1)[-1].strip() if ":" in line else ""
+        if current == "ct":
+            if line:
+                ct_lines.append(line)
+        elif current == "t":
+            if line:
+                t_lines.append(line)
+        else:
+            ct_lines.append(line)
+    return {"ct": "\n".join(ct_lines).strip(), "t": "\n".join(t_lines).strip()}
 
 
 # ---------------------------
@@ -240,17 +268,13 @@ def profile(request, user_id):
                 or getattr(player_profile, "steam_id", None)
                 or ""
             )
-            context['steamid64_debug'] = {
-                "steamid64": getattr(player_profile, "steamid64", None),
-                "steam_id64": getattr(player_profile, "steam_id64", None),
-                "steam_id": getattr(player_profile, "steam_id", None),
-            }
+            description_split = _split_profile_description(player_profile.description)
+            context["description_ct"] = description_split["ct"]
+            context["description_t"] = description_split["t"]
 
             period = "last_20"
-            map_name = (request.GET.get("map") or "de_mirage").strip() or "de_mirage"
-            slice_labels = [
-                f"{int(start)}-{int(end)}" for start, end in getattr(settings, "HEATMAP_TIME_SLICES", [(0, 999)])
-            ]
+            map_name = normalize_map_name(request.GET.get("map") or "de_mirage")
+            slice_labels = get_time_slice_labels()
             cache_key = profile_metrics_key(player_profile.id, period, map_name, ANALYTICS_VERSION)
             try:
                 analytics_aggregates = cache.get(cache_key)
@@ -281,10 +305,20 @@ def profile(request, user_id):
             if analytics_aggregates:
                 metrics_json = analytics_aggregates[0].metrics_json or {}
                 context["analytics_metrics"] = metrics_json
+                label_map = {
+                    "win_rate": "Винрейт",
+                    "average_kd": "Средний KD",
+                    "average_hs": "Средний HS",
+                    "elo": "ELO",
+                    "matches": "Матчи",
+                    "wins": "Победы",
+                    "current_win_streak": "Текущая серия побед",
+                    "longest_win_streak": "Лучшая серия побед",
+                }
                 context["analytics_simple_metrics"] = {
-                    key: value
+                    label_map[key]: value
                     for key, value in metrics_json.items()
-                    if not isinstance(value, (dict, list))
+                    if key in label_map and not isinstance(value, (dict, list))
                 }
             else:
                 context["analytics_metrics"] = {}

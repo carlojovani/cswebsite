@@ -166,7 +166,7 @@ def test_multikill_basic_case():
         {"type": "kill", "round": 1, "time": 12.0, "attacker_place": "A Site"},
         {"type": "kill", "round": 2, "time": 50.0, "attacker_place": "B Site"},
     ]
-    result = demo_events.compute_multikill_metrics(events)
+    result = demo_events.compute_multikill_metrics(events, "de_mirage")
     assert result["multikill_events"] == 1
     assert result["by_timing"]["early"] == 1
-    assert result["by_zone"]["A Site"] == 1
+    assert result["by_zone"]["A"] == 1

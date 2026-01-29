@@ -1,9 +1,10 @@
 # Python
 __pycache__/
 *.pyc
+*.rej
 
 # Django
-/db.sqlite3
+db.sqlite3
 /media/
 
 # Env
@@ -12,5 +13,5 @@ __pycache__/
 # IDE
 .idea/
 
+codex.patch
 demos/
-
