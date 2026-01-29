@@ -53,6 +53,7 @@ class HeatmapAggregate(models.Model):
     side = models.CharField(max_length=3, choices=AnalyticsAggregate.SIDE_CHOICES, default=AnalyticsAggregate.SIDE_ALL)
     period = models.CharField(max_length=20)
     metric = models.CharField(max_length=10, choices=METRIC_CHOICES, default=METRIC_KILLS)
+    time_slice = models.CharField(max_length=20, default="all")
     analytics_version = models.CharField(max_length=12, default="v1")
     resolution = models.PositiveSmallIntegerField(default=64)
     grid = models.JSONField(default=list)
@@ -68,6 +69,7 @@ class HeatmapAggregate(models.Model):
             "metric",
             "side",
             "period",
+            "time_slice",
             "analytics_version",
             "resolution",
         )

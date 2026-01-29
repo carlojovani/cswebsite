@@ -17,7 +17,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
 
-    'users',
+    'users.apps.UsersConfig',
     'faceit_analytics',
 ]
 
@@ -113,3 +113,15 @@ HEATMAP_ALPHA = 0.95
 HEATMAP_BLUR_SIGMA = HEATMAP_BLUR_SIGMA_GRID
 HEATMAP_BLUR_RADIUS = HEATMAP_BLUR_SIGMA
 HEATMAP_CLIP_PCT = HEATMAP_NORM_PERCENTILE
+HEATMAP_TIME_SLICES = [
+    (0, 15),
+    (15, 30),
+    (30, 45),
+    (45, 60),
+    (60, 90),
+    (90, 999),
+]
+HEATMAP_DEFAULT_SLICE = "0-15"
+DEATH_AWARENESS_LOOKBACK_SEC = 5
+MULTIKILL_WINDOW_SEC = 10
+MULTIKILL_EARLY_THRESHOLD_SEC = 30

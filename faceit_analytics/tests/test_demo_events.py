@@ -146,3 +146,27 @@ def test_name_fallback_matching():
     assert debug["player_kills"] == 1
     assert debug["player_deaths"] == 1
     assert debug["target_name"] == "Player"
+
+
+def test_awareness_before_death_basic():
+    events = [
+        {"type": "damage", "round": 1, "time": 10.0},
+        {"type": "death", "round": 1, "time": 12.0},
+        {"type": "death", "round": 1, "time": 40.0},
+    ]
+    result = demo_events.compute_awareness_before_death(events)
+    assert result["aware_deaths"] == 1
+    assert result["total_deaths"] == 2
+    assert result["awareness_before_death_rate"] == 50.0
+
+
+def test_multikill_basic_case():
+    events = [
+        {"type": "kill", "round": 1, "time": 5.0, "attacker_place": "A Site"},
+        {"type": "kill", "round": 1, "time": 12.0, "attacker_place": "A Site"},
+        {"type": "kill", "round": 2, "time": 50.0, "attacker_place": "B Site"},
+    ]
+    result = demo_events.compute_multikill_metrics(events)
+    assert result["multikill_events"] == 1
+    assert result["by_timing"]["early"] == 1
+    assert result["by_zone"]["A Site"] == 1

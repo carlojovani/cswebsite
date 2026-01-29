@@ -15,17 +15,20 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--profile-id", type=int, required=True)
         parser.add_argument("--period", type=str, default="last_20")
+        parser.add_argument("--map", type=str, default="de_mirage")
         parser.add_argument("--force", action="store_true")
 
     def handle(self, *args, **options):
         profile_id = options["profile_id"]
         period = options["period"]
+        map_name = options["map"]
         force = options["force"]
 
         profile = PlayerProfile.objects.get(id=profile_id)
         payload = get_or_build_demo_features(
             profile,
             period=period,
+            map_name=map_name,
             analytics_version=ANALYTICS_VERSION,
             force_rebuild=force,
         )

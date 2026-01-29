@@ -2,6 +2,7 @@ from django.core.cache import cache
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
+from django.conf import settings
 from django.contrib import messages
 from django.db.models import Q
 from django.utils import timezone
@@ -10,6 +11,7 @@ from django.views.decorators.http import require_POST
 from faceit_analytics.cache_keys import DEFAULT_TTL_SECONDS, profile_metrics_key
 from faceit_analytics.constants import ANALYTICS_VERSION
 from faceit_analytics.models import AnalyticsAggregate, HeatmapAggregate, ProcessingJob
+from faceit_analytics.services.heatmaps import DEFAULT_MAPS
 from faceit_analytics.tasks import task_full_pipeline
 from .forms import (
     RegistrationStep1Form,
@@ -245,7 +247,11 @@ def profile(request, user_id):
             }
 
             period = "last_20"
-            cache_key = profile_metrics_key(player_profile.id, period, ANALYTICS_VERSION)
+            map_name = (request.GET.get("map") or "de_mirage").strip() or "de_mirage"
+            slice_labels = [
+                f"{int(start)}-{int(end)}" for start, end in getattr(settings, "HEATMAP_TIME_SLICES", [(0, 999)])
+            ]
+            cache_key = profile_metrics_key(player_profile.id, period, map_name, ANALYTICS_VERSION)
             try:
                 analytics_aggregates = cache.get(cache_key)
             except Exception:
@@ -256,6 +262,7 @@ def profile(request, user_id):
                         profile=player_profile,
                         period=period,
                         analytics_version=ANALYTICS_VERSION,
+                        map_name=map_name,
                     )
                 )
                 try:
@@ -264,6 +271,10 @@ def profile(request, user_id):
                     pass
 
             context["analytics_period"] = period
+            context["analytics_map"] = map_name
+            context["available_maps"] = list(DEFAULT_MAPS)
+            context["heatmap_time_slices"] = slice_labels
+            context["heatmap_default_slice"] = getattr(settings, "HEATMAP_DEFAULT_SLICE", slice_labels[0])
             context["analytics_aggregates"] = analytics_aggregates
             context["analytics_ready"] = bool(analytics_aggregates)
             context["analytics_version"] = ANALYTICS_VERSION
@@ -282,6 +293,7 @@ def profile(request, user_id):
                 profile=player_profile,
                 period=period,
                 analytics_version=ANALYTICS_VERSION,
+                map_name=map_name,
             ).exists()
             analytics_job = (
                 ProcessingJob.objects.filter(
@@ -354,6 +366,7 @@ def analyze_profile(request, profile_id: int):
     force_heatmaps = request.POST.get("force_heatmaps") == "1"
     period = "last_20"
     resolution = 64
+    map_name = (request.POST.get("map") or "de_mirage").strip() or "de_mirage"
 
     job = ProcessingJob.objects.create(
         profile=profile,
@@ -366,6 +379,7 @@ def analyze_profile(request, profile_id: int):
         profile_id=profile.id,
         job_id=job.id,
         period=period,
+        map_name=map_name,
         resolution=resolution,
         force_rebuild=force_rebuild,
         force_heatmaps=force_heatmaps,

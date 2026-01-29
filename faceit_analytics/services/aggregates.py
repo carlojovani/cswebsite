@@ -2,18 +2,24 @@ from django.utils import timezone
 
 from faceit_analytics.models import AnalyticsAggregate
 from faceit_analytics.services.adapters import adapt_feature_inputs
+from faceit_analytics.services.archetype import infer_archetype
 from faceit_analytics.services.features import (
     compute_role_fingerprint,
     compute_timing_slices,
     compute_utility_iq,
 )
-from faceit_analytics.utils import deep_json_sanitize
+from faceit_analytics.utils import to_jsonable
 
-DEFAULT_MAP_NAME = "all"
+DEFAULT_MAP_NAME = "de_mirage"
 DEFAULT_SIDE = AnalyticsAggregate.SIDE_ALL
 
 
-def build_metrics(profile, period: str, analytics_version: str = "v1") -> list[AnalyticsAggregate]:
+def build_metrics(
+    profile,
+    period: str,
+    analytics_version: str = "v1",
+    map_name: str = DEFAULT_MAP_NAME,
+) -> list[AnalyticsAggregate]:
     metrics = {
         "win_rate": profile.win_rate,
         "average_kd": profile.average_kd,
@@ -29,11 +35,11 @@ def build_metrics(profile, period: str, analytics_version: str = "v1") -> list[A
 
     aggregate, _ = AnalyticsAggregate.objects.update_or_create(
         profile=profile,
-        map_name=DEFAULT_MAP_NAME,
+        map_name=map_name,
         side=DEFAULT_SIDE,
         period=period,
         analytics_version=analytics_version,
-        defaults={"metrics_json": deep_json_sanitize(metrics)},
+        defaults={"metrics_json": to_jsonable(metrics)},
     )
 
     return [aggregate]
@@ -48,10 +54,17 @@ def enrich_metrics_with_role_features(
 ) -> AnalyticsAggregate:
     demo_features_debug = None
     demo_features_approx = False
+    playstyle = None
+    awareness = None
+    multikill = None
+    kda = None
     if demo_features:
         timing_slices = demo_features.get("timing_slices")
         role_fingerprint = demo_features.get("role_fingerprint")
         utility_iq = demo_features.get("utility_iq")
+        awareness = demo_features.get("awareness_before_death")
+        multikill = demo_features.get("multikill")
+        kda = demo_features.get("kda")
         demo_features_debug = demo_features.get("debug")
         if demo_features.get("insufficient_rounds"):
             demo_features_approx = True
@@ -74,8 +87,12 @@ def enrich_metrics_with_role_features(
     metrics["role_fingerprint"] = role_fingerprint
     metrics["utility_iq"] = utility_iq
     metrics["timing_slices"] = timing_slices
+    metrics["awareness_before_death"] = awareness
+    metrics["multikill"] = multikill
+    metrics["kda"] = kda
     metrics["demo_features_debug"] = demo_features_debug
     metrics["demo_features_approx"] = demo_features_approx
-    aggregate.metrics_json = deep_json_sanitize(metrics)
+    metrics["playstyle"] = infer_archetype(metrics, timing_slices or {}, None)
+    aggregate.metrics_json = to_jsonable(metrics)
     aggregate.save(update_fields=["metrics_json", "updated_at"])
     return aggregate
