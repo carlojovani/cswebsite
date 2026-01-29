@@ -57,12 +57,12 @@ HEATMAP_NORM_PERCENTILE = float(
     getattr(
         settings,
         "HEATMAP_NORM_PERCENTILE",
-        getattr(settings, "HEATMAP_PERCENTILE_CLIP", getattr(settings, "HEATMAP_CLIP_PCT", 99.0)),
+        getattr(settings, "HEATMAP_PERCENTILE_CLIP", getattr(settings, "HEATMAP_CLIP_PCT", 99.5)),
     )
 )
 
 # Gamma (lower -> brighter tails, higher -> more contrast)
-HEATMAP_GAMMA = float(getattr(settings, "HEATMAP_GAMMA", 0.55))
+HEATMAP_GAMMA = float(getattr(settings, "HEATMAP_GAMMA", 0.75))
 
 # Global alpha multiplier
 HEATMAP_ALPHA = float(getattr(settings, "HEATMAP_ALPHA", 0.98))
