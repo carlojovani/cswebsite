@@ -32,6 +32,12 @@ DEFAULT_MAPS: Iterable[str] = ("de_mirage",)
 
 logger = logging.getLogger(__name__)
 
+
+class HeatmapTimeDataMissing(RuntimeError):
+    def __init__(self, meta: dict[str, object]) -> None:
+        super().__init__("Heatmap cache missing time slice data")
+        self.meta = meta
+
 # Output image size (radar+heatmap)
 HEATMAP_OUTPUT_SIZE = int(getattr(settings, "HEATMAP_OUTPUT_SIZE", 1024))
 
@@ -592,15 +598,20 @@ def _collect_points_from_cache(
     side: str,
     metric: str,
     time_slice: str,
-) -> tuple[list[tuple[float, float, float]], tuple[int, int]]:
+) -> tuple[list[tuple[float, float, float]], tuple[int, int], dict[str, object]]:
     media_root = Path(getattr(settings, "MEDIA_ROOT", "media"))
     cache_dir = media_root / "heatmaps_cache" / steamid64 / map_name
     out_dir = media_root / "heatmaps_local" / steamid64 / "aggregate" / map_name
+    meta: dict[str, object] = {
+        "cache_has_time_data": True,
+        "time_slice_applied": False,
+        "missing_time_data_reason": None,
+    }
 
     demo_paths = sorted(demos_dir.glob("*.dem"), key=lambda p: p.stat().st_mtime, reverse=True)
     demo_paths = demo_paths[: max(_period_to_limit(period), 1)]
     if not demo_paths:
-        return [], (0, 0)
+        return [], (0, 0), meta
 
     radar, _meta, radar_name = analyzer.load_radar_and_meta(map_name)
     radar_size = radar.size
@@ -641,29 +652,24 @@ def _collect_points_from_cache(
         }.get(side, "presence_all_pxt")
 
     slice_range = parse_time_slice(time_slice)
+    if slice_range:
+        meta["time_slice_applied"] = True
+    missing_time_cache = False
     for cache_path in cache_paths:
         if not cache_path.exists():
             continue
         with np.load(cache_path) as cached:
             data = cached.get(array_key_time)
-            if data is None or data.size == 0:
-                data = cached.get(array_key)
-                if data is None:
+            if slice_range:
+                if array_key_time not in cached.files:
+                    missing_time_cache = True
                     continue
-                if slice_range:
-                    logger.debug(
-                        "Heatmap cache missing time slice data for %s, slice=%s",
-                        cache_path.name,
-                        time_slice,
-                    )
-                for x, y in data.tolist():
-                    points.append((float(x), float(y), 1.0))
-                continue
-            for row in data.tolist():
-                if len(row) < 3:
+                if data is None or data.size == 0:
                     continue
-                x, y, t_round = row
-                if slice_range:
+                for row in data.tolist():
+                    if len(row) < 3:
+                        continue
+                    x, y, t_round = row
                     start_sec, end_sec = slice_range
                     if t_round is None:
                         continue
@@ -671,9 +677,60 @@ def _collect_points_from_cache(
                         continue
                     if end_sec is None and t_round < start_sec:
                         continue
+                    points.append((float(x), float(y), 1.0))
+                continue
+            data = cached.get(array_key)
+            if data is None:
+                continue
+            for x, y in data.tolist():
                 points.append((float(x), float(y), 1.0))
 
-    return points, radar_size
+    if slice_range and missing_time_cache:
+        analyzer.build_heatmaps_aggregate(
+            steamid64=steamid64,
+            map_name=map_name,
+            limit=_period_to_limit(period),
+            demos_dir=demos_dir,
+            out_dir=out_dir,
+            cache_dir=media_root / "heatmaps_cache",
+        )
+        missing_time_cache = False
+        points = []
+        for cache_path in cache_paths:
+            if not cache_path.exists():
+                continue
+            with np.load(cache_path) as cached:
+                if array_key_time not in cached.files:
+                    missing_time_cache = True
+                    continue
+                data = cached.get(array_key_time)
+                if data is None or data.size == 0:
+                    continue
+                for row in data.tolist():
+                    if len(row) < 3:
+                        continue
+                    x, y, t_round = row
+                    start_sec, end_sec = slice_range
+                    if t_round is None:
+                        continue
+                    if end_sec is not None and not (start_sec <= t_round < end_sec):
+                        continue
+                    if end_sec is None and t_round < start_sec:
+                        continue
+                    points.append((float(x), float(y), 1.0))
+
+    if slice_range and missing_time_cache:
+        meta["cache_has_time_data"] = False
+        meta["time_slice_applied"] = False
+        meta["missing_time_data_reason"] = "Кэш тепловой карты не содержит временные данные."
+        logger.warning(
+            "Heatmap cache missing time slice data for %s slice=%s",
+            map_name,
+            time_slice,
+        )
+        return [], radar_size, meta
+
+    return points, radar_size, meta
 
 
 def _collect_time_sliced_points(
@@ -791,6 +848,21 @@ def get_or_build_heatmap(
     ).first()
 
     if aggregate and not force_rebuild:
+        if parse_time_slice(time_slice):
+            profile = PlayerProfile.objects.get(id=profile_id)
+            steamid64 = _profile_steamid64(profile) or ""
+            demos_dir = get_demos_dir(profile, map_name)
+            _points, _radar_size, meta = _collect_points_from_cache(
+                demos_dir,
+                steamid64,
+                map_name,
+                period,
+                side,
+                metric,
+                time_slice,
+            )
+            if meta.get("missing_time_data_reason"):
+                raise HeatmapTimeDataMissing(meta)
         return ensure_heatmap_image(aggregate, **(render_options or {}))
 
     profile = PlayerProfile.objects.get(id=profile_id)
@@ -799,7 +871,11 @@ def get_or_build_heatmap(
         raise ValueError("SteamID64 is missing on player profile")
 
     demos_dir = get_demos_dir(profile, map_name)
-    points, radar_size = _collect_points_from_cache(demos_dir, steamid64, map_name, period, side, metric, time_slice)
+    points, radar_size, meta = _collect_points_from_cache(
+        demos_dir, steamid64, map_name, period, side, metric, time_slice
+    )
+    if meta.get("missing_time_data_reason") and parse_time_slice(time_slice):
+        raise HeatmapTimeDataMissing(meta)
     bounds = (0.0, 0.0, float(radar_size[0] or 1), float(radar_size[1] or 1))
     grid, max_value = build_heatmap_grid(points, resolution=resolution, bounds=bounds)
 

@@ -277,6 +277,7 @@ def profile(request, user_id):
             map_name = normalize_map_name(request.GET.get("map") or "de_mirage")
             slice_labels = get_time_slice_labels()
             bucket_labels = ["all"] + get_time_bucket_labels()
+            context["time_bucket_labels"] = get_time_bucket_labels()
             cache_key = profile_metrics_key(player_profile.id, period, map_name, ANALYTICS_VERSION)
             try:
                 analytics_aggregates = cache.get(cache_key)
