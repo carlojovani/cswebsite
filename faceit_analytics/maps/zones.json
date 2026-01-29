@@ -54,6 +54,48 @@
         "catwalk"
       ]
     },
+    "site_places": {
+      "A": {
+        "core": [
+          "a site",
+          "default",
+          "triple",
+          "firebox"
+        ],
+        "buffer": [
+          "a ramp",
+          "palace",
+          "a palace",
+          "a apps",
+          "a apartments",
+          "tetris",
+          "ticket",
+          "jungle",
+          "connector",
+          "stairs"
+        ]
+      },
+      "B": {
+        "core": [
+          "b site",
+          "bench",
+          "van"
+        ],
+        "buffer": [
+          "b apps",
+          "b apartments",
+          "b short",
+          "market",
+          "kitchen",
+          "back hall",
+          "car"
+        ]
+      }
+    },
+    "site_center_norm": {
+      "A": [0.785, 0.235],
+      "B": [0.225, 0.75]
+    },
     "bbox": {
       "A": [[0.62, 0.05, 0.95, 0.42]],
       "B": [[0.05, 0.55, 0.4, 0.95]],

@@ -835,22 +835,34 @@ def build_heatmaps_aggregate(
     for dem_path in demo_paths:
         demo_hash = _demo_cache_hash(dem_path, radar_name, (w, h))
         cache_path = cache_root / f"{demo_hash}.npz"
+        cache_needs_rebuild = not cache_path.exists()
+        demo_points = None
         if cache_path.exists():
             cache_hits += 1
             with np.load(cache_path) as cached:
-                demo_points = {
-                    "presence_all_px": cached.get("presence_all_px", _empty_points()),
-                    "presence_ct_px": cached.get("presence_ct_px", _empty_points()),
-                    "presence_t_px": cached.get("presence_t_px", _empty_points()),
-                    "presence_all_pxt": cached.get("presence_all_pxt", _empty_points_time()),
-                    "presence_ct_pxt": cached.get("presence_ct_pxt", _empty_points_time()),
-                    "presence_t_pxt": cached.get("presence_t_pxt", _empty_points_time()),
-                    "kills_px": cached.get("kills_px", _empty_points()),
-                    "deaths_px": cached.get("deaths_px", _empty_points()),
-                    "kills_pxt": cached.get("kills_pxt", _empty_points_time()),
-                    "deaths_pxt": cached.get("deaths_pxt", _empty_points_time()),
+                required_time_keys = {
+                    "presence_all_pxt",
+                    "presence_ct_pxt",
+                    "presence_t_pxt",
+                    "kills_pxt",
+                    "deaths_pxt",
                 }
-        else:
+                if not required_time_keys.issubset(set(cached.files)):
+                    cache_needs_rebuild = True
+                else:
+                    demo_points = {
+                        "presence_all_px": cached.get("presence_all_px", _empty_points()),
+                        "presence_ct_px": cached.get("presence_ct_px", _empty_points()),
+                        "presence_t_px": cached.get("presence_t_px", _empty_points()),
+                        "presence_all_pxt": cached.get("presence_all_pxt", _empty_points_time()),
+                        "presence_ct_pxt": cached.get("presence_ct_pxt", _empty_points_time()),
+                        "presence_t_pxt": cached.get("presence_t_pxt", _empty_points_time()),
+                        "kills_px": cached.get("kills_px", _empty_points()),
+                        "deaths_px": cached.get("deaths_px", _empty_points()),
+                        "kills_pxt": cached.get("kills_pxt", _empty_points_time()),
+                        "deaths_pxt": cached.get("deaths_pxt", _empty_points_time()),
+                    }
+        if cache_needs_rebuild:
             demo_points, _ = _extract_points_from_demo(dem_path, steamid64, meta, (w, h), map_mask_L)
             np.savez_compressed(
                 cache_path,
@@ -865,6 +877,19 @@ def build_heatmaps_aggregate(
                 kills_pxt=demo_points["kills_pxt"],
                 deaths_pxt=demo_points["deaths_pxt"],
             )
+        if demo_points is None:
+            demo_points = {
+                "presence_all_px": _empty_points(),
+                "presence_ct_px": _empty_points(),
+                "presence_t_px": _empty_points(),
+                "presence_all_pxt": _empty_points_time(),
+                "presence_ct_pxt": _empty_points_time(),
+                "presence_t_pxt": _empty_points_time(),
+                "kills_px": _empty_points(),
+                "deaths_px": _empty_points(),
+                "kills_pxt": _empty_points_time(),
+                "deaths_pxt": _empty_points_time(),
+            }
 
         presence_all.append(_limit_points(demo_points["presence_all_px"], 15000))
         presence_ct.append(_limit_points(demo_points["presence_ct_px"], 15000))

@@ -18,6 +18,8 @@ from .demo_fetch import get_demo_dem_path
 from .faceit_client import FaceitClient
 from .models import AnalyticsAggregate, HeatmapAggregate, ProcessingJob
 from .services.heatmaps import (
+    HeatmapTimeDataMissing,
+    _collect_points_from_cache,
     build_time_slice_from_bounds,
     build_time_slice_from_bucket,
     ensure_heatmap_image,
@@ -28,8 +30,10 @@ from .services.heatmaps import (
     normalize_side,
     normalize_time_slice,
     normalize_version,
+    parse_time_slice,
 )
 from .services.time_buckets import normalize_time_bucket
+from .services.paths import get_demos_dir
 from .tasks import task_full_pipeline
 from .utils import to_jsonable
 from users.models import PlayerProfile
@@ -51,7 +55,7 @@ def faceit_heatmaps(request):
     """
     nickname = request.GET.get("nickname", "").strip()
     if not nickname:
-        return JsonResponse({"error": "nickname is required"}, status=400)
+        return JsonResponse({"error": "Никнейм обязателен."}, status=400)
 
     client = FaceitClient(api_key=getattr(settings, "FACEIT_API_KEY", None))
 
@@ -326,22 +330,6 @@ def _heatmap_response(request, profile: PlayerProfile) -> JsonResponse:
     force_regen = request.GET.get("force") == "1"
     if render_options:
         force_regen = True
-    if not force_regen:
-        try:
-            cached = cache.get(cache_key)
-        except Exception:
-            cached = None
-        if cached:
-            image_url = cached.get("image_url")
-            if image_url:
-                base_url = settings.MEDIA_URL or ""
-                path = image_url.split("?", 1)[0]
-                if base_url and path.startswith(base_url):
-                    storage_path = path[len(base_url) :]
-                    if not default_storage.exists(storage_path):
-                        cached = None
-            if cached:
-                return JsonResponse(to_jsonable(cached))
 
     aggregate = HeatmapAggregate.objects.filter(
         profile=profile,
@@ -382,26 +370,78 @@ def _heatmap_response(request, profile: PlayerProfile) -> JsonResponse:
             "time_bucket": bucket_value,
             "time_from": time_from,
             "time_to": time_to,
+            "cache_has_time_data": True,
+            "time_slice_applied": parse_time_slice(time_slice) is not None,
+            "missing_time_data_reason": None,
         },
     }
 
     render_options_payload = render_options or None
 
-    if force_regen:
-        aggregate = get_or_build_heatmap(
-            profile_id=profile.id,
-            map_name=map_name,
-            metric=kind,
-            side=side,
-            period=period,
-            time_slice=time_slice,
-            version=version,
-            resolution=resolution,
-            force_rebuild=True,
-            render_options=render_options_payload,
+    time_meta = None
+    if parse_time_slice(time_slice) is not None:
+        steamid64 = (
+            getattr(profile, "steamid64", None)
+            or getattr(profile, "steam_id64", None)
+            or getattr(profile, "steam_id", None)
         )
-    elif aggregate:
-        aggregate = ensure_heatmap_image(aggregate, force=False, **(render_options_payload or {}))
+        if steamid64:
+            demos_dir = get_demos_dir(profile, map_name)
+            _points, _size, time_meta = _collect_points_from_cache(
+                demos_dir,
+                str(steamid64),
+                map_name,
+                period,
+                side,
+                kind,
+                time_slice,
+            )
+            response["meta"].update(time_meta)
+            if time_meta.get("missing_time_data_reason"):
+                response["status"] = "processing"
+                return JsonResponse(to_jsonable(response))
+
+    if not force_regen:
+        try:
+            cached = cache.get(cache_key)
+        except Exception:
+            cached = None
+        if cached:
+            image_url = cached.get("image_url")
+            if image_url:
+                base_url = settings.MEDIA_URL or ""
+                path = image_url.split("?", 1)[0]
+                if base_url and path.startswith(base_url):
+                    storage_path = path[len(base_url) :]
+                    if not default_storage.exists(storage_path):
+                        cached = None
+            if cached:
+                if time_meta and isinstance(cached, dict):
+                    cached.setdefault("meta", {}).update(time_meta)
+                return JsonResponse(to_jsonable(cached))
+
+    try:
+        if force_regen:
+            aggregate = get_or_build_heatmap(
+                profile_id=profile.id,
+                map_name=map_name,
+                metric=kind,
+                side=side,
+                period=period,
+                time_slice=time_slice,
+                version=version,
+                resolution=resolution,
+                force_rebuild=True,
+                render_options=render_options_payload,
+            )
+        elif aggregate:
+            aggregate = ensure_heatmap_image(aggregate, force=False, **(render_options_payload or {}))
+    except HeatmapTimeDataMissing as exc:
+        response["status"] = "processing"
+        response["meta"]["cache_has_time_data"] = bool(exc.meta.get("cache_has_time_data"))
+        response["meta"]["time_slice_applied"] = bool(exc.meta.get("time_slice_applied"))
+        response["meta"]["missing_time_data_reason"] = exc.meta.get("missing_time_data_reason")
+        return JsonResponse(to_jsonable(response))
 
     if aggregate and aggregate.image:
         updated_at = aggregate.updated_at.isoformat() if aggregate.updated_at else None

@@ -311,15 +311,15 @@
                         {% if analytics_metrics.kda %}
                             <div class="analytics-metrics analytics-metrics--kda">
                                 <div class="analytics-metric">
-                                    <span class="metric-label">Kills</span>
+                                    <span class="metric-label">Киллы</span>
                                     <strong class="metric-value">{{ analytics_metrics.kda.kills }}</strong>
                                 </div>
                                 <div class="analytics-metric">
-                                    <span class="metric-label">Deaths</span>
+                                    <span class="metric-label">Смерти</span>
                                     <strong class="metric-value">{{ analytics_metrics.kda.deaths }}</strong>
                                 </div>
                                 <div class="analytics-metric">
-                                    <span class="metric-label">Assists</span>
+                                    <span class="metric-label">Ассисты</span>
                                     <strong class="metric-value">{{ analytics_metrics.kda.assists }}</strong>
                                 </div>
                                 <div class="analytics-metric">
@@ -353,7 +353,7 @@
                             {% for tag in analytics_metrics.role_fingerprint.tags %}
                                 <span class="role-chip">{{ tag }}</span>
                             {% empty %}
-                                <span class="role-chip role-chip--empty">Not enough data</span>
+                                <span class="role-chip role-chip--empty">Недостаточно данных</span>
                             {% endfor %}
                             {% if analytics_metrics.role_fingerprint.approx %}
                                 <span class="role-chip role-chip--approx">approx</span>
@@ -384,7 +384,7 @@
                                 </strong>
                             </div>
                             <div class="role-metric">
-                                <span>Trade kill rate</span>
+                                <span>Доля трейд-киллов</span>
                                 <strong>
                                     {% if analytics_metrics.role_fingerprint.metrics.trade_kill_rate.value != None %}
                                         {{ analytics_metrics.role_fingerprint.metrics.trade_kill_rate.value|floatformat:2 }}
@@ -394,7 +394,7 @@
                                 </strong>
                             </div>
                             <div class="role-metric">
-                                <span>Traded death rate</span>
+                                <span>Доля трейд-смертей</span>
                                 <strong>
                                     {% if analytics_metrics.role_fingerprint.metrics.traded_death_rate.value != None %}
                                         {{ analytics_metrics.role_fingerprint.metrics.traded_death_rate.value|floatformat:2 }}
@@ -414,7 +414,7 @@
                                 </strong>
                             </div>
                             <div class="role-metric">
-                                <span>Flash assists / round</span>
+                                <span>Ассисты флешками / раунд</span>
                                 <strong>
                                     {% if analytics_metrics.role_fingerprint.metrics.flash_assists_per_round.value != None %}
                                         {{ analytics_metrics.role_fingerprint.metrics.flash_assists_per_round.value|floatformat:2 }}
@@ -425,40 +425,40 @@
                             </div>
                         </div>
                     {% else %}
-                        <div class="analytics-empty">Not enough data</div>
+                        <div class="analytics-empty">Недостаточно данных</div>
                     {% endif %}
                 </div>
 
                 <div class="analytics-card playstyle-card">
                     <div class="analytics-header">
-                        <h3>Playstyle archetype</h3>
+                        <h3>Архетип стиля игры</h3>
                     </div>
                     {% if analytics_metrics.playstyle %}
                         <div class="playstyle-label">
                             <strong>{{ analytics_metrics.playstyle.label }}</strong>
                             {% if analytics_metrics.playstyle.approx %}
-                                <span class="role-chip role-chip--approx">approx</span>
+                                <span class="role-chip role-chip--approx">прибл.</span>
                             {% endif %}
                         </div>
                         <ul class="playstyle-reasons">
                             {% for reason in analytics_metrics.playstyle.reasons %}
                                 <li>{{ reason }}</li>
                             {% empty %}
-                                <li>Not enough data for reasons.</li>
+                                <li>Недостаточно данных для объяснений.</li>
                             {% endfor %}
                         </ul>
                         {% if analytics_metrics.playstyle.entry_breakdown %}
                             <div class="playstyle-entry">
                                 <div class="playstyle-entry__row">
-                                    <span>Entry breakdown</span>
+                                    <span>Entry-разбор</span>
                                     {% if analytics_metrics.playstyle.entry_breakdown.avg_entry_time_s != None %}
                                         <span class="playstyle-entry__meta">
-                                            avg {{ analytics_metrics.playstyle.entry_breakdown.avg_entry_time_s|floatformat:1 }}s
+                                            сред. {{ analytics_metrics.playstyle.entry_breakdown.avg_entry_time_s|floatformat:1 }} c
                                         </span>
                                     {% endif %}
                                 </div>
                                 <div class="playstyle-entry__row">
-                                    <span>Assisted</span>
+                                    <span>С поддержкой</span>
                                     <strong>
                                         {% if analytics_metrics.playstyle.entry_breakdown.assisted_entry_pct != None %}
                                             {{ analytics_metrics.playstyle.entry_breakdown.assisted_entry_pct|floatformat:1 }}%
@@ -467,26 +467,19 @@
                                         {% endif %}
                                     </strong>
                                     <span class="playstyle-entry__meta">
-                                        early/mid/late:
-                                        {% if analytics_metrics.playstyle.entry_breakdown.assisted_by_bucket_pct.early != None %}
-                                            {{ analytics_metrics.playstyle.entry_breakdown.assisted_by_bucket_pct.early|floatformat:0 }}%
-                                        {% else %}
-                                            —
-                                        {% endif %} /
-                                        {% if analytics_metrics.playstyle.entry_breakdown.assisted_by_bucket_pct.mid != None %}
-                                            {{ analytics_metrics.playstyle.entry_breakdown.assisted_by_bucket_pct.mid|floatformat:0 }}%
-                                        {% else %}
-                                            —
-                                        {% endif %} /
-                                        {% if analytics_metrics.playstyle.entry_breakdown.assisted_by_bucket_pct.late != None %}
-                                            {{ analytics_metrics.playstyle.entry_breakdown.assisted_by_bucket_pct.late|floatformat:0 }}%
-                                        {% else %}
-                                            —
-                                        {% endif %}
+                                        по времени:
+                                        {% for bucket in time_bucket_labels %}
+                                            {% if analytics_metrics.playstyle.entry_breakdown.assisted_by_bucket_pct[bucket] != None %}
+                                                {{ analytics_metrics.playstyle.entry_breakdown.assisted_by_bucket_pct[bucket]|floatformat:0 }}%
+                                            {% else %}
+                                                —
+                                            {% endif %}
+                                            {% if not forloop.last %}/ {% endif %}
+                                        {% endfor %}
                                     </span>
                                 </div>
                                 <div class="playstyle-entry__row">
-                                    <span>Solo</span>
+                                    <span>Соло</span>
                                     <strong>
                                         {% if analytics_metrics.playstyle.entry_breakdown.solo_entry_pct != None %}
                                             {{ analytics_metrics.playstyle.entry_breakdown.solo_entry_pct|floatformat:1 }}%
@@ -495,31 +488,64 @@
                                         {% endif %}
                                     </strong>
                                     <span class="playstyle-entry__meta">
-                                        early/mid/late:
-                                        {% if analytics_metrics.playstyle.entry_breakdown.solo_by_bucket_pct.early != None %}
-                                            {{ analytics_metrics.playstyle.entry_breakdown.solo_by_bucket_pct.early|floatformat:0 }}%
-                                        {% else %}
-                                            —
-                                        {% endif %} /
-                                        {% if analytics_metrics.playstyle.entry_breakdown.solo_by_bucket_pct.mid != None %}
-                                            {{ analytics_metrics.playstyle.entry_breakdown.solo_by_bucket_pct.mid|floatformat:0 }}%
-                                        {% else %}
-                                            —
-                                        {% endif %} /
-                                        {% if analytics_metrics.playstyle.entry_breakdown.solo_by_bucket_pct.late != None %}
-                                            {{ analytics_metrics.playstyle.entry_breakdown.solo_by_bucket_pct.late|floatformat:0 }}%
+                                        по времени:
+                                        {% for bucket in time_bucket_labels %}
+                                            {% if analytics_metrics.playstyle.entry_breakdown.solo_by_bucket_pct[bucket] != None %}
+                                                {{ analytics_metrics.playstyle.entry_breakdown.solo_by_bucket_pct[bucket]|floatformat:0 }}%
+                                            {% else %}
+                                                —
+                                            {% endif %}
+                                            {% if not forloop.last %}/ {% endif %}
+                                        {% endfor %}
+                                    </span>
+                                </div>
+                                <div class="playstyle-entry__row">
+                                    <span>С ассистом</span>
+                                    <strong>
+                                        {% if analytics_metrics.playstyle.entry_breakdown.entry_with_assist_pct != None %}
+                                            {{ analytics_metrics.playstyle.entry_breakdown.entry_with_assist_pct|floatformat:1 }}%
                                         {% else %}
                                             —
                                         {% endif %}
-                                    </span>
+                                    </strong>
+                                </div>
+                                <div class="playstyle-entry__row">
+                                    <span>Под флешку</span>
+                                    <strong>
+                                        {% if analytics_metrics.playstyle.entry_breakdown.entry_with_flash_pct != None %}
+                                            {{ analytics_metrics.playstyle.entry_breakdown.entry_with_flash_pct|floatformat:1 }}%
+                                        {% else %}
+                                            —
+                                        {% endif %}
+                                    </strong>
+                                </div>
+                                <div class="playstyle-entry__row">
+                                    <span>С напарником</span>
+                                    <strong>
+                                        {% if analytics_metrics.playstyle.entry_breakdown.entry_with_partner_pct != None %}
+                                            {{ analytics_metrics.playstyle.entry_breakdown.entry_with_partner_pct|floatformat:1 }}%
+                                        {% else %}
+                                            —
+                                        {% endif %}
+                                    </strong>
+                                </div>
+                                <div class="playstyle-entry__row">
+                                    <span>В группе</span>
+                                    <strong>
+                                        {% if analytics_metrics.playstyle.entry_breakdown.entry_with_group_pct != None %}
+                                            {{ analytics_metrics.playstyle.entry_breakdown.entry_with_group_pct|floatformat:1 }}%
+                                        {% else %}
+                                            —
+                                        {% endif %}
+                                    </strong>
                                 </div>
                                 {% if analytics_metrics.playstyle.entry_breakdown.approx %}
-                                    <div class="analytics-approx">approx</div>
+                                    <div class="analytics-approx">прибл.</div>
                                 {% endif %}
                             </div>
                         {% endif %}
                     {% else %}
-                        <div class="analytics-empty">Not enough data</div>
+                        <div class="analytics-empty">Недостаточно данных</div>
                     {% endif %}
                 </div>
 
@@ -543,7 +569,7 @@
                         </div>
                         <div class="utility-breakdown">
                             <div>
-                                <span>Flash assists / round</span>
+                                <span>Ассисты флешками / раунд</span>
                                 <strong>
                                     {% if analytics_metrics.utility_iq.breakdown.flash_assists_per_round.value != None %}
                                         {{ analytics_metrics.utility_iq.breakdown.flash_assists_per_round.value|floatformat:2 }}
@@ -563,7 +589,7 @@
                                 </strong>
                             </div>
                             <div>
-                                <span>Friendly flash rate</span>
+                                <span>Доля тимфлешей</span>
                                 <strong>
                                     {% if analytics_metrics.utility_iq.breakdown.friendly_flash_rate.value != None %}
                                         {{ analytics_metrics.utility_iq.breakdown.friendly_flash_rate.value|floatformat:2 }}
@@ -574,7 +600,7 @@
                             </div>
                         </div>
                     {% else %}
-                        <div class="analytics-empty">Not enough data</div>
+                        <div class="analytics-empty">Недостаточно данных</div>
                     {% endif %}
                 </div>
 
@@ -613,18 +639,18 @@
                             <div class="analytics-approx">approx</div>
                         {% endif %}
                     {% else %}
-                        <div class="analytics-empty">Not enough data</div>
+                        <div class="analytics-empty">Недостаточно данных</div>
                     {% endif %}
                 </div>
 
                 <div class="analytics-card awareness-card">
                     <div class="analytics-header">
-                        <h3>Awareness before death</h3>
+                        <h3>Осведомлённость перед смертью</h3>
                     </div>
                     {% if analytics_metrics.awareness_before_death %}
                         <div class="analytics-metrics">
                             <div class="analytics-metric">
-                                <span class="metric-label">Awareness %</span>
+                                <span class="metric-label">Осведомлённость %</span>
                                 <strong class="metric-value">
                                     {% if analytics_metrics.awareness_before_death.awareness_before_death_rate != None %}
                                         {{ analytics_metrics.awareness_before_death.awareness_before_death_rate|floatformat:2 }}%
@@ -643,18 +669,18 @@
                             </div>
                         </div>
                     {% else %}
-                        <div class="analytics-empty">Not enough data</div>
+                        <div class="analytics-empty">Недостаточно данных</div>
                     {% endif %}
                 </div>
 
                 <div class="analytics-card multikill-card">
                     <div class="analytics-header">
-                        <h3>Multi-kill breakdown</h3>
+                        <h3>Мультикиллы по фазам</h3>
                     </div>
                     {% if analytics_metrics.multikill %}
                         <div class="analytics-metrics">
                             <div class="analytics-metric">
-                                <span class="metric-label">Multi-kill rate</span>
+                                <span class="metric-label">Доля мультикиллов</span>
                                 <strong class="metric-value">
                                     {% if analytics_metrics.multikill.multikill_round_rate != None %}
                                         {{ analytics_metrics.multikill.multikill_round_rate|floatformat:2 }}%
@@ -664,41 +690,132 @@
                                 </strong>
                             </div>
                             <div class="analytics-metric">
-                                <span class="metric-label">Events</span>
+                                <span class="metric-label">Раундов с 2+ киллами</span>
                                 <strong class="metric-value">{{ analytics_metrics.multikill.multikill_events }}</strong>
                             </div>
                             <div class="analytics-metric">
-                                <span class="metric-label">Early/late</span>
+                                <span class="metric-label">Ранние/поздние</span>
                                 <strong class="metric-value">
                                     {{ analytics_metrics.multikill.by_timing.early|default:"0" }} /
                                     {{ analytics_metrics.multikill.by_timing.late|default:"0" }}
                                 </strong>
                             </div>
+                            <div class="analytics-metric">
+                                <span class="metric-label">Эйсы (5 за раунд)</span>
+                                <strong class="metric-value">{{ analytics_metrics.multikill.ace_rounds|default:"0" }}</strong>
+                            </div>
                         </div>
-                        {% if analytics_metrics.multikill.by_context %}
+                        {% if analytics_metrics.multikill.by_state %}
                             <div class="multikill-context">
                                 <div class="multikill-context__row">
-                                    <span>Execute</span>
+                                    <span>T Execute (до плента)</span>
                                     <strong>
-                                        2k {{ analytics_metrics.multikill.by_context.execute.k2|default:"0" }},
-                                        3k {{ analytics_metrics.multikill.by_context.execute.k3|default:"0" }},
-                                        4k {{ analytics_metrics.multikill.by_context.execute.k4|default:"0" }},
-                                        5k {{ analytics_metrics.multikill.by_context.execute.k5|default:"0" }}
+                                        1k {{ analytics_metrics.multikill.by_state.t_execute.k1|default:"0" }},
+                                        2k {{ analytics_metrics.multikill.by_state.t_execute.k2|default:"0" }},
+                                        3k {{ analytics_metrics.multikill.by_state.t_execute.k3|default:"0" }},
+                                        4k {{ analytics_metrics.multikill.by_state.t_execute.k4|default:"0" }},
+                                        5k {{ analytics_metrics.multikill.by_state.t_execute.k5|default:"0" }}
                                     </strong>
                                 </div>
                                 <div class="multikill-context__row">
-                                    <span>Hold</span>
+                                    <span>CT Hold (до плента)</span>
                                     <strong>
-                                        2k {{ analytics_metrics.multikill.by_context.hold.k2|default:"0" }},
-                                        3k {{ analytics_metrics.multikill.by_context.hold.k3|default:"0" }},
-                                        4k {{ analytics_metrics.multikill.by_context.hold.k4|default:"0" }},
-                                        5k {{ analytics_metrics.multikill.by_context.hold.k5|default:"0" }}
+                                        1k {{ analytics_metrics.multikill.by_state.ct_hold.k1|default:"0" }},
+                                        2k {{ analytics_metrics.multikill.by_state.ct_hold.k2|default:"0" }},
+                                        3k {{ analytics_metrics.multikill.by_state.ct_hold.k3|default:"0" }},
+                                        4k {{ analytics_metrics.multikill.by_state.ct_hold.k4|default:"0" }},
+                                        5k {{ analytics_metrics.multikill.by_state.ct_hold.k5|default:"0" }}
+                                    </strong>
+                                </div>
+                                <div class="multikill-context__row">
+                                    <span>T Hold (после плента)</span>
+                                    <strong>
+                                        1k {{ analytics_metrics.multikill.by_state.t_post_plant.k1|default:"0" }},
+                                        2k {{ analytics_metrics.multikill.by_state.t_post_plant.k2|default:"0" }},
+                                        3k {{ analytics_metrics.multikill.by_state.t_post_plant.k3|default:"0" }},
+                                        4k {{ analytics_metrics.multikill.by_state.t_post_plant.k4|default:"0" }},
+                                        5k {{ analytics_metrics.multikill.by_state.t_post_plant.k5|default:"0" }}
+                                    </strong>
+                                </div>
+                                <div class="multikill-context__row">
+                                    <span>CT Retake (после плента)</span>
+                                    <strong>
+                                        1k {{ analytics_metrics.multikill.by_state.ct_retake.k1|default:"0" }},
+                                        2k {{ analytics_metrics.multikill.by_state.ct_retake.k2|default:"0" }},
+                                        3k {{ analytics_metrics.multikill.by_state.ct_retake.k3|default:"0" }},
+                                        4k {{ analytics_metrics.multikill.by_state.ct_retake.k4|default:"0" }},
+                                        5k {{ analytics_metrics.multikill.by_state.ct_retake.k5|default:"0" }}
                                     </strong>
                                 </div>
                             </div>
                         {% endif %}
                     {% else %}
-                        <div class="analytics-empty">Not enough data</div>
+                        <div class="analytics-empty">Недостаточно данных</div>
+                    {% endif %}
+                </div>
+
+                <div class="analytics-card support-card">
+                    <div class="analytics-header">
+                        <h3>Соло и поддержка</h3>
+                    </div>
+                    {% if analytics_metrics.kill_support %}
+                        <div class="analytics-metrics">
+                            <div class="analytics-metric">
+                                <span class="metric-label">Соло</span>
+                                <strong class="metric-value">
+                                    {% if analytics_metrics.kill_support.solo_pct != None %}
+                                        {{ analytics_metrics.kill_support.solo_pct|floatformat:1 }}%
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </strong>
+                            </div>
+                            <div class="analytics-metric">
+                                <span class="metric-label">С напарником</span>
+                                <strong class="metric-value">
+                                    {% if analytics_metrics.kill_support.with_partner_pct != None %}
+                                        {{ analytics_metrics.kill_support.with_partner_pct|floatformat:1 }}%
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </strong>
+                            </div>
+                            <div class="analytics-metric">
+                                <span class="metric-label">В группе 2+</span>
+                                <strong class="metric-value">
+                                    {% if analytics_metrics.kill_support.group_pct != None %}
+                                        {{ analytics_metrics.kill_support.group_pct|floatformat:1 }}%
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </strong>
+                            </div>
+                            <div class="analytics-metric">
+                                <span class="metric-label">С ассистом</span>
+                                <strong class="metric-value">
+                                    {% if analytics_metrics.kill_support.assist_pct != None %}
+                                        {{ analytics_metrics.kill_support.assist_pct|floatformat:1 }}%
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </strong>
+                            </div>
+                            <div class="analytics-metric">
+                                <span class="metric-label">Под флешку</span>
+                                <strong class="metric-value">
+                                    {% if analytics_metrics.kill_support.flash_pct != None %}
+                                        {{ analytics_metrics.kill_support.flash_pct|floatformat:1 }}%
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </strong>
+                            </div>
+                        </div>
+                        {% if analytics_metrics.kill_support.approx %}
+                            <div class="analytics-approx">прибл.</div>
+                        {% endif %}
+                    {% else %}
+                        <div class="analytics-empty">Недостаточно данных</div>
                     {% endif %}
                 </div>
 
@@ -717,7 +834,7 @@
                      data-can-trigger="{% if can_trigger_analytics %}1{% else %}0{% endif %}">
                     <div class="heatmaps-header">
                         <div>
-                            <h3>Heatmaps</h3>
+                            <h3>Тепловые карты</h3>
                             <div class="heatmaps-controls">
                                 <label class="heatmaps-label" for="hm-map">Карта</label>
                                 <select id="hm-map" class="heatmaps-select">
@@ -728,7 +845,7 @@
                                         </option>
                                     {% endfor %}
                                 </select>
-                                <label class="heatmaps-label" for="hm-bucket">Bucket</label>
+                                <label class="heatmaps-label" for="hm-bucket">Срез</label>
                                 <select id="hm-bucket" class="heatmaps-select">
                                     {% for bucket in heatmap_time_buckets %}
                                         <option value="{{ bucket }}"
@@ -743,7 +860,7 @@
                                            step="1" value="0" />
                                     <span id="hm-slice-label" class="heatmaps-meta heatmaps-meta--inline"></span>
                                 </div>
-                                <label class="heatmaps-label" for="hm-resolution">Grid</label>
+                                <label class="heatmaps-label" for="hm-resolution">Сетка</label>
                                 <select id="hm-resolution" class="heatmaps-select">
                                     <option value="64">64</option>
                                     <option value="128">128</option>
@@ -752,17 +869,17 @@
                             </div>
                             <div class="heatmaps-tabs" data-group="metric">
                                 <button type="button" class="hm-tab active" data-group="metric" data-value="kills">
-                                    Kills
+                                    Киллы
                                 </button>
                                 <button type="button" class="hm-tab" data-group="metric" data-value="deaths">
-                                    Deaths
+                                    Смерти
                                 </button>
                                 <button type="button" class="hm-tab" data-group="metric" data-value="presence">
-                                    Presence
+                                    Передвижение
                                 </button>
                             </div>
                             <div class="heatmaps-tabs heatmaps-tabs--secondary" data-group="side">
-                                <button type="button" class="hm-tab active" data-group="side" data-value="all">All</button>
+                                <button type="button" class="hm-tab active" data-group="side" data-value="all">Все</button>
                                 <button type="button" class="hm-tab" data-group="side" data-value="ct">CT</button>
                                 <button type="button" class="hm-tab" data-group="side" data-value="t">T</button>
                             </div>
@@ -772,7 +889,7 @@
                     <div id="hm-status" class="heatmaps-meta">Загрузка тепловой карты…</div>
                     <div id="hm-spinner" class="heatmaps-spinner" aria-hidden="true"></div>
                     <div class="heatmaps-body">
-                        <img id="hm-img" class="heatmap-img" alt="heatmap" loading="lazy" />
+                        <img id="hm-img" class="heatmap-img" alt="тепловая карта" loading="lazy" />
                         <div class="heatmaps-actions">
                             <button id="hm-regenerate" type="button" class="heatmaps-btn">
                                 Обновить картинки
@@ -1805,7 +1922,7 @@
         }
 
         if (!heatmapProfileId) {
-            status.textContent = "Heatmaps недоступны.";
+            status.textContent = "Тепловые карты недоступны.";
             return;
         }
 
@@ -1901,7 +2018,7 @@
             try {
                 const r = await fetch(apiUrl, { headers: { Accept: "application/json" } });
                 if (!r.ok) {
-                    status.textContent = "Не удалось загрузить heatmap.";
+                    status.textContent = "Не удалось загрузить тепловую карту.";
                     if (force) {
                         alert("Не удалось обновить картинку.");
                     }
@@ -1932,13 +2049,13 @@
                     return;
                 }
                 if (data.status === "processing") {
-                    status.textContent = "Heatmap обрабатывается…";
+                    status.textContent = "Тепловая карта обрабатывается…";
                     setLoading(true);
                     pollAttempts += 1;
                     if (pollAttempts <= maxPollAttempts) {
                         pollingTimer = setTimeout(fetchHeatmap, 2500);
                     } else {
-                        status.textContent = "Heatmap ещё не готова. Попробуйте позже.";
+                        status.textContent = "Тепловая карта ещё не готова. Попробуйте позже.";
                         setLoading(false);
                     }
                     return;
@@ -1948,12 +2065,12 @@
                     alert("Не удалось обновить картинку.");
                 }
             } catch (e) {
-                status.textContent = "Ошибка при загрузке heatmap.";
+                status.textContent = "Ошибка при загрузке тепловой карты.";
                 if (force) {
                     alert("Не удалось обновить картинку.");
                 }
             } finally {
-                if (!waitingForImage && status.textContent !== "Heatmap обрабатывается…") {
+                if (!waitingForImage && status.textContent !== "Тепловая карта обрабатывается…") {
                     setLoading(false);
                 }
                 if (!waitingForImage && status.textContent !== "") {

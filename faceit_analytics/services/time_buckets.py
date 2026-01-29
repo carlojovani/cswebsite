@@ -5,9 +5,13 @@ from typing import Iterable
 from django.conf import settings
 
 DEFAULT_TIME_BUCKETS: dict[str, tuple[int, int | None]] = {
-    "early": (0, 15),
-    "mid": (16, 35),
-    "late": (36, None),
+    "0-15": (0, 15),
+    "0-30": (0, 30),
+    "0-45": (0, 45),
+    "0-60": (0, 60),
+    "0-75": (0, 75),
+    "0-90": (0, 90),
+    "0+": (0, None),
 }
 
 

@@ -93,7 +93,7 @@ class HeatmapMeApiTests(TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             all_slice = self._create_heatmap(self.profile1.id, tmp_dir, time_slice="all")
             early_slice = self._create_heatmap(self.profile1.id, tmp_dir, time_slice="0-15")
-            mid_slice = self._create_heatmap(self.profile1.id, tmp_dir, time_slice="16-35")
+            mid_slice = self._create_heatmap(self.profile1.id, tmp_dir, time_slice="0-30")
             assert self.client.login(username="user1", password="pass") is True
 
             with override_settings(MEDIA_ROOT=tmp_dir, MEDIA_URL="/media/"):
@@ -101,10 +101,10 @@ class HeatmapMeApiTests(TestCase):
                     "/api/heatmaps/me?map=de_mirage&metric=kills&side=ALL&period=last_20&v=v2&res=64"
                 )
                 response_bucket = self.client.get(
-                    "/api/heatmaps/me?map=de_mirage&metric=kills&side=ALL&period=last_20&time_bucket=early&v=v2&res=64"
+                    "/api/heatmaps/me?map=de_mirage&metric=kills&side=ALL&period=last_20&time_bucket=0-15&v=v2&res=64"
                 )
                 response_bounds = self.client.get(
-                    "/api/heatmaps/me?map=de_mirage&metric=kills&side=ALL&period=last_20&time_from=16&time_to=35&v=v2&res=64"
+                    "/api/heatmaps/me?map=de_mirage&metric=kills&side=ALL&period=last_20&time_from=0&time_to=30&v=v2&res=64"
                 )
 
             assert response_default.status_code == 200
