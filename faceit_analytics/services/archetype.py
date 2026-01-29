@@ -21,7 +21,12 @@ def _safe_ratio(value: float | None, fallback: float = 0.0) -> float:
     return float(value)
 
 
-def infer_archetype(metrics: dict[str, Any], timing_slices: dict[str, Any], distances_optional: Any) -> dict[str, Any]:
+def infer_archetype(
+    metrics: dict[str, Any],
+    timing_slices: dict[str, Any],
+    distances_optional: Any,
+    entry_breakdown: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     role_metrics = (metrics or {}).get("role_fingerprint", {}).get("metrics", {})
     kda = (metrics or {}).get("kda", {}) or {}
 
@@ -95,4 +100,5 @@ def infer_archetype(metrics: dict[str, Any], timing_slices: dict[str, Any], dist
         "scores": scores,
         "reasons": reasons[:3],
         "approx": any(value is None for value in (first_duel_attempts, trade_kill_rate, flash_assists)),
+        "entry_breakdown": entry_breakdown,
     }

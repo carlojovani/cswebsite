@@ -6,6 +6,10 @@ __pycache__/
 # Django
 db.sqlite3
 /media/
+/heatmaps_cache/
+/heatmaps_local/
+/faceit_cache/
+/faceit_heatmaps/
 
 # Env
 .env

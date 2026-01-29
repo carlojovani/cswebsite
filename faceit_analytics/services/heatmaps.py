@@ -20,6 +20,11 @@ from faceit_analytics import analyzer
 from faceit_analytics.constants import ANALYTICS_VERSION
 from faceit_analytics.models import AnalyticsAggregate, HeatmapAggregate, heatmap_upload_to
 from faceit_analytics.services.paths import get_demos_dir
+from faceit_analytics.services.time_buckets import (
+    bucket_range,
+    get_time_bucket_presets,
+    normalize_time_bucket,
+)
 from faceit_analytics.utils import to_jsonable
 from users.models import PlayerProfile
 
@@ -106,6 +111,8 @@ def _slice_label(slice_range: tuple[int, int | None]) -> str:
 
 def _get_time_slice_ranges() -> dict[str, tuple[int, int | None]]:
     ranges: dict[str, tuple[int, int | None]] = {}
+    for label, (start, end) in get_time_bucket_presets().items():
+        ranges[label] = (int(start), None if end is None else int(end))
     for start, end in HEATMAP_TIME_SLICES:
         normalized_end = None if end is None or int(end) >= 999 else int(end)
         ranges[_slice_label((start, end))] = (int(start), normalized_end)
@@ -120,6 +127,11 @@ def normalize_time_slice(value: str | None) -> str:
         return HEATMAP_DEFAULT_SLICE
     if value.lower() == "all":
         return "all"
+    if value.lower() in get_time_bucket_presets():
+        preset = bucket_range(value)
+        if preset:
+            start, end = preset
+            return _slice_label((start, 999 if end is None else end))
     parsed = parse_time_slice(value)
     if parsed is None:
         return HEATMAP_DEFAULT_SLICE
@@ -152,10 +164,37 @@ def parse_time_slice(value: str | None) -> tuple[int, int | None] | None:
 
 
 def get_time_slice_labels() -> list[str]:
-    labels = []
+    labels = ["all"]
     for start, end in HEATMAP_TIME_SLICES:
         labels.append(_slice_label((int(start), int(end) if end is not None else None)))
-    return labels or ["0-15"]
+    return labels or ["all"]
+
+
+def build_time_slice_from_bucket(time_bucket: str | None) -> str:
+    bucket = normalize_time_bucket(time_bucket)
+    if bucket == "all":
+        return "all"
+    preset = bucket_range(bucket)
+    if not preset:
+        return HEATMAP_DEFAULT_SLICE
+    start, end = preset
+    return _slice_label((start, 999 if end is None else end))
+
+
+def build_time_slice_from_bounds(time_from: str | None, time_to: str | None) -> str | None:
+    if time_from is None and time_to is None:
+        return None
+    try:
+        start_val = int(float(time_from)) if time_from is not None else 0
+    except (TypeError, ValueError):
+        start_val = 0
+    if time_to is None or str(time_to).strip() == "":
+        return f"{start_val}+"
+    try:
+        end_val = int(float(time_to))
+    except (TypeError, ValueError):
+        return f"{start_val}+"
+    return _slice_label((start_val, end_val))
 
 
 def normalize_side(value: str | None) -> str:

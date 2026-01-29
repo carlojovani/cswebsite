@@ -18,6 +18,8 @@ from .demo_fetch import get_demo_dem_path
 from .faceit_client import FaceitClient
 from .models import AnalyticsAggregate, HeatmapAggregate, ProcessingJob
 from .services.heatmaps import (
+    build_time_slice_from_bounds,
+    build_time_slice_from_bucket,
     ensure_heatmap_image,
     get_or_build_heatmap,
     normalize_map_name,
@@ -27,6 +29,7 @@ from .services.heatmaps import (
     normalize_time_slice,
     normalize_version,
 )
+from .services.time_buckets import normalize_time_bucket
 from .tasks import task_full_pipeline
 from .utils import to_jsonable
 from users.models import PlayerProfile
@@ -274,7 +277,20 @@ def _heatmap_response(request, profile: PlayerProfile) -> JsonResponse:
     side = normalize_side(request.GET.get("side", AnalyticsAggregate.SIDE_ALL))
     kind = normalize_metric(request.GET.get("kind") or request.GET.get("metric") or HeatmapAggregate.METRIC_KILLS)
     version = normalize_version(request.GET.get("v", ANALYTICS_VERSION))
-    time_slice = normalize_time_slice(request.GET.get("slice") or request.GET.get("t"))
+    time_bucket = request.GET.get("time_bucket") or request.GET.get("bucket")
+    time_from = request.GET.get("time_from")
+    time_to = request.GET.get("time_to")
+    slice_override = build_time_slice_from_bounds(time_from, time_to)
+    if slice_override:
+        time_slice = normalize_time_slice(slice_override)
+        bucket_value = "custom"
+    elif time_bucket:
+        time_slice = normalize_time_slice(build_time_slice_from_bucket(time_bucket))
+        bucket_value = normalize_time_bucket(time_bucket)
+    else:
+        time_slice = normalize_time_slice(request.GET.get("slice") or request.GET.get("t"))
+        bucket_value = "all"
+    bucket_value = bucket_value or "all"
     try:
         resolution = int(request.GET.get("res", 64))
     except (TypeError, ValueError):
@@ -350,6 +366,9 @@ def _heatmap_response(request, profile: PlayerProfile) -> JsonResponse:
         "map": map_name,
         "period": period,
         "slice": time_slice,
+        "time_bucket": bucket_value,
+        "time_from": time_from,
+        "time_to": time_to,
         "res": resolution,
         "meta": {
             "map": map_name,
@@ -360,6 +379,9 @@ def _heatmap_response(request, profile: PlayerProfile) -> JsonResponse:
             "metric": kind,
             "resolution": resolution,
             "version": version,
+            "time_bucket": bucket_value,
+            "time_from": time_from,
+            "time_to": time_to,
         },
     }
 

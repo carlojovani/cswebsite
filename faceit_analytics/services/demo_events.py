@@ -24,6 +24,7 @@ from faceit_analytics.services.features import (
     compute_utility_iq,
 )
 from faceit_analytics.services.paths import get_demos_dir
+from faceit_analytics.services.time_buckets import time_bucket_for_seconds
 from faceit_analytics.utils import to_jsonable
 
 TRADE_WINDOW_SECONDS = 5
@@ -37,6 +38,10 @@ DEATH_AWARENESS_LOOKBACK_SEC = int(getattr(settings, "DEATH_AWARENESS_LOOKBACK_S
 MULTIKILL_WINDOW_SEC = int(getattr(settings, "MULTIKILL_WINDOW_SEC", 10))
 MULTIKILL_EARLY_THRESHOLD_SEC = int(getattr(settings, "MULTIKILL_EARLY_THRESHOLD_SEC", 30))
 HEATMAP_TIME_SLICES = list(getattr(settings, "HEATMAP_TIME_SLICES", [(0, 999)]))
+ENTRY_SUPPORT_RADIUS = float(getattr(settings, "ENTRY_SUPPORT_RADIUS", 450.0))
+ENTRY_SUPPORT_WINDOW_SECONDS = float(getattr(settings, "ENTRY_SUPPORT_WINDOW_SECONDS", 4.0))
+ENTRY_HOLD_DELAY_SECONDS = float(getattr(settings, "ENTRY_HOLD_DELAY_SECONDS", 12.0))
+ENTRY_PHASE_MAX_SECONDS = float(getattr(settings, "ENTRY_PHASE_MAX_SECONDS", 35.0))
 
 KILLS_STEAMID_COLUMNS = ["attacker_steamid", "victim_steamid", "assister_steamid"]
 UTIL_DAMAGE_STEAMID_COLUMNS = ["attacker_steamid", "victim_steamid"]
@@ -808,10 +813,68 @@ def _target_side_for_round(
     return None
 
 
+def _entry_support_nearby(
+    entry_time: float | None,
+    entry_x: float | None,
+    entry_y: float | None,
+    teammate_positions: list[tuple[float, float, float]],
+) -> bool:
+    if entry_time is None or entry_x is None or entry_y is None:
+        return False
+    for teammate_time, teammate_x, teammate_y in teammate_positions:
+        if abs(entry_time - teammate_time) > ENTRY_SUPPORT_WINDOW_SECONDS:
+            continue
+        dx = entry_x - teammate_x
+        dy = entry_y - teammate_y
+        if (dx * dx + dy * dy) <= (ENTRY_SUPPORT_RADIUS * ENTRY_SUPPORT_RADIUS):
+            return True
+    return False
+
+
+def _init_entry_breakdown() -> dict[str, Any]:
+    buckets = {"early": 0, "mid": 0, "late": 0}
+    bucket_pcts = {"early": None, "mid": None, "late": None}
+    return {
+        "entry_attempts": 0,
+        "assisted_entry_count": 0,
+        "solo_entry_count": 0,
+        "unknown_support_count": 0,
+        "assisted_entry_pct": None,
+        "solo_entry_pct": None,
+        "assisted_by_bucket": dict(buckets),
+        "solo_by_bucket": dict(buckets),
+        "assisted_by_bucket_pct": dict(bucket_pcts),
+        "solo_by_bucket_pct": dict(bucket_pcts),
+        "avg_entry_time_s": None,
+        "approx": False,
+    }
+
+
+def _finalize_entry_breakdown(entry_breakdown: dict[str, Any], entry_times: list[float]) -> dict[str, Any]:
+    assisted = entry_breakdown["assisted_entry_count"]
+    solo = entry_breakdown["solo_entry_count"]
+    total = assisted + solo
+    if total:
+        entry_breakdown["assisted_entry_pct"] = (assisted / total) * 100
+        entry_breakdown["solo_entry_pct"] = (solo / total) * 100
+        entry_breakdown["assisted_by_bucket_pct"] = {
+            key: (value / assisted) * 100 if assisted else None
+            for key, value in entry_breakdown["assisted_by_bucket"].items()
+        }
+        entry_breakdown["solo_by_bucket_pct"] = {
+            key: (value / solo) * 100 if solo else None
+            for key, value in entry_breakdown["solo_by_bucket"].items()
+        }
+    if entry_times:
+        entry_breakdown["avg_entry_time_s"] = sum(entry_times) / len(entry_times)
+    entry_breakdown["approx"] = entry_breakdown["unknown_support_count"] > 0
+    return entry_breakdown
+
+
 def aggregate_player_features(
     parsed_demos: list[ParsedDemoEvents],
     target_steam_id: str,
-) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any], dict[str, Any]]:
     target_id = normalize_steamid64(target_steam_id)
     events: list[dict[str, Any]] = []
     rounds_seen: set[tuple[int, int]] = set()
@@ -823,20 +886,28 @@ def aggregate_player_features(
     target_attacker_kills = 0
     target_victim_deaths = 0
     target_assists = 0
+    entry_breakdown = _init_entry_breakdown()
+    entry_times: list[float] = []
     attacker_id_examples: list[str] = []
     victim_id_examples: list[str] = []
     attacker_ids_seen: set[str] = set()
     victim_ids_seen: set[str] = set()
 
     if target_id is None:
-        return [], {"rounds": None, "tick_rate": tick_rate}, {
-            "player_kills": 0,
-            "player_deaths": 0,
-            "player_assists": 0,
-            "player_util_damage_total": 0.0,
-            "utility_damage_per_round": None,
-            "player_contacts": 0,
-        }
+        entry_breakdown = _init_entry_breakdown()
+        return (
+            [],
+            {"rounds": None, "tick_rate": tick_rate},
+            {
+                "player_kills": 0,
+                "player_deaths": 0,
+                "player_assists": 0,
+                "player_util_damage_total": 0.0,
+                "utility_damage_per_round": None,
+                "player_contacts": 0,
+            },
+            entry_breakdown,
+        )
 
     name_candidates: Counter[str] = Counter()
     steam_match_counts = {"attacker": 0, "victim": 0, "assister": 0}
@@ -919,6 +990,19 @@ def aggregate_player_features(
                 rounds_seen.add(round_key)
 
             first_kill = round_kills_sorted[0] if round_kills_sorted else None
+            teammate_positions: list[tuple[float, float, float]] = []
+            if target_side:
+                for kill in round_kills_sorted:
+                    if kill.get("attacker_side") != target_side:
+                        continue
+                    if kill.get("attacker") == target_id:
+                        continue
+                    k_time = kill.get("time")
+                    k_x = kill.get("attacker_x")
+                    k_y = kill.get("attacker_y")
+                    if k_time is None or k_x is None or k_y is None:
+                        continue
+                    teammate_positions.append((float(k_time), float(k_x), float(k_y)))
 
             for idx, kill in enumerate(round_kills_sorted):
                 kill_time = kill.get("time")
@@ -940,6 +1024,11 @@ def aggregate_player_features(
                             "is_trade_kill": _is_trade_kill(kill, prior, target_id, target_side, target_name),
                             "is_first_duel": is_first_duel,
                             "is_first_duel_win": is_first_duel,
+                            "attacker_place": kill.get("attacker_place"),
+                            "attacker_x": kill.get("attacker_x"),
+                            "attacker_y": kill.get("attacker_y"),
+                            "side": kill.get("attacker_side") or target_side,
+                            "assisted_by_teammate": bool(kill.get("assister")) or bool(kill.get("assistedflash")),
                         }
                     )
 
@@ -956,6 +1045,10 @@ def aggregate_player_features(
                             "time_approx": kill.get("time_approx"),
                             "was_traded": _is_traded_death(kill, later, target_id, target_side, target_name),
                             "is_first_duel": is_first_duel,
+                            "victim_place": kill.get("victim_place"),
+                            "victim_x": kill.get("victim_x"),
+                            "victim_y": kill.get("victim_y"),
+                            "side": kill.get("victim_side") or target_side,
                         }
                     )
 
@@ -1082,6 +1175,35 @@ def aggregate_player_features(
 
             events.extend(round_events)
 
+            entry_events = [
+                event
+                for event in round_events
+                if event.get("is_first_duel") and event.get("type") in {"kill", "death"}
+            ]
+            for entry in entry_events:
+                entry_breakdown["entry_attempts"] += 1
+                entry_time = entry.get("time")
+                if entry_time is not None:
+                    entry_times.append(float(entry_time))
+                entry_bucket = time_bucket_for_seconds(entry_time)
+                assisted_flag = bool(entry.get("assisted_by_teammate"))
+                entry_x = entry.get("attacker_x") if entry.get("type") == "kill" else entry.get("victim_x")
+                entry_y = entry.get("attacker_y") if entry.get("type") == "kill" else entry.get("victim_y")
+                if not assisted_flag:
+                    assisted_flag = _entry_support_nearby(entry_time, entry_x, entry_y, teammate_positions)
+                if assisted_flag:
+                    entry_breakdown["assisted_entry_count"] += 1
+                    if entry_bucket in entry_breakdown["assisted_by_bucket"]:
+                        entry_breakdown["assisted_by_bucket"][entry_bucket] += 1
+                else:
+                    unknown_support = entry_time is None or entry_x is None or entry_y is None or not teammate_positions
+                    if unknown_support:
+                        entry_breakdown["unknown_support_count"] += 1
+                    else:
+                        entry_breakdown["solo_entry_count"] += 1
+                        if entry_bucket in entry_breakdown["solo_by_bucket"]:
+                            entry_breakdown["solo_by_bucket"][entry_bucket] += 1
+
     rounds_total = len(rounds_seen)
     utility_damage_per_round = (
         player_utility_damage_total / rounds_total if rounds_total else None
@@ -1109,7 +1231,8 @@ def aggregate_player_features(
         "steam_match_counts": steam_match_counts,
     }
 
-    return events, meta, debug
+    entry_breakdown = _finalize_entry_breakdown(entry_breakdown, entry_times)
+    return events, meta, debug, entry_breakdown
 
 
 def _slice_label(bounds: tuple[int, int]) -> str:
@@ -1272,16 +1395,34 @@ def compute_multikill_metrics(events: list[dict[str, Any]], map_name: str | None
             "multikill_events": 0,
             "rounds_with_multikill": 0,
             "by_timing": {"early": 0, "late": 0},
-            "by_phase": {"entry": 0, "hold": 0},
+            "by_phase": {"execute": 0, "hold": 0},
+            "by_context": {
+                "execute": {"k2": 0, "k3": 0, "k4": 0, "k5": 0},
+                "hold": {"k2": 0, "k3": 0, "k4": 0, "k5": 0},
+            },
+            "by_context_side": {
+                "T": {"execute": {"k2": 0, "k3": 0, "k4": 0, "k5": 0}, "hold": {"k2": 0, "k3": 0, "k4": 0, "k5": 0}},
+                "CT": {"execute": {"k2": 0, "k3": 0, "k4": 0, "k5": 0}, "hold": {"k2": 0, "k3": 0, "k4": 0, "k5": 0}},
+            },
             "by_zone": {},
             "window_sec": MULTIKILL_WINDOW_SEC,
             "early_threshold_sec": MULTIKILL_EARLY_THRESHOLD_SEC,
+            "entry_phase_max_sec": ENTRY_PHASE_MAX_SECONDS,
+            "entry_hold_delay_sec": ENTRY_HOLD_DELAY_SECONDS,
         }
 
     rounds_with_multikill = set()
     multikill_events = 0
     timing_breakdown = {"early": 0, "late": 0}
-    phase_breakdown = {"entry": 0, "hold": 0}
+    phase_breakdown = {"execute": 0, "hold": 0}
+    context_counts = {
+        "execute": {"k2": 0, "k3": 0, "k4": 0, "k5": 0},
+        "hold": {"k2": 0, "k3": 0, "k4": 0, "k5": 0},
+    }
+    context_side_counts = {
+        "T": {"execute": {"k2": 0, "k3": 0, "k4": 0, "k5": 0}, "hold": {"k2": 0, "k3": 0, "k4": 0, "k5": 0}},
+        "CT": {"execute": {"k2": 0, "k3": 0, "k4": 0, "k5": 0}, "hold": {"k2": 0, "k3": 0, "k4": 0, "k5": 0}},
+    }
     zone_breakdown: dict[str, int] = {}
 
     kills_by_round: dict[int | None, list[dict[str, Any]]] = {}
@@ -1292,6 +1433,12 @@ def compute_multikill_metrics(events: list[dict[str, Any]], map_name: str | None
         if round_number is None:
             continue
         sorted_kills = sorted(round_kills, key=lambda k: k.get("time") or 0)
+        first_zone_entry_time = None
+        for kill in sorted_kills:
+            zone = _kill_zone(kill, map_name)
+            if zone in {"A", "B"}:
+                first_zone_entry_time = float(kill.get("time") or 0)
+                break
         streak: list[dict[str, Any]] = []
         for kill in sorted_kills:
             if not streak:
@@ -1309,11 +1456,18 @@ def compute_multikill_metrics(events: list[dict[str, Any]], map_name: str | None
                     timing_breakdown[key] += 1
                     zone = _kill_zone(streak[0], map_name)
                     zone_breakdown[zone] = zone_breakdown.get(zone, 0) + 1
-                    if zone in {"A", "B", "ENTRY"}:
-                        if start_time <= MULTIKILL_EARLY_THRESHOLD_SEC:
-                            phase_breakdown["entry"] += 1
-                        else:
-                            phase_breakdown["hold"] += 1
+                    if zone in {"A", "B", "ENTRY"} and first_zone_entry_time is not None:
+                        is_execute = (start_time - first_zone_entry_time) <= ENTRY_HOLD_DELAY_SECONDS
+                    else:
+                        is_execute = start_time <= ENTRY_PHASE_MAX_SECONDS
+                    context = "execute" if is_execute else "hold"
+                    phase_breakdown[context] += 1
+                    streak_len = min(len(streak), 5)
+                    streak_key = f"k{streak_len}"
+                    context_counts[context][streak_key] += 1
+                    side_value = str(streak[0].get("side") or "").upper()
+                    if side_value in context_side_counts:
+                        context_side_counts[side_value][context][streak_key] += 1
                 streak = [kill]
         if len(streak) >= 2:
             multikill_events += 1
@@ -1323,11 +1477,18 @@ def compute_multikill_metrics(events: list[dict[str, Any]], map_name: str | None
             timing_breakdown[key] += 1
             zone = _kill_zone(streak[0], map_name)
             zone_breakdown[zone] = zone_breakdown.get(zone, 0) + 1
-            if zone in {"A", "B", "ENTRY"}:
-                if start_time <= MULTIKILL_EARLY_THRESHOLD_SEC:
-                    phase_breakdown["entry"] += 1
-                else:
-                    phase_breakdown["hold"] += 1
+            if zone in {"A", "B", "ENTRY"} and first_zone_entry_time is not None:
+                is_execute = (start_time - first_zone_entry_time) <= ENTRY_HOLD_DELAY_SECONDS
+            else:
+                is_execute = start_time <= ENTRY_PHASE_MAX_SECONDS
+            context = "execute" if is_execute else "hold"
+            phase_breakdown[context] += 1
+            streak_len = min(len(streak), 5)
+            streak_key = f"k{streak_len}"
+            context_counts[context][streak_key] += 1
+            side_value = str(streak[0].get("side") or "").upper()
+            if side_value in context_side_counts:
+                context_side_counts[side_value][context][streak_key] += 1
 
     rounds_total = _rounds_from_events(events)
     total_kills = len(kills)
@@ -1338,9 +1499,13 @@ def compute_multikill_metrics(events: list[dict[str, Any]], map_name: str | None
         "rounds_with_multikill": len(rounds_with_multikill),
         "by_timing": timing_breakdown,
         "by_phase": phase_breakdown,
+        "by_context": context_counts,
+        "by_context_side": context_side_counts,
         "by_zone": zone_breakdown,
         "window_sec": MULTIKILL_WINDOW_SEC,
         "early_threshold_sec": MULTIKILL_EARLY_THRESHOLD_SEC,
+        "entry_phase_max_sec": ENTRY_PHASE_MAX_SECONDS,
+        "entry_hold_delay_sec": ENTRY_HOLD_DELAY_SECONDS,
     }
 
 
@@ -1418,10 +1583,13 @@ def get_or_build_demo_features(
         role_fingerprint = compute_role_fingerprint([], None, {**meta, "timing_slices": timing_slices})
         utility_iq = compute_utility_iq([], meta)
         role_fingerprint["debug"] = debug
+        entry_breakdown = _init_entry_breakdown()
+        entry_breakdown["approx"] = True
         payload = {
             "role_fingerprint": role_fingerprint,
             "utility_iq": utility_iq,
             "timing_slices": timing_slices,
+            "entry_breakdown": entry_breakdown,
             "debug": debug,
             "rounds_total": 0,
             "demos_count": demos_count,
@@ -1470,7 +1638,7 @@ def get_or_build_demo_features(
             progress = progress_start + int((index / max(demos_count, 1)) * span)
             progress_callback(progress)
 
-    events, meta, player_debug = aggregate_player_features(parsed_demos, steam_id)
+    events, meta, player_debug, entry_breakdown = aggregate_player_features(parsed_demos, steam_id)
     debug.update(
         {
             "player_kills": player_debug.get("player_kills", 0),
@@ -1520,6 +1688,8 @@ def get_or_build_demo_features(
         role_fingerprint = compute_role_fingerprint([], None, {**meta, "timing_slices": timing_slices})
         utility_iq = compute_utility_iq([], meta)
         insufficient_rounds = True
+        if entry_breakdown:
+            entry_breakdown["approx"] = True
     else:
         meta = {
             "rounds": rounds_total,
@@ -1546,6 +1716,7 @@ def get_or_build_demo_features(
         "timing_slices": timing_slices,
         "awareness_before_death": awareness,
         "multikill": multikill,
+        "entry_breakdown": entry_breakdown,
         "kda": kda,
         "debug": debug,
         "rounds_total": rounds_total,

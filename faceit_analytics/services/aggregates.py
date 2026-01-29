@@ -58,12 +58,14 @@ def enrich_metrics_with_role_features(
     awareness = None
     multikill = None
     kda = None
+    entry_breakdown = None
     if demo_features:
         timing_slices = demo_features.get("timing_slices")
         role_fingerprint = demo_features.get("role_fingerprint")
         utility_iq = demo_features.get("utility_iq")
         awareness = demo_features.get("awareness_before_death")
         multikill = demo_features.get("multikill")
+        entry_breakdown = demo_features.get("entry_breakdown")
         kda = demo_features.get("kda")
         demo_features_debug = demo_features.get("debug")
         if demo_features.get("insufficient_rounds"):
@@ -89,10 +91,11 @@ def enrich_metrics_with_role_features(
     metrics["timing_slices"] = timing_slices
     metrics["awareness_before_death"] = awareness
     metrics["multikill"] = multikill
+    metrics["entry_breakdown"] = entry_breakdown
     metrics["kda"] = kda
     metrics["demo_features_debug"] = demo_features_debug
     metrics["demo_features_approx"] = demo_features_approx
-    metrics["playstyle"] = infer_archetype(metrics, timing_slices or {}, None)
+    metrics["playstyle"] = infer_archetype(metrics, timing_slices or {}, None, entry_breakdown)
     aggregate.metrics_json = to_jsonable(metrics)
     aggregate.save(update_fields=["metrics_json", "updated_at"])
     return aggregate

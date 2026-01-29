@@ -142,7 +142,7 @@ def test_name_fallback_matching():
         debug={},
     )
 
-    _, _, debug = demo_events.aggregate_player_features([parsed], str(target_id))
+    _, _, debug, _entry = demo_events.aggregate_player_features([parsed], str(target_id))
     assert debug["player_kills"] == 1
     assert debug["player_deaths"] == 1
     assert debug["target_name"] == "Player"
@@ -170,3 +170,58 @@ def test_multikill_basic_case():
     assert result["multikill_events"] == 1
     assert result["by_timing"]["early"] == 1
     assert result["by_zone"]["A"] == 1
+    assert result["by_context"]["execute"]["k2"] == 1
+
+
+def test_entry_breakdown_assisted_by_proximity():
+    target_id = 76561198016259349
+    parsed = demo_events.ParsedDemoEvents(
+        kills=[
+            {
+                "round": 1,
+                "time": 5.0,
+                "tick": 100,
+                "attacker_steamid64": target_id,
+                "victim_steamid64": 111,
+                "attacker_name": "Player",
+                "victim_name": "Enemy",
+                "attacker_side": "T",
+                "victim_side": "CT",
+                "attacker_x": 100.0,
+                "attacker_y": 100.0,
+            },
+            {
+                "round": 1,
+                "time": 6.0,
+                "tick": 120,
+                "attacker_steamid64": 222,
+                "victim_steamid64": 333,
+                "attacker_name": "Ally",
+                "victim_name": "Enemy2",
+                "attacker_side": "T",
+                "victim_side": "CT",
+                "attacker_x": 120.0,
+                "attacker_y": 110.0,
+            },
+        ],
+        flashes=[],
+        utility_damage=[],
+        flash_events_count=0,
+        round_winners={},
+        target_round_sides={},
+        rounds_in_demo={1},
+        tick_rate=128.0,
+        tick_rate_approx=False,
+        missing_time_kills=0,
+        missing_time_flashes=0,
+        missing_time_utility=0,
+        approx_time_kills=0,
+        attacker_none_count=0,
+        attacker_id_sample={"attacker": None, "victim": None},
+        debug={},
+    )
+
+    _events, _meta, _debug, entry_breakdown = demo_events.aggregate_player_features([parsed], str(target_id))
+    assert entry_breakdown["entry_attempts"] == 1
+    assert entry_breakdown["assisted_entry_count"] == 1
+    assert entry_breakdown["assisted_by_bucket"]["early"] == 1
