@@ -124,7 +124,6 @@ def _run_pipeline(profile):
         ("map_name", MAP_NAME),
         ("map", MAP_NAME),
         ("period", PERIOD),
-        ("analytics_version", "v2"),
         ("status", "queued"),
     ]:
         if name in {f.name for f in ProcessingJob._meta.fields} and name not in kwargs:
@@ -134,7 +133,7 @@ def _run_pipeline(profile):
     print("created ProcessingJob id:", job.id)
 
     # run
-    run_full_pipeline(job_id=job.id, force_demo_features=FORCE, force_heatmaps=FORCE, force_analytics=FORCE)
+    run_full_pipeline(job_id=job.id, force_demo_features=FORCE, force_heatmaps=FORCE)
     print("pipeline finished")
 
 def main():

@@ -359,14 +359,11 @@ def main() -> None:
     # run_full_pipeline signature differs between versions.
     # We call it with the most common params, and fall back if needed.
     kwargs = dict(
-        profile_id=profile.id,
         job_id=getattr(job, "id", None),
         period=period,
         map_name=map_name,
-        analytics_version=analytics_version,
         force_demo_features=True,
         force_heatmaps=True,
-        force_aggregates=True,
     )
 
     try:
@@ -375,7 +372,7 @@ def main() -> None:
     except TypeError as e:
         # if signature differs, retry with minimal set
         print("PIPELINE TypeError:", e)
-        minimal = dict(profile_id=profile.id, job_id=getattr(job, "id", None))
+        minimal = dict(job_id=getattr(job, "id", None))
         run_full_pipeline(**minimal)
         print("PIPELINE: done (minimal args)")
 

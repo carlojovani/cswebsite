@@ -62,14 +62,13 @@ def main():
     profile_id = int(_env("PROFILE_ID", "2"))
     map_name = _env("MAP_NAME", "de_mirage")
     period = _env("PERIOD", "last_20")
-    analytics_version = _env("ANALYTICS_VERSION", "v2")
 
     force = _env_bool("FORCE", True)
     clear_cache = _env_bool("CLEAR_CACHE", True)
     delete_agg = _env_bool("DELETE_AGG", True)
 
     print("=== REBUILD PROFILE EVERYTHING ===")
-    print("PROFILE_ID:", profile_id, "MAP:", map_name, "PERIOD:", period, "VERSION:", analytics_version)
+    print("PROFILE_ID:", profile_id, "MAP:", map_name, "PERIOD:", period)
 
     profile = PlayerProfile.objects.filter(id=profile_id).first()
     if not profile:
@@ -140,11 +139,8 @@ def main():
     kwargs = {
         "job_id": getattr(job, "id", None),
         "processing_job_id": getattr(job, "id", None),
-        "profile_id": profile.id,
-        "profile": profile,
         "period": period,
         "map_name": map_name,
-        "analytics_version": analytics_version,
         "force_rebuild": force,
         "force_demo_features": force,
         "force_heatmaps": force,

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 from collections import Counter
+from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -52,6 +54,28 @@ HOLD_OUTSIDE_SECONDS = float(getattr(settings, "HOLD_OUTSIDE_SEC", 3.0))
 KILLS_STEAMID_COLUMNS = ["attacker_steamid", "victim_steamid", "assister_steamid"]
 UTIL_DAMAGE_STEAMID_COLUMNS = ["attacker_steamid", "victim_steamid"]
 
+logger = logging.getLogger(__name__)
+
+
+def first_not_none(*vals: Any) -> Any:
+    for val in vals:
+        if val is not None:
+            return val
+    return None
+
+
+def safe_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+    text = str(value).strip()
+    if not text:
+        return None
+    return text
 
 def _read_parquet_with_steamid_strings(parquet_path: Path, steam_cols: Iterable[str]) -> pd.DataFrame:
     table = pq.read_table(parquet_path)
@@ -59,7 +83,14 @@ def _read_parquet_with_steamid_strings(parquet_path: Path, steam_cols: Iterable[
         if col in table.column_names:
             index = table.schema.get_field_index(col)
             table = table.set_column(index, col, table[col].cast(pa.string()))
-    return table.to_pandas()
+    return table.to_pandas(use_pyarrow_extension_array=True)
+
+
+def _ensure_steamid_string_cols(df: pd.DataFrame, steam_cols: Iterable[str]) -> pd.DataFrame:
+    for col in steam_cols:
+        if col in df.columns:
+            df[col] = df[col].astype("string")
+    return df
 
 
 def _load_demo_dataframe(value: Any, steam_cols: Iterable[str]) -> pd.DataFrame | None:
@@ -72,7 +103,7 @@ def _load_demo_dataframe(value: Any, steam_cols: Iterable[str]) -> pd.DataFrame 
     if value is None:
         return None
     if isinstance(value, pd.DataFrame):
-        return value
+        return _ensure_steamid_string_cols(value, steam_cols)
     if isinstance(value, (str, Path)):
         parquet_path = Path(value)
         if parquet_path.suffix == ".parquet" and parquet_path.exists():
@@ -90,19 +121,21 @@ def _load_demo_dataframe(value: Any, steam_cols: Iterable[str]) -> pd.DataFrame 
                 value = value.with_columns(cols)
             # Keep integer dtypes via Arrow extension arrays when possible
             try:
-                return value.to_pandas(use_pyarrow_extension_array=True)
+                df = value.to_pandas(use_pyarrow_extension_array=True)
             except TypeError:
-                return value.to_pandas()
+                df = value.to_pandas()
+            return _ensure_steamid_string_cols(df, steam_cols)
     except Exception:
         pass
 
     if hasattr(value, "to_pandas"):
         try:
-            return value.to_pandas(use_pyarrow_extension_array=True)
+            df = value.to_pandas(use_pyarrow_extension_array=True)
         except TypeError:
-            return value.to_pandas()
+            df = value.to_pandas()
         except Exception:
-            return value.to_pandas()
+            df = value.to_pandas()
+        return _ensure_steamid_string_cols(df, steam_cols)
 
     return None
 
@@ -179,7 +212,14 @@ def _pick_column(df: pd.DataFrame, candidates: Iterable[str]) -> str | None:
 
 
 def _safe_int(value: Any) -> int | None:
-    if value is None or (isinstance(value, float) and pd.isna(value)):
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+    if isinstance(value, bool):
         return None
     try:
         return int(value)
@@ -188,7 +228,14 @@ def _safe_int(value: Any) -> int | None:
 
 
 def _safe_float(value: Any) -> float | None:
-    if value is None or (isinstance(value, float) and pd.isna(value)):
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+    if isinstance(value, bool):
         return None
     try:
         return float(value)
@@ -216,48 +263,41 @@ def _cell(row: "pd.Series", col: str | None) -> Any | None:
 
 
 def _cell_str(row: "pd.Series", col: str | None) -> str | None:
-    value = _cell(row, col)
-    if value is None:
-        return None
-    s = str(value)
-    if not s or s.lower() == "nan":
-        return None
-    return s
+    return safe_text(_cell(row, col))
+
 
 def normalize_steamid64(value: Any) -> int | None:
     if value is None:
         return None
     if isinstance(value, bool):
         return None
-    if isinstance(value, str):
-        value_str = value.strip()
-        if not value_str or value_str.lower() == "nan":
-            return None
-        if value_str.isdigit():
-            return int(value_str)
+    if isinstance(value, Decimal):
         try:
-            float_value = float(value_str)
-        except (TypeError, ValueError):
+            return int(value)
+        except (InvalidOperation, ValueError, TypeError):
             return None
-        if math.isnan(float_value):
+    if isinstance(value, str):
+        try:
+            dec_value = Decimal(value.strip())
+        except (InvalidOperation, ValueError, TypeError):
             return None
-        return int(round(float_value))
+        if dec_value.is_nan():
+            return None
+        try:
+            return int(dec_value)
+        except (InvalidOperation, ValueError, TypeError):
+            return None
     if isinstance(value, (int, np.integer)):
         return int(value)
     if isinstance(value, (float, np.floating)):
-        float_value = float(value)
-        if math.isnan(float_value):
-            return None
-        return int(round(float_value))
+        logger.debug("normalize_steamid64 received float input=%s", value)
+        return None
     if hasattr(value, "item"):
         return normalize_steamid64(value.item())
     try:
-        float_value = float(value)
-    except (TypeError, ValueError):
+        return normalize_steamid64(str(value))
+    except Exception:
         return None
-    if math.isnan(float_value):
-        return None
-    return int(round(float_value))
 
 
 def steamid_eq(value: Any, target: Any) -> bool:
@@ -317,11 +357,11 @@ def compute_demo_set_hash(files: Iterable[Path]) -> str:
 def _tick_rate_from_demo(demo: Demo) -> float:
     for attr in ("tickrate", "tick_rate", "tickRate"):
         value = getattr(demo, attr, None)
-        if value:
+        if value is not None and pd.notna(value):
             return float(value)
-    header = getattr(demo, "header", None) or {}
+    header = first_not_none(getattr(demo, "header", None), {})
     for key in ("tickrate", "tick_rate", "tickRate"):
-        if key in header and header[key]:
+        if key in header and header[key] is not None and pd.notna(header[key]):
             return float(header[key])
     return 64.0
 
@@ -341,20 +381,20 @@ def _build_round_meta(rounds_df: pd.DataFrame) -> tuple[dict[int, int], dict[int
     winner_col = _pick_column(rounds_df, ["winner", "winning_side", "round_winner"])
 
     for _, row in rounds_df.iterrows():
-        round_number = _safe_int(row.get(round_col)) if round_col else None
+        round_number = _safe_int(_cell(row, round_col)) if round_col else None
         if round_number is None:
             continue
         rounds_in_demo.add(round_number)
         if start_tick_col:
-            start_tick = _safe_int(row.get(start_tick_col))
+            start_tick = _safe_int(_cell(row, start_tick_col))
             if start_tick is not None:
                 round_start_ticks[round_number] = start_tick
         if start_time_col:
-            start_time = _safe_float(row.get(start_time_col))
+            start_time = _safe_float(_cell(row, start_time_col))
             if start_time is not None:
                 round_start_times[round_number] = start_time
         if winner_col:
-            round_winners[round_number] = _normalize_side(row.get(winner_col))
+            round_winners[round_number] = _normalize_side(_cell(row, winner_col))
 
     return round_start_ticks, round_start_times, round_winners, rounds_in_demo
 
@@ -367,13 +407,15 @@ def _round_time_seconds(
     tick_rate: float,
 ) -> float | None:
     for key in ("round_time", "time_from_round_start", "time_from_start", "roundTime"):
-        if key in row and row.get(key) is not None:
-            return _safe_float(row.get(key))
+        value = _cell(row, key)
+        if value is not None:
+            return _safe_float(value)
 
     time_value = None
     for key in ("time", "seconds", "timestamp"):
-        if key in row and row.get(key) is not None:
-            time_value = _safe_float(row.get(key))
+        value = _cell(row, key)
+        if value is not None:
+            time_value = _safe_float(value)
             break
 
     if round_number is not None and time_value is not None:
@@ -383,8 +425,9 @@ def _round_time_seconds(
 
     tick_value = None
     for key in ("tick", "ticks", "tick_num"):
-        if key in row and row.get(key) is not None:
-            tick_value = _safe_int(row.get(key))
+        value = _cell(row, key)
+        if value is not None:
+            tick_value = _safe_int(value)
             break
 
     if round_number is not None and tick_value is not None:
@@ -481,7 +524,7 @@ def _extract_tick_positions(
                 "side": side_value,
                 "x": float(x_val),
                 "y": float(y_val),
-                "place": row.get(place_col) if place_col else None,
+                "place": _cell_str(row, place_col),
             }
         )
     return positions_by_round
@@ -536,11 +579,11 @@ def _extract_bomb_plants(
         site_col = _pick_column(rounds_df, ["bomb_site", "bombSite", "bombsite"])
         if round_col and plant_col:
             for _, row in rounds_df.iterrows():
-                round_number = _safe_int(row.get(round_col))
+                round_number = _safe_int(_cell(row, round_col))
                 if round_number is None or round_number in plants:
                     continue
-                plant_value = row.get(plant_col)
-                if plant_value in (None, "", False):
+                plant_value = _cell(row, plant_col)
+                if plant_value is None:
                     continue
                 t_round = None
                 tick_value = _safe_int(plant_value)
@@ -568,9 +611,13 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
 
     tick_rate = _tick_rate_from_demo(demo)
     tick_rate_approx = True
-    if getattr(demo, "tickrate", None) or getattr(demo, "tick_rate", None) or getattr(demo, "tickRate", None):
+    if (
+        getattr(demo, "tickrate", None) is not None
+        or getattr(demo, "tick_rate", None) is not None
+        or getattr(demo, "tickRate", None) is not None
+    ):
         tick_rate_approx = False
-    header = getattr(demo, "header", None) or {}
+    header = first_not_none(getattr(demo, "header", None), {})
     if header.get("tickrate") or header.get("tick_rate") or header.get("tickRate"):
         tick_rate_approx = False
 
@@ -605,6 +652,11 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
         attacker_steam_raw_type_sample: list[str] = []
         raw_kill_columns = list(kills_df.columns)
         debug_payload["raw_kill_columns"] = raw_kill_columns
+        debug_payload["steamid_column_dtypes"] = {
+            col: str(kills_df[col].dtype)
+            for col in KILLS_STEAMID_COLUMNS
+            if col in kills_df.columns
+        }
         raw_kill_row_sample: dict[str, Any] | None = None
         if raw_kill_columns:
             sample_row = kills_df.iloc[0].to_dict()
@@ -829,6 +881,11 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
     missing_time_utility = 0
     if damages_df is not None and not damages_df.empty:
         raw_damages_df = damages_df.copy()
+        debug_payload["utility_steamid_column_dtypes"] = {
+            col: str(damages_df[col].dtype)
+            for col in UTIL_DAMAGE_STEAMID_COLUMNS
+            if col in damages_df.columns
+        }
         round_col = _pick_column(damages_df, ["round", "round_num", "round_number"])
         tick_col = _pick_column(damages_df, ["tick", "tick_num", "ticks"])
         attacker_col = _pick_column(
@@ -843,8 +900,8 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
 
         for idx, row in damages_df.iterrows():
             raw_row = raw_damages_df.loc[idx] if idx in raw_damages_df.index else row
-            tmp_weapon = _cell(row, weapon_col)
-            weapon = str(tmp_weapon).lower() if tmp_weapon is not None else ""
+            tmp_weapon = safe_text(_cell(row, weapon_col))
+            weapon = tmp_weapon.lower() if tmp_weapon is not None else ""
             kind = None
             if "hegrenade" in weapon or "he_grenade" in weapon:
                 kind = "he"
@@ -877,9 +934,7 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
             victim_steam_id = normalize_steamid64(victim_steam_raw)
             attacker_steam_raw = raw_row.get(attacker_col) if attacker_col else None
             victim_steam_raw = raw_row.get(victim_col) if victim_col else None
-            attacker_name = (
-                _cell_str(row, attacker_name_col)
-            )
+            attacker_name = _cell_str(row, attacker_name_col)
             victim_name = _cell_str(row, victim_name_col)
             utility_damage.append(
                 {
@@ -920,6 +975,14 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
     )
 
     map_name = header.get("map_name") if isinstance(header, dict) else None
+    logger.debug(
+        "Parsed demo=%s tick_rate=%s approx=%s round_start_tick_sample=%s steamid_dtypes=%s",
+        dem_path,
+        tick_rate,
+        tick_rate_approx,
+        debug_payload.get("round_start_tick_sample"),
+        debug_payload.get("steamid_column_dtypes"),
+    )
     return ParsedDemoEvents(
         kills=kills,
         flashes=flashes,

@@ -123,7 +123,6 @@ def _invalidate_cache(profile_id: int, period: str, resolution: int, map_name: s
 
 
 def run_full_pipeline(
-    profile_id: int,
     job_id: int,
     period: str = "last_20",
     map_name: str = "de_mirage",
@@ -148,9 +147,6 @@ def run_full_pipeline(
         sync_faceit_profile(profile)
         _update_job(job, progress=10)
 
-        aggregates = build_metrics(profile, period=period, analytics_version=ANALYTICS_VERSION, map_name=map_name)
-        _update_job(job, progress=20)
-
         demo_features = get_or_build_demo_features(
             profile,
             period=period,
@@ -161,9 +157,10 @@ def run_full_pipeline(
             progress_start=20,
             progress_end=40,
         )
+        aggregates = build_metrics(profile, period=period, analytics_version=ANALYTICS_VERSION, map_name=map_name)
+        _update_job(job, progress=60)
         if aggregates:
             enrich_metrics_with_role_features(aggregates[0], profile, period, demo_features=demo_features)
-        _update_job(job, progress=60)
 
         build_heatmaps(
             job,
