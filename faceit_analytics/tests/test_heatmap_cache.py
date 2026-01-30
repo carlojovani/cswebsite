@@ -97,6 +97,9 @@ def test_slice_missing_time_data_returns_empty(tmp_path):
     with override_settings(MEDIA_ROOT=tmp_path), mock.patch(
         "faceit_analytics.analyzer.load_radar_and_meta",
         return_value=(radar_image, {}, radar_name),
+    ), mock.patch(
+        "faceit_analytics.analyzer.build_heatmaps_aggregate",
+        return_value={},
     ):
         points, _size, meta = _collect_points_from_cache(
             demos_dir,
@@ -110,6 +113,44 @@ def test_slice_missing_time_data_returns_empty(tmp_path):
 
     assert points == []
     assert meta["cache_has_time_data"] is False
+
+
+def test_cache_includes_pxt_keys(tmp_path):
+    steamid = "76561198000000097"
+    map_name = "de_mirage"
+    demo_path, _demos_dir = _write_demo(tmp_path, steamid, map_name)
+    radar_name = "fake_radar"
+    radar_size = (100, 100)
+
+    _write_cache(
+        tmp_path,
+        steamid,
+        map_name,
+        demo_path,
+        {
+            "kills_px": np.array([[10.0, 10.0]], dtype=np.float32),
+            "kills_pxt": np.array([[10.0, 10.0, 12.0]], dtype=np.float32),
+            "deaths_px": np.array([[10.0, 10.0]], dtype=np.float32),
+            "deaths_pxt": np.array([[10.0, 10.0, 12.0]], dtype=np.float32),
+            "presence_all_px": np.array([[10.0, 10.0]], dtype=np.float32),
+            "presence_all_pxt": np.array([[10.0, 10.0, 12.0]], dtype=np.float32),
+            "presence_ct_px": np.array([[10.0, 10.0]], dtype=np.float32),
+            "presence_ct_pxt": np.array([[10.0, 10.0, 12.0]], dtype=np.float32),
+            "presence_t_px": np.array([[10.0, 10.0]], dtype=np.float32),
+            "presence_t_pxt": np.array([[10.0, 10.0, 12.0]], dtype=np.float32),
+        },
+        radar_name,
+        radar_size,
+    )
+
+    cache_dir = tmp_path / "heatmaps_cache" / steamid / map_name
+    cache_path = next(cache_dir.glob("*.npz"))
+    with np.load(cache_path) as cached:
+        assert "kills_pxt" in cached.files
+        assert "deaths_pxt" in cached.files
+        assert "presence_all_pxt" in cached.files
+        assert "presence_ct_pxt" in cached.files
+        assert "presence_t_pxt" in cached.files
 
 
 def test_heatmap_ct_t_not_equal_when_data_diff(tmp_path):
