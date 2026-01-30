@@ -63,6 +63,12 @@ def _read_parquet_with_steamid_strings(parquet_path: Path, steam_cols: Iterable[
 
 
 def _load_demo_dataframe(value: Any, steam_cols: Iterable[str]) -> pd.DataFrame | None:
+    """Load a demo table-like object into pandas without losing SteamID64 precision.
+
+    AWPY/Polars often stores steamid columns as u64. Converting u64 to pandas can
+    silently cast to float64 (losing precision), which breaks SteamID matching.
+    We cast steamid columns to Int64 in Polars before conversion.
+    """
     if value is None:
         return None
     if isinstance(value, pd.DataFrame):
@@ -71,8 +77,45 @@ def _load_demo_dataframe(value: Any, steam_cols: Iterable[str]) -> pd.DataFrame 
         parquet_path = Path(value)
         if parquet_path.suffix == ".parquet" and parquet_path.exists():
             return _read_parquet_with_steamid_strings(parquet_path, steam_cols)
+
+    # Polars DataFrame (awpy uses polars)
+    try:
+        import polars as pl  # type: ignore
+        if isinstance(value, pl.DataFrame):
+            cols = []
+            for c in steam_cols:
+                if c in value.columns:
+                    cols.append(pl.col(c).cast(pl.Int64, strict=False))
+            if cols:
+                value = value.with_columns(cols)
+            # Keep integer dtypes via Arrow extension arrays when possible
+            try:
+                return value.to_pandas(use_pyarrow_extension_array=True)
+            except TypeError:
+                return value.to_pandas()
+    except Exception:
+        pass
+
     if hasattr(value, "to_pandas"):
-        return value.to_pandas()
+        try:
+            return value.to_pandas(use_pyarrow_extension_array=True)
+        except TypeError:
+            return value.to_pandas()
+        except Exception:
+            return value.to_pandas()
+
+    return None
+
+
+def _first_non_none_attr(obj: Any, names: list[str]) -> Any:
+    """Return the first attribute value that is not None without triggering truthiness on DataFrames."""
+    for name in names:
+        try:
+            value = getattr(obj, name, None)
+        except Exception:
+            value = None
+        if value is not None:
+            return value
     return None
 
 
@@ -152,6 +195,34 @@ def _safe_float(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
 
+
+def _cell(row: "pd.Series", col: str | None) -> Any | None:
+    """Safely fetch a cell value from a pandas row (treat pandas.NA/NaN as None)."""
+    if not col:
+        return None
+    try:
+        value = row.get(col)
+    except Exception:
+        return None
+    if value is None:
+        return None
+    try:
+        # pandas.NA and NaN
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+    return value
+
+
+def _cell_str(row: "pd.Series", col: str | None) -> str | None:
+    value = _cell(row, col)
+    if value is None:
+        return None
+    s = str(value)
+    if not s or s.lower() == "nan":
+        return None
+    return s
 
 def normalize_steamid64(value: Any) -> int | None:
     if value is None:
@@ -423,7 +494,10 @@ def _extract_bomb_plants(
     tick_rate: float,
     rounds_df: pd.DataFrame | None,
 ) -> dict[int, dict[str, Any]]:
-    bomb_df = _load_demo_dataframe(getattr(demo, "bomb", None) or getattr(demo, "bombs", None), [])
+    bomb_df = _load_demo_dataframe(
+        _first_non_none_attr(demo, ["bomb", "bombs"]),
+        [],
+    )
     plants: dict[int, dict[str, Any]] = {}
     if bomb_df is not None and not bomb_df.empty:
         event_col = _pick_column(bomb_df, ["event", "bomb_event", "type", "action"])
@@ -432,7 +506,8 @@ def _extract_bomb_plants(
         time_col = _pick_column(bomb_df, ["time", "seconds", "round_time"])
         site_col = _pick_column(bomb_df, ["bombsite", "bomb_site", "site"])
         for _, row in bomb_df.iterrows():
-            event_value = str(row.get(event_col) or "").lower() if event_col else ""
+            tmp_event = _cell(row, event_col)
+            event_value = str(tmp_event).lower() if tmp_event is not None else "" if event_col else ""
             if event_value and "plant" not in event_value and "planted" not in event_value:
                 continue
             round_number = _safe_int(row.get(round_col)) if round_col else None
@@ -446,7 +521,7 @@ def _extract_bomb_plants(
                 start_tick = round_start_ticks.get(round_number)
                 if start_tick is not None and tick_rate:
                     t_round = max((tick_value - start_tick) / tick_rate, 0.0)
-            site_value = str(row.get(site_col)).strip().upper() if site_col and row.get(site_col) else None
+            site_value = (_cell_str(row, site_col).strip().upper() if _cell_str(row, site_col) else None)
             current = plants.get(round_number)
             if current is None or (t_round is not None and current.get("time") is None):
                 plants[round_number] = {
@@ -477,7 +552,7 @@ def _extract_bomb_plants(
                         t_round = max((tick_value - start_tick) / tick_rate, 0.0)
                 if t_round is None and tick_value is None:
                     continue
-                site_value = str(row.get(site_col)).strip().upper() if site_col and row.get(site_col) else None
+                site_value = (_cell_str(row, site_col).strip().upper() if _cell_str(row, site_col) else None)
                 plants[round_number] = {
                     "time": t_round,
                     "tick": tick_value,
@@ -505,10 +580,13 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
     kills_df = _load_demo_dataframe(getattr(demo, "kills", None), KILLS_STEAMID_COLUMNS)
     flashes_df = _load_demo_dataframe(getattr(demo, "flashes", None), [])
     util_damage_df = _load_demo_dataframe(
-        getattr(demo, "util_damage", None) or getattr(demo, "utility_damage", None),
+        _first_non_none_attr(demo, ["util_damage", "utility_damage"]),
         UTIL_DAMAGE_STEAMID_COLUMNS,
     )
-    damages_df = util_damage_df or _load_demo_dataframe(getattr(demo, "damages", None), UTIL_DAMAGE_STEAMID_COLUMNS)
+    damages_df = util_damage_df if util_damage_df is not None and not util_damage_df.empty else _load_demo_dataframe(
+        getattr(demo, "damages", None),
+        UTIL_DAMAGE_STEAMID_COLUMNS,
+    )
 
     kills: list[dict[str, Any]] = []
     missing_time_kills = 0
@@ -639,11 +717,9 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
                 attacker_id_sample["attacker"] = str(attacker_steam_id)
             if attacker_id_sample["victim"] is None and victim_steam_id:
                 attacker_id_sample["victim"] = str(victim_steam_id)
-            attacker_name = str(row.get(attacker_name_col)) if attacker_name_col and row.get(attacker_name_col) else None
-            victim_name = str(row.get(victim_name_col)) if victim_name_col and row.get(victim_name_col) else None
-            assister_name = (
-                str(row.get(assister_name_col)) if assister_name_col and row.get(assister_name_col) else None
-            )
+            attacker_name = _cell_str(row, attacker_name_col)
+            victim_name = _cell_str(row, victim_name_col)
+            assister_name = _cell_str(row, assister_name_col)
             kill_event = {
                 "round": round_number,
                 "time": t_round,
@@ -664,9 +740,9 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
                 "assister_name": assister_name,
                 "attacker_side": _normalize_side(row.get(attacker_side_col)) if attacker_side_col else None,
                 "victim_side": _normalize_side(row.get(victim_side_col)) if victim_side_col else None,
-                "assistedflash": bool(row.get(assistedflash_col)) if assistedflash_col else False,
-                "attacker_place": str(row.get(attacker_place_col)) if attacker_place_col and row.get(attacker_place_col) else None,
-                "victim_place": str(row.get(victim_place_col)) if victim_place_col and row.get(victim_place_col) else None,
+                "assistedflash": bool(_cell(row, assistedflash_col)) if assistedflash_col else False,
+                "attacker_place": _cell_str(row, attacker_place_col),
+                "victim_place": _cell_str(row, victim_place_col),
                 "attacker_x": _safe_float(row.get(attacker_x_col)) if attacker_x_col else None,
                 "attacker_y": _safe_float(row.get(attacker_y_col)) if attacker_y_col else None,
                 "victim_x": _safe_float(row.get(victim_x_col)) if victim_x_col else None,
@@ -723,10 +799,10 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
             thrower_id = normalize_steamid64(row.get(thrower_col)) if thrower_col else None
             blinded_id = normalize_steamid64(row.get(blinded_col)) if blinded_col else None
             thrower_name = (
-                str(row.get(thrower_name_col)) if thrower_name_col and row.get(thrower_name_col) else None
+                _cell_str(row, thrower_name_col)
             )
             blinded_name = (
-                str(row.get(blinded_name_col)) if blinded_name_col and row.get(blinded_name_col) else None
+                _cell_str(row, blinded_name_col)
             )
             flashes.append(
                 {
@@ -767,7 +843,8 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
 
         for idx, row in damages_df.iterrows():
             raw_row = raw_damages_df.loc[idx] if idx in raw_damages_df.index else row
-            weapon = str(row.get(weapon_col) or "").lower()
+            tmp_weapon = _cell(row, weapon_col)
+            weapon = str(tmp_weapon).lower() if tmp_weapon is not None else ""
             kind = None
             if "hegrenade" in weapon or "he_grenade" in weapon:
                 kind = "he"
@@ -801,9 +878,9 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
             attacker_steam_raw = raw_row.get(attacker_col) if attacker_col else None
             victim_steam_raw = raw_row.get(victim_col) if victim_col else None
             attacker_name = (
-                str(row.get(attacker_name_col)) if attacker_name_col and row.get(attacker_name_col) else None
+                _cell_str(row, attacker_name_col)
             )
-            victim_name = str(row.get(victim_name_col)) if victim_name_col and row.get(victim_name_col) else None
+            victim_name = _cell_str(row, victim_name_col)
             utility_damage.append(
                 {
                     "round": round_number,

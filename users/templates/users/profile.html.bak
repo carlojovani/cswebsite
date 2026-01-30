@@ -1,4 +1,4 @@
-﻿[file name]: profile.html
+[file name]: profile.html
 [file content begin]
 {% extends 'users/base.html' %}
 {% load dict_extras %}
@@ -23,9 +23,9 @@
             <h1>{{ profile_user.username }}</h1>
             <div class="profile-badges">
                 {% if profile_user.user_type == 'player' %}
-                    <span class="badge badge-player">РРіСЂРѕРє</span>
+                    <span class="badge badge-player">Игрок</span>
                 {% else %}
-                    <span class="badge badge-team">РљРѕРјР°РЅРґР°</span>
+                    <span class="badge badge-team">Команда</span>
                 {% endif %}
 
                 {% if profile_user.is_superuser %}
@@ -65,7 +65,7 @@
                     Обновить с Faceit
                 </a>
             {% else %}
-                <!-- РРЎРџР РђР’Р›Р•РќРќРђРЇ РЎРўР РћРљРђ: Р·Р°РјРµРЅРёР» edit_team_profile РЅР° edit_profile -->
+                <!-- ИСПРАВЛЕННАЯ СТРОКА: заменил edit_team_profile на edit_profile -->
                 <a href="{% url 'edit_profile' %}" class="btn btn-edit">
                     Редактировать профиль
                 </a>
@@ -131,7 +131,7 @@
 
                         {% if player_profile.region %}
                         <div class="detail-item">
-                            <strong>Р РµРіРёРѕРЅ:</strong> {{ player_profile.region }}
+                            <strong>Регион:</strong> {{ player_profile.region }}
                         </div>
                         {% endif %}
 
@@ -200,7 +200,7 @@
                                 <div class="role-item">
                                     <span>IGL</span>
                                     {% if player_profile.is_igl %}
-                                        <strong class="status-active">Р”Р°</strong>
+                                        <strong class="status-active">Да</strong>
                                     {% else %}
                                         <strong class="status-inactive">Нет</strong>
                                     {% endif %}
@@ -208,7 +208,7 @@
                                 <div class="role-item">
                                     <span>AWP</span>
                                     {% if player_profile.can_awp %}
-                                        <strong class="status-active">Р”Р°</strong>
+                                        <strong class="status-active">Да</strong>
                                     {% else %}
                                         <strong class="status-inactive">Нет</strong>
                                     {% endif %}
@@ -481,7 +481,7 @@
                                     </span>
                                 </div>
                                 <div class="playstyle-entry__row">
-                                    <span>РЎРѕР»Рѕ</span>
+                                    <span>Соло</span>
                                     <strong>
                                         {% if analytics_metrics.playstyle.entry_breakdown.solo_entry_pct != None %}
                                             {{ analytics_metrics.playstyle.entry_breakdown.solo_entry_pct|floatformat:1 }}%
@@ -492,8 +492,8 @@
                                     <span class="playstyle-entry__meta">
                                         по времени:
                                         {% for bucket in time_bucket_labels %}
-                                            {% if analytics_metrics.playstyle.entry_breakdown.solo_by_bucket_pct|get_item:bucket != None %}
-                                                {{ analytics_metrics.playstyle.entry_breakdown.solo_by_bucket_pct|get_item:bucket|floatformat:0 }}%
+                                            {% if analytics_metrics.playstyle.entry_breakdown.solo_by_bucket_pct[bucket] != None %}
+                                                {{ analytics_metrics.playstyle.entry_breakdown.solo_by_bucket_pct[bucket]|floatformat:0 }}%
                                             {% else %}
                                                 —
                                             {% endif %}
@@ -763,7 +763,7 @@
                     {% if analytics_metrics.kill_support %}
                         <div class="analytics-metrics">
                             <div class="analytics-metric">
-                                <span class="metric-label">РЎРѕР»Рѕ</span>
+                                <span class="metric-label">Соло</span>
                                 <strong class="metric-value">
                                     {% if analytics_metrics.kill_support.solo_pct != None %}
                                         {{ analytics_metrics.kill_support.solo_pct|floatformat:1 }}%
@@ -901,14 +901,14 @@
                     </div>
                 </div>
 
-                <!-- РРЅС„РѕСЂРјР°С†РёСЏ Рѕ РїРѕСЃР»РµРґРЅРµРј РѕР±РЅРѕРІР»РµРЅРёРё -->
+                <!-- Информация о последнем обновлении -->
                 {% if player_profile.last_faceit_update %}
                 <div class="update-info">
                     <p>
                         <small>
                             Данные обновлены: {{ player_profile.last_faceit_update|date:"d.m.Y H:i" }}
                             {% if days_since_update %}
-                                ({{ days_since_update }} РґРЅРµР№ РЅР°Р·Р°Рґ)
+                                ({{ days_since_update }} дней назад)
                             {% endif %}
                         </small>
                     </p>
@@ -928,7 +928,7 @@
             {% if team_profile %}
             <div class="team-profile">
                 <div class="team-info">
-                    <h2>РРЅС„РѕСЂРјР°С†РёСЏ Рѕ РєРѕРјР°РЅРґРµ</h2>
+                    <h2>Информация о команде</h2>
 
                     <div class="team-card">
                         <div class="team-main">
@@ -945,18 +945,18 @@
                             <h4>Требования к игрокам:</h4>
                             <div class="requirements-grid">
                                 <div class="requirement-item">
-                                    <strong>РС‰РµРј IGL:</strong>
+                                    <strong>Ищем IGL:</strong>
                                     {% if team_profile.looking_for_igl %}
-                                        <span class="status-active">Р”Р°</span>
+                                        <span class="status-active">Да</span>
                                     {% else %}
                                         <span class="status-inactive">Нет</span>
                                     {% endif %}
                                 </div>
                                 
                                 <div class="requirement-item">
-                                    <strong>РС‰РµРј AWP-РёСЃС‚Р°:</strong>
+                                    <strong>Ищем AWP-иста:</strong>
                                     {% if team_profile.looking_for_awper %}
-                                        <span class="status-active">Р”Р°</span>
+                                        <span class="status-active">Да</span>
                                     {% else %}
                                         <span class="status-inactive">Нет</span>
                                     {% endif %}
@@ -972,7 +972,7 @@
                                 </div>
 
                                 <div class="requirement-item">
-                                    <strong>РЎРѕР·РґР°РЅР°:</strong>
+                                    <strong>Создана:</strong>
                                     {{ team_profile.created_date|date:"d.m.Y" }}
                                 </div>
                             </div>
@@ -2153,4 +2153,3 @@
 </script>
 {% endblock %}
 [file content end]
-
