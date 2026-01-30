@@ -9,7 +9,6 @@
   PROFILE_ID=2
   MAP_NAME=de_mirage
   PERIOD=last_20
-  ANALYTICS_VERSION=v2
   WRITE_STEAMID=1           # если найден корректный steamid64 в демках, обновит PlayerProfile.steam_id
 
 Что делает:
@@ -303,7 +302,6 @@ def main() -> None:
     profile_id = _env_int("PROFILE_ID", 2)
     map_name = _env("MAP_NAME", "de_mirage")
     period = _env("PERIOD", "last_20")
-    analytics_version = _env("ANALYTICS_VERSION", "v2")
     write_steamid = _env("WRITE_STEAMID", "").strip() in ("1", "true", "yes", "y")
 
     print("=== FIX ALL REBUILD ===")
@@ -314,7 +312,7 @@ def main() -> None:
         raise SystemExit(f"PlayerProfile id={profile_id} not found")
 
     print("old steam_id:", profile.steam_id)
-    print("map:", map_name, "period:", period, "version:", analytics_version)
+    print("map:", map_name, "period:", period)
 
     demos_dir = Path(get_demos_dir(profile, map_name))
     demos = sorted(demos_dir.glob("*.dem"))
@@ -343,7 +341,9 @@ def main() -> None:
     print("parsed kills:", len(kills), "target_kills:", len(target_kills))
 
     with transaction.atomic():
-        deleted = _delete_aggregates(profile, period=period, analytics_version=analytics_version)
+        from faceit_analytics.constants import ANALYTICS_VERSION
+
+        deleted = _delete_aggregates(profile, period=period, analytics_version=ANALYTICS_VERSION)
         print("deleted AnalyticsAggregate rows:", deleted)
 
     cache.clear()
@@ -359,22 +359,15 @@ def main() -> None:
     # run_full_pipeline signature differs between versions.
     # We call it with the most common params, and fall back if needed.
     kwargs = dict(
-        job_id=getattr(job, "id", None),
+        job_id=int(getattr(job, "id")),
         period=period,
         map_name=map_name,
         force_demo_features=True,
         force_heatmaps=True,
+        force_rebuild=True,
     )
-
-    try:
-        run_full_pipeline(**kwargs)
-        print("PIPELINE: done")
-    except TypeError as e:
-        # if signature differs, retry with minimal set
-        print("PIPELINE TypeError:", e)
-        minimal = dict(job_id=getattr(job, "id", None))
-        run_full_pipeline(**minimal)
-        print("PIPELINE: done (minimal args)")
+    run_full_pipeline(**kwargs)
+    print("PIPELINE: done")
 
 
 if __name__ == "__main__":

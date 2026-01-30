@@ -88,7 +88,7 @@ def test_flash_assist_matching():
 def test_normalize_steamid64_scientific():
     assert demo_events.normalize_steamid64("76561198016259349") == 76561198016259349
     value = 7.6561198016259349e16
-    assert demo_events.normalize_steamid64(value) is None
+    assert demo_events.normalize_steamid64(value) == 76561198016259349
 
 
 def test_safe_json_converts_numpy():
@@ -212,7 +212,7 @@ def test_entry_breakdown_assisted_by_proximity():
         rounds_in_demo={1},
         tick_positions_by_round={
             1: [
-                {"time": 5.0, "steamid": 222, "x": 120.0, "y": 110.0, "is_target": False},
+                {"time": 5.0, "tick": 90, "steamid": 222, "x": 120.0, "y": 110.0, "is_target": False},
             ]
         },
         bomb_plants_by_round={},
@@ -278,8 +278,8 @@ def test_kill_support_proximity_window():
         rounds_in_demo={1},
         tick_positions_by_round={
             1: [
-                {"time": 9.0, "steamid": 222, "x": 120.0, "y": 110.0, "is_target": False},
-                {"time": 0.0, "steamid": 333, "x": 2000.0, "y": 2000.0, "is_target": False},
+                {"time": 9.0, "tick": 90, "steamid": 222, "x": 120.0, "y": 110.0, "is_target": False},
+                {"time": 0.0, "tick": 500, "steamid": 333, "x": 2000.0, "y": 2000.0, "is_target": False},
             ]
         },
         bomb_plants_by_round={},
@@ -301,3 +301,42 @@ def test_kill_support_proximity_window():
     kill_event = next(event for event in events if event.get("type") == "kill")
     assert kill_event["support_category"] == "partner"
     assert support["with_partner_kills"] == 1
+
+
+def test_parse_demo_events_bomb_data(monkeypatch, tmp_path):
+    bomb_df = np.array(
+        [(1, "planted", 1000, 10.0, 20.0, "A", 76561198000000001)],
+        dtype=object,
+    )
+
+    class DummyDemo:
+        tickrate = 64.0
+        header = {"map_name": "de_mirage"}
+
+        def __init__(self, *_args, **_kwargs):
+            self.rounds = demo_events.pd.DataFrame(
+                [
+                    {"round_num": 1, "start_tick": 900, "start_time": 0.0},
+                ]
+            )
+            self.kills = demo_events.pd.DataFrame()
+            self.flashes = demo_events.pd.DataFrame()
+            self.util_damage = demo_events.pd.DataFrame()
+            self.damages = demo_events.pd.DataFrame()
+            self.ticks = demo_events.pd.DataFrame()
+            self.bomb = demo_events.pd.DataFrame(
+                bomb_df,
+                columns=["round_num", "event", "tick", "X", "Y", "bombsite", "steamid"],
+            )
+
+        def parse(self):
+            return None
+
+    monkeypatch.setattr(demo_events, "Demo", DummyDemo)
+    demo_path = tmp_path / "match.dem"
+    demo_path.write_bytes(b"demo")
+
+    parsed = demo_events.parse_demo_events(demo_path, target_steam_id="76561198000000001")
+    assert parsed.bomb_plants_by_round[1]["site"] == "A"
+    assert parsed.bomb_plants_by_round[1]["x"] == 10.0
+    assert parsed.bomb_events_by_round[1][0]["event"] == "plant"

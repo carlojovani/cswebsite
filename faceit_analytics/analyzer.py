@@ -771,6 +771,8 @@ def build_heatmaps_aggregate(
     demos_dir: Path,
     out_dir: Path,
     cache_dir: Path,
+    *,
+    force: bool = False,
 ) -> dict:
     demos_dir = Path(demos_dir)
     out_dir = Path(out_dir)
@@ -797,7 +799,7 @@ def build_heatmaps_aggregate(
 
     latest_demo_mtime = max(p.stat().st_mtime for p in demo_paths)
     meta_path = out_dir / "aggregate_meta.json"
-    if all(p.exists() for p in expected_outputs) and meta_path.exists():
+    if not force and all(p.exists() for p in expected_outputs) and meta_path.exists():
         try:
             meta_payload = json.loads(meta_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
@@ -832,10 +834,25 @@ def build_heatmaps_aggregate(
     cache_root = cache_dir / str(steamid64) / map_name
     _ensure_dir(cache_root)
 
+    required_px_keys = {
+        "presence_all_px": _empty_points(),
+        "presence_ct_px": _empty_points(),
+        "presence_t_px": _empty_points(),
+        "kills_px": _empty_points(),
+        "deaths_px": _empty_points(),
+    }
+    required_pxt_keys = {
+        "presence_all_pxt": _empty_points_time(),
+        "presence_ct_pxt": _empty_points_time(),
+        "presence_t_pxt": _empty_points_time(),
+        "kills_pxt": _empty_points_time(),
+        "deaths_pxt": _empty_points_time(),
+    }
+
     for dem_path in demo_paths:
         demo_hash = _demo_cache_hash(dem_path, radar_name, (w, h))
         cache_path = cache_root / f"{demo_hash}.npz"
-        cache_needs_rebuild = not cache_path.exists()
+        cache_needs_rebuild = force or not cache_path.exists()
         demo_points = None
         if cache_path.exists():
             cache_hits += 1
@@ -864,6 +881,9 @@ def build_heatmaps_aggregate(
                     }
         if cache_needs_rebuild:
             demo_points, _ = _extract_points_from_demo(dem_path, steamid64, meta, (w, h), map_mask_L)
+            for key, default_value in {**required_px_keys, **required_pxt_keys}.items():
+                if key not in demo_points or demo_points[key] is None:
+                    demo_points[key] = default_value
             np.savez_compressed(
                 cache_path,
                 presence_all_px=demo_points["presence_all_px"],
