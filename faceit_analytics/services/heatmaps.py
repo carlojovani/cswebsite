@@ -22,7 +22,6 @@ from faceit_analytics.models import AnalyticsAggregate, HeatmapAggregate, heatma
 from faceit_analytics.services.paths import get_demos_dir
 from faceit_analytics.services.time_buckets import (
     bucket_range,
-    get_time_bucket_presets,
     normalize_time_bucket,
 )
 from faceit_analytics.utils import to_jsonable
@@ -102,16 +101,16 @@ HEATMAP_UNSHARP_RADIUS = float(getattr(settings, "HEATMAP_UNSHARP_RADIUS", 0.0))
 HEATMAP_UNSHARP_PERCENT = int(getattr(settings, "HEATMAP_UNSHARP_PERCENT", 140))
 HEATMAP_UNSHARP_THRESHOLD = int(getattr(settings, "HEATMAP_UNSHARP_THRESHOLD", 2))
 
-DEFAULT_TIME_SLICES: list[tuple[int, int | None]] = [
-    (0, 15),
-    (0, 30),
-    (0, 45),
-    (0, 60),
-    (0, 75),
-    (0, 90),
-    (0, None),
-]
-HEATMAP_TIME_SLICES = list(getattr(settings, "HEATMAP_TIME_SLICES", DEFAULT_TIME_SLICES))
+TIME_SLICE_LABELS: list[str] = ["0-15", "0-30", "0-45", "0-60", "0-75", "0-90", "0+"]
+TIME_SLICE_RANGES: dict[str, tuple[int, int | None]] = {
+    "0-15": (0, 15),
+    "0-30": (0, 30),
+    "0-45": (0, 45),
+    "0-60": (0, 60),
+    "0-75": (0, 75),
+    "0-90": (0, 90),
+    "0+": (0, None),
+}
 HEATMAP_DEFAULT_SLICE = str(getattr(settings, "HEATMAP_DEFAULT_SLICE", "all"))
 
 DEFAULT_PERIOD = "last_20"
@@ -125,13 +124,7 @@ def _slice_label(slice_range: tuple[int, int | None]) -> str:
 
 
 def _get_time_slice_ranges() -> dict[str, tuple[int, int | None]]:
-    ranges: dict[str, tuple[int, int | None]] = {}
-    for label, (start, end) in get_time_bucket_presets().items():
-        ranges[label] = (int(start), None if end is None else int(end))
-    for start, end in HEATMAP_TIME_SLICES:
-        normalized_end = None if end is None or int(end) >= 999 else int(end)
-        ranges[_slice_label((start, end))] = (int(start), normalized_end)
-    return ranges
+    return dict(TIME_SLICE_RANGES)
 
 
 def normalize_time_slice(value: str | None) -> str:
@@ -142,11 +135,6 @@ def normalize_time_slice(value: str | None) -> str:
         return HEATMAP_DEFAULT_SLICE
     if value.lower() == "all":
         return "all"
-    if value.lower() in get_time_bucket_presets():
-        preset = bucket_range(value)
-        if preset:
-            start, end = preset
-            return _slice_label((start, 999 if end is None else end))
     parsed = parse_time_slice(value)
     if parsed is None:
         return HEATMAP_DEFAULT_SLICE
@@ -163,30 +151,11 @@ def parse_time_slice(value: str | None) -> tuple[int, int | None] | None:
     ranges = _get_time_slice_ranges()
     if value in ranges:
         return ranges[value]
-    if "+" in value:
-        start = value.replace("+", "").strip()
-        if start.isdigit():
-            return int(start), None
-        return None
-    if "-" in value:
-        parts = value.split("-", 1)
-        if len(parts) != 2:
-            return None
-        start, end = parts
-        if start.strip().isdigit() and end.strip().isdigit():
-            return int(start), int(end)
     return None
 
 
 def get_time_slice_labels() -> list[str]:
-    labels = ["all"]
-    for label in get_time_bucket_presets().keys():
-        labels.append(label)
-    for start, end in HEATMAP_TIME_SLICES:
-        label = _slice_label((int(start), int(end) if end is not None else None))
-        if label not in labels:
-            labels.append(label)
-    return labels or ["all"]
+    return ["all"] + TIME_SLICE_LABELS
 
 
 def build_time_slice_from_bucket(time_bucket: str | None) -> str:
@@ -603,6 +572,49 @@ def ensure_heatmap_image(
     return aggregate
 
 
+def ensure_pxt_in_cache(
+    cache_paths: Sequence[Path],
+    *,
+    steamid64: str,
+    map_name: str,
+    period: str,
+    demos_dir: Path,
+    out_dir: Path,
+    cache_root: Path,
+) -> bool:
+    required_time_keys = {
+        "presence_all_pxt",
+        "presence_ct_pxt",
+        "presence_t_pxt",
+        "kills_pxt",
+        "deaths_pxt",
+    }
+    dirty = False
+    for cache_path in cache_paths:
+        if not cache_path.exists():
+            dirty = True
+            continue
+        try:
+            with np.load(cache_path) as cached:
+                if not required_time_keys.issubset(set(cached.files)):
+                    dirty = True
+                    break
+        except Exception:
+            dirty = True
+            break
+    if dirty:
+        analyzer.build_heatmaps_aggregate(
+            steamid64=steamid64,
+            map_name=map_name,
+            limit=_period_to_limit(period),
+            demos_dir=demos_dir,
+            out_dir=out_dir,
+            cache_dir=cache_root,
+            force=True,
+        )
+    return dirty
+
+
 def _collect_points_from_cache(
     demos_dir: Path,
     steamid64: str,
@@ -667,6 +679,15 @@ def _collect_points_from_cache(
     slice_range = parse_time_slice(time_slice)
     if slice_range:
         meta["time_slice_applied"] = True
+        ensure_pxt_in_cache(
+            cache_paths,
+            steamid64=steamid64,
+            map_name=map_name,
+            period=period,
+            demos_dir=demos_dir,
+            out_dir=out_dir,
+            cache_root=media_root / "heatmaps_cache",
+        )
     missing_time_cache = False
     for cache_path in cache_paths:
         if not cache_path.exists():
@@ -699,13 +720,14 @@ def _collect_points_from_cache(
                 points.append((float(x), float(y), 1.0))
 
     if slice_range and missing_time_cache:
-        analyzer.build_heatmaps_aggregate(
+        ensure_pxt_in_cache(
+            cache_paths,
             steamid64=steamid64,
             map_name=map_name,
-            limit=_period_to_limit(period),
+            period=period,
             demos_dir=demos_dir,
             out_dir=out_dir,
-            cache_dir=media_root / "heatmaps_cache",
+            cache_root=media_root / "heatmaps_cache",
         )
         missing_time_cache = False
         points = []

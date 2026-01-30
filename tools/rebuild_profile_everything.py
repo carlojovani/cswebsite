@@ -17,14 +17,13 @@ This script:
   - prints steam id and checks if it appears in demo kill events (sanity)
   - clears caches
   - creates ProcessingJob (if model exists)
-  - calls run_full_pipeline with signature introspection (so it won't break if signature differs)
+  - calls run_full_pipeline with the expected signature
   - prints resulting AnalyticsAggregate + heatmap cache keys summary
 """
 from __future__ import annotations
 
 import os
 import shutil
-import inspect
 from pathlib import Path
 
 from django.core.cache import cache
@@ -49,14 +48,6 @@ def _try_import(path: str):
         return getattr(mod, attr)
     except Exception:
         return None
-
-def _call_with_signature(fn, **kwargs):
-    sig = inspect.signature(fn)
-    accepted = {}
-    for name, param in sig.parameters.items():
-        if name in kwargs:
-            accepted[name] = kwargs[name]
-    return fn(**accepted)
 
 def main():
     profile_id = int(_env("PROFILE_ID", "2"))
@@ -101,7 +92,13 @@ def main():
     if delete_agg:
         AnalyticsAggregate = _try_import("faceit_analytics.models.AnalyticsAggregate")
         if AnalyticsAggregate:
-            qs = AnalyticsAggregate.objects.filter(profile=profile, period=period, analytics_version=analytics_version)
+            from faceit_analytics.constants import ANALYTICS_VERSION
+
+            qs = AnalyticsAggregate.objects.filter(
+                profile=profile,
+                period=period,
+                analytics_version=ANALYTICS_VERSION,
+            )
             deleted = qs.delete()[0]
             print("deleted AnalyticsAggregate rows:", deleted)
         else:
@@ -127,7 +124,7 @@ def main():
     job = None
     if ProcessingJob:
         try:
-            job = ProcessingJob.objects.create(profile=profile, status="running")
+            job = ProcessingJob.objects.create(profile=profile, status=ProcessingJob.STATUS_RUNNING, progress=0)
             print("created ProcessingJob id:", job.id)
         except Exception as e:
             print("WARN: cannot create ProcessingJob:", e)
@@ -136,22 +133,21 @@ def main():
     if not run_full_pipeline:
         raise SystemExit("run_full_pipeline not found at faceit_analytics.services.pipeline.run_full_pipeline")
 
+    if not job or getattr(job, "id", None) is None:
+        raise SystemExit("ProcessingJob creation failed; cannot run pipeline.")
+
     kwargs = {
-        "job_id": getattr(job, "id", None),
-        "processing_job_id": getattr(job, "id", None),
+        "job_id": int(getattr(job, "id")),
         "period": period,
         "map_name": map_name,
         "force_rebuild": force,
         "force_demo_features": force,
         "force_heatmaps": force,
-        "force": force,
     }
-    # remove None values so we don't pass them accidentally
-    kwargs = {k: v for k, v in kwargs.items() if v is not None}
 
     print("=== RUN PIPELINE ===")
     try:
-        _call_with_signature(run_full_pipeline, **kwargs)
+        run_full_pipeline(**kwargs)
         print("pipeline finished")
     except Exception as e:
         print("PIPELINE ERROR:", repr(e))
