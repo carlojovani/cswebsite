@@ -88,7 +88,7 @@ def test_flash_assist_matching():
 def test_normalize_steamid64_scientific():
     assert demo_events.normalize_steamid64("76561198016259349") == 76561198016259349
     value = 7.6561198016259349e16
-    assert demo_events.normalize_steamid64(value) == int(round(value))
+    assert demo_events.normalize_steamid64(value) is None
 
 
 def test_safe_json_converts_numpy():

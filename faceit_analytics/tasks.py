@@ -21,7 +21,6 @@ def task_full_pipeline(
     ).update(celery_task_id=self.request.id)
     ProcessingJob.objects.filter(id=job_id, celery_task_id="").update(celery_task_id=self.request.id)
     run_full_pipeline(
-        profile_id=profile_id,
         job_id=job_id,
         period=period,
         map_name=map_name,

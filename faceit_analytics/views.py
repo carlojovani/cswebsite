@@ -289,8 +289,11 @@ def _heatmap_response(request, profile: PlayerProfile) -> JsonResponse:
         time_slice = normalize_time_slice(slice_override)
         bucket_value = "custom"
     elif time_bucket:
-        time_slice = normalize_time_slice(build_time_slice_from_bucket(time_bucket))
         bucket_value = normalize_time_bucket(time_bucket)
+        if bucket_value != "all":
+            time_slice = normalize_time_slice(build_time_slice_from_bucket(bucket_value))
+        else:
+            time_slice = normalize_time_slice(request.GET.get("slice") or request.GET.get("t"))
     else:
         time_slice = normalize_time_slice(request.GET.get("slice") or request.GET.get("t"))
         bucket_value = "all"

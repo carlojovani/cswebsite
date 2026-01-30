@@ -38,7 +38,6 @@ class Command(BaseCommand):
 
         if run_sync:
             run_full_pipeline(
-                profile_id=profile.id,
                 job_id=job.id,
                 period=period,
                 map_name=map_name,
