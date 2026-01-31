@@ -48,6 +48,9 @@ PROXIMITY_RADIUS = float(getattr(settings, "PROXIMITY_RADIUS", 500.0))
 PROXIMITY_WINDOW_SECONDS = float(getattr(settings, "PROXIMITY_WINDOW_SEC", 3.0))
 PROXIMITY_SAMPLE_STEP_TICKS = int(getattr(settings, "PROXIMITY_SAMPLE_STEP_TICKS", 8))
 PUSH_DISTANCE = float(getattr(settings, "PUSH_DISTANCE", 1600.0))
+STEAMID64_MIN_VALUE = 7_000_000_000_000_000
+SIDE_ROLE_SAMPLE_SECONDS = 30.0
+SIDE_ROLE_MIN_SAMPLES = 20
 
 KILLS_STEAMID_COLUMNS = ["attacker_steamid", "victim_steamid", "assister_steamid"]
 UTIL_DAMAGE_STEAMID_COLUMNS = ["attacker_steamid", "victim_steamid"]
@@ -93,6 +96,23 @@ def _safe_bool(value: Any) -> bool:
         return bool(value)
     except Exception:
         return False
+
+
+def _is_valid_steamid64(value: Any) -> bool:
+    steam_id = normalize_steamid64(value)
+    if steam_id is None:
+        return False
+    return steam_id >= STEAMID64_MIN_VALUE
+
+
+def _has_true_assist(kill: dict[str, Any]) -> bool:
+    assister = kill.get("assister")
+    attacker = kill.get("attacker")
+    if not _is_valid_steamid64(assister):
+        return False
+    if not _is_valid_steamid64(attacker):
+        return True
+    return int(assister) != int(attacker)
 
 def _read_parquet_with_steamid_strings(parquet_path: Path, steam_cols: Iterable[str]) -> pd.DataFrame:
     table = pq.read_table(parquet_path)
@@ -1418,6 +1438,7 @@ def _init_entry_breakdown() -> dict[str, Any]:
         "entry_attempts": 0,
         "assisted_entry_count": 0,
         "solo_entry_count": 0,
+        "unknown_entry_count": 0,
         "entry_with_assist": 0,
         "entry_with_flash": 0,
         "entry_with_partner": 0,
@@ -1425,6 +1446,7 @@ def _init_entry_breakdown() -> dict[str, Any]:
         "unknown_support_count": 0,
         "assisted_entry_pct": None,
         "solo_entry_pct": None,
+        "unknown_entry_pct": None,
         "entry_with_assist_pct": None,
         "entry_with_flash_pct": None,
         "entry_with_partner_pct": None,
@@ -1452,6 +1474,8 @@ def _finalize_entry_breakdown(entry_breakdown: dict[str, Any], entry_times: list
     assisted = entry_breakdown["assisted_entry_count"]
     solo = entry_breakdown["solo_entry_count"]
     total = assisted + solo
+    unknown = entry_breakdown.get("unknown_entry_count", 0)
+    total_all = total + unknown
     if total:
         entry_breakdown["assisted_entry_pct"] = (assisted / total) * 100
         entry_breakdown["solo_entry_pct"] = (solo / total) * 100
@@ -1469,6 +1493,8 @@ def _finalize_entry_breakdown(entry_breakdown: dict[str, Any], entry_times: list
             solo_by_bucket_pct[key] = (solo_bucket / bucket_total) * 100 if bucket_total else None
         entry_breakdown["assisted_by_bucket_pct"] = assisted_by_bucket_pct
         entry_breakdown["solo_by_bucket_pct"] = solo_by_bucket_pct
+    if total_all:
+        entry_breakdown["unknown_entry_pct"] = (unknown / total_all) * 100
     if entry_times:
         entry_breakdown["avg_entry_time_s"] = sum(entry_times) / len(entry_times)
     entry_breakdown["approx"] = entry_breakdown["unknown_support_count"] > 0
@@ -1478,7 +1504,14 @@ def _finalize_entry_breakdown(entry_breakdown: dict[str, Any], entry_times: list
 def aggregate_player_features(
     parsed_demos: list[ParsedDemoEvents],
     target_steam_id: str,
-) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
+) -> tuple[
+    list[dict[str, Any]],
+    dict[str, Any],
+    dict[str, Any],
+    dict[str, Any],
+    dict[str, Any],
+    dict[str, Any],
+]:
     target_id = normalize_steamid64(target_steam_id)
     events: list[dict[str, Any]] = []
     rounds_seen: set[tuple[int, int]] = set()
@@ -1517,6 +1550,7 @@ def aggregate_player_features(
 
     if target_id is None:
         entry_breakdown = _init_entry_breakdown()
+        side_roles = _compute_side_roles([])
         return (
             [],
             {"rounds": None, "tick_rate": tick_rate},
@@ -1530,6 +1564,7 @@ def aggregate_player_features(
             },
             entry_breakdown,
             support_breakdown,
+            side_roles,
         )
 
     name_candidates: Counter[str] = Counter()
@@ -1661,7 +1696,7 @@ def aggregate_player_features(
                 if is_target_attacker(kill):
                     player_kills += 1
                     target_attacker_kills += 1
-                    has_true_assist = bool(kill.get("assister"))
+                    has_true_assist = _has_true_assist(kill)
                     has_flash_assist = bool(kill.get("assistedflash"))
                     kills_with_support_window += 1
                     nearby_count, support_approx = _nearby_teammates_count(
@@ -1737,7 +1772,7 @@ def aggregate_player_features(
                             "attacker_x": kill.get("attacker_x"),
                             "attacker_y": kill.get("attacker_y"),
                             "side": kill.get("attacker_side") or target_side,
-                            "assisted_by_teammate": bool(kill.get("assister")) or bool(kill.get("assistedflash")),
+                            "assisted_by_teammate": has_true_assist or bool(kill.get("assistedflash")),
                             "has_true_assist": has_true_assist,
                             "has_flash_assist": has_flash_assist,
                             "nearby_teammates_count": nearby_count,
@@ -1755,6 +1790,15 @@ def aggregate_player_features(
                 if is_target_victim(kill):
                     player_deaths += 1
                     target_victim_deaths += 1
+                    death_nearby_count, death_support_approx = _nearby_teammates_count(
+                        kill.get("tick"),
+                        kill.get("victim_x"),
+                        kill.get("victim_y"),
+                        round_positions,
+                        target_id,
+                        tick_rate,
+                    )
+                    death_support_category = _support_category(False, False, death_nearby_count)
                     round_events.append(
                         {
                             "type": "death",
@@ -1771,6 +1815,11 @@ def aggregate_player_features(
                             "victim_x": kill.get("victim_x"),
                             "victim_y": kill.get("victim_y"),
                             "side": kill.get("victim_side") or target_side,
+                            "nearby_teammates_count": death_nearby_count,
+                            "support_category": death_support_category,
+                            "support_approx": death_support_approx,
+                            "has_true_assist": False,
+                            "has_flash_assist": False,
                         }
                     )
 
@@ -1926,6 +1975,9 @@ def aggregate_player_features(
 
                 entry_event = min(entry_candidates, key=_entry_sort_key)
 
+            # Entry support semantics (esports): supported = trade potential/spacing from teammates
+            # (assist, flash assist, or partner/group proximity). Solo = isolated first contact with
+            # no assist/flash and no nearby teammate. Unknown = missing time/coords/coverage.
             for entry in ([entry_event] if entry_event else []):
                 entry_breakdown["entry_attempts"] += 1
                 entry_time = entry.get("time")
@@ -1972,6 +2024,7 @@ def aggregate_player_features(
                     )
                     if unknown_support:
                         entry_breakdown["unknown_support_count"] += 1
+                        entry_breakdown["unknown_entry_count"] += 1
                     else:
                         entry_breakdown["solo_entry_count"] += 1
                         if entry_bucket in entry_breakdown["solo_by_bucket"]:
@@ -2016,6 +2069,7 @@ def aggregate_player_features(
     }
 
     entry_breakdown = _finalize_entry_breakdown(entry_breakdown, entry_times)
+    side_roles = _compute_side_roles(parsed_demos)
     total_kills = support_breakdown["total_kills"]
     if total_kills:
         support_breakdown["category_pct"] = {
@@ -2026,7 +2080,7 @@ def aggregate_player_features(
         support_breakdown["group_pct"] = (support_breakdown["group_kills"] / total_kills) * 100
         support_breakdown["assist_pct"] = (support_breakdown["assist_kills"] / total_kills) * 100
         support_breakdown["flash_pct"] = (support_breakdown["flash_kills"] / total_kills) * 100
-    return events, meta, debug, entry_breakdown, support_breakdown
+    return events, meta, debug, entry_breakdown, support_breakdown, side_roles
 
 
 def _slice_label(bounds: tuple[int, int]) -> str:
@@ -2146,6 +2200,101 @@ def _zone_from_place(place: str | None, config: dict[str, Any]) -> str | None:
             if token in place_norm:
                 return zone
     return None
+
+
+def _side_role_shares(counts: Counter[str]) -> dict[str, float]:
+    total = sum(counts.values())
+    shares = {key: 0.0 for key in ("A", "B", "MID", "OTHER")}
+    if not total:
+        return shares
+    for key in shares.keys():
+        shares[key] = (counts.get(key, 0) / total) if total else 0.0
+    return shares
+
+
+def _label_ct_role(shares: dict[str, float], samples: int, approx: bool) -> tuple[str, bool]:
+    if samples < SIDE_ROLE_MIN_SAMPLES:
+        return "Unknown", True
+    share_a = shares.get("A", 0.0)
+    share_b = shares.get("B", 0.0)
+    share_mid = shares.get("MID", 0.0)
+    share_other = shares.get("OTHER", 0.0)
+    if share_a >= 0.55 and (share_a - share_b) >= 0.20:
+        return "A anchor", approx
+    if share_b >= 0.55 and (share_b - share_a) >= 0.20:
+        return "B anchor", approx
+    if share_mid >= 0.45:
+        return "Mid rotator", approx
+    if share_other >= 0.35:
+        return "Roamer", approx
+    return "Flexible rotator", approx
+
+
+def _label_t_role(shares: dict[str, float], samples: int, approx: bool) -> tuple[str, bool]:
+    if samples < SIDE_ROLE_MIN_SAMPLES:
+        return "Unknown", True
+    share_a = shares.get("A", 0.0)
+    share_b = shares.get("B", 0.0)
+    share_mid = shares.get("MID", 0.0)
+    if share_mid >= 0.45:
+        return "Mid controller", approx
+    if share_a >= 0.55:
+        return "A lane", approx
+    if share_b >= 0.55:
+        return "B lane", approx
+    return "Split-flex", approx
+
+
+def _compute_side_roles(parsed_demos: list[ParsedDemoEvents]) -> dict[str, Any]:
+    counts = {"CT": Counter(), "T": Counter()}
+    rounds_seen = {"CT": set(), "T": set()}
+    samples = {"CT": 0, "T": 0}
+    approx_flags = {"CT": False, "T": False}
+    for demo_index, parsed in enumerate(parsed_demos, start=1):
+        map_config = _load_zone_config(parsed.map_name)
+        if not map_config:
+            approx_flags["CT"] = True
+            approx_flags["T"] = True
+        for round_number, positions in (parsed.tick_positions_by_round or {}).items():
+            for pos in positions:
+                if not pos.get("is_target"):
+                    continue
+                t_round = pos.get("time")
+                if t_round is None or t_round > SIDE_ROLE_SAMPLE_SECONDS:
+                    continue
+                side = pos.get("side")
+                if side not in {"CT", "T"}:
+                    continue
+                rounds_seen[side].add((demo_index, round_number))
+                zone = _zone_from_place(pos.get("place"), map_config)
+                zone_bucket = zone if zone in {"A", "B", "MID"} else "OTHER"
+                counts[side][zone_bucket] += 1
+                samples[side] += 1
+
+    ct_shares = _side_role_shares(counts["CT"])
+    t_shares = _side_role_shares(counts["T"])
+    ct_label, ct_approx = _label_ct_role(ct_shares, samples["CT"], approx_flags["CT"])
+    t_label, t_approx = _label_t_role(t_shares, samples["T"], approx_flags["T"])
+    ct_shares_pct = {key: value * 100 for key, value in ct_shares.items()}
+    t_shares_pct = {key: value * 100 for key, value in t_shares.items()}
+    return {
+        "ct": {
+            "label": ct_label,
+            "shares": ct_shares_pct,
+            "sample_seconds": SIDE_ROLE_SAMPLE_SECONDS,
+            "samples": samples["CT"],
+            "rounds": len(rounds_seen["CT"]),
+            "approx": ct_approx,
+        },
+        "t": {
+            "label": t_label,
+            "shares": t_shares_pct,
+            "sample_seconds": SIDE_ROLE_SAMPLE_SECONDS,
+            "samples": samples["T"],
+            "rounds": len(rounds_seen["T"]),
+            "approx": t_approx,
+        },
+    }
 
 
 @lru_cache(maxsize=16)
@@ -2468,12 +2617,14 @@ def get_or_build_demo_features(
             "radius": PROXIMITY_RADIUS,
             "window_sec": PROXIMITY_WINDOW_SECONDS,
         }
+        side_roles = _compute_side_roles([])
         payload = {
             "role_fingerprint": role_fingerprint,
             "utility_iq": utility_iq,
             "timing_slices": timing_slices,
             "entry_breakdown": entry_breakdown,
             "kill_support": support_breakdown,
+            "side_roles": side_roles,
             "debug": debug,
             "rounds_total": 0,
             "demos_count": demos_count,
@@ -2525,7 +2676,10 @@ def get_or_build_demo_features(
             progress = progress_start + int((index / max(demos_count, 1)) * span)
             progress_callback(progress)
 
-    events, meta, player_debug, entry_breakdown, support_breakdown = aggregate_player_features(parsed_demos, steam_id)
+    events, meta, player_debug, entry_breakdown, support_breakdown, side_roles = aggregate_player_features(
+        parsed_demos,
+        steam_id,
+    )
     debug.update(
         {
             "player_kills": player_debug.get("player_kills", 0),
@@ -2614,6 +2768,7 @@ def get_or_build_demo_features(
         "multikill": multikill,
         "entry_breakdown": entry_breakdown,
         "kill_support": support_breakdown,
+        "side_roles": side_roles,
         "kda": kda,
         "debug": debug,
         "rounds_total": rounds_total,
