@@ -2629,6 +2629,35 @@ def _site_centers(map_name: str | None, config: dict[str, Any]) -> dict[str, tup
     return centers
 
 
+def _compute_site_centers_from_plants(
+    parsed_demos: list[ParsedDemoEvents],
+    map_name: str | None,
+) -> dict[str, tuple[float, float]]:
+    site_coords: dict[str, list[tuple[float, float]]] = {"A": [], "B": []}
+    for parsed in parsed_demos:
+        if map_name and parsed.map_name and parsed.map_name != map_name:
+            continue
+        for plant in (parsed.bomb_plants_by_round or {}).values():
+            site = normalize_bombsite(plant.get("site") or plant.get("site_raw") or plant.get("site_calc"))
+            if site not in {"A", "B"}:
+                continue
+            x_val = plant.get("x")
+            y_val = plant.get("y")
+            if x_val is None or y_val is None:
+                continue
+            site_coords[site].append((float(x_val), float(y_val)))
+
+    centers: dict[str, tuple[float, float]] = {}
+    for site, coords in site_coords.items():
+        if not coords:
+            continue
+        sum_x = sum(coord[0] for coord in coords)
+        sum_y = sum(coord[1] for coord in coords)
+        count = len(coords)
+        centers[site] = (sum_x / count, sum_y / count)
+    return centers
+
+
 def _distance_to_point(
     x: float | None,
     y: float | None,
@@ -2762,12 +2791,13 @@ def _assign_kill_phase(
     dist_to_a = _distance_to_point(kill_x, kill_y, centers.get("A"))
     dist_to_b = _distance_to_point(kill_x, kill_y, centers.get("B"))
     near_site = any(dist is not None and dist <= R_SITE for dist in (dist_to_a, dist_to_b))
-    site_distances = [dist for dist in (dist_to_a, dist_to_b) if dist is not None]
-    far_from_sites = bool(site_distances) and all(dist >= R_FAR for dist in site_distances)
-    site_zone = _site_zone_from_coords(map_name, kill_x, kill_y, config, centers)
-    in_site_area = site_zone in {"A", "B"} or near_site
+    centers_complete = "A" in centers and "B" in centers
+    far_from_sites = bool(centers_complete and dist_to_a is not None and dist_to_b is not None)
+    if far_from_sites:
+        far_from_sites = dist_to_a >= R_FAR and dist_to_b >= R_FAR
+    in_site_area = near_site
     near_plant = _is_in_plant_area(kill_x, kill_y, plant_xy) if post_plant else False
-    offsite_far = far_from_sites or _is_offsite_far(map_name, kill_x, kill_y, config, centers)
+    offsite_far = far_from_sites
     in_entry_window = kill_time is not None and kill_time <= ENTRY_WINDOW_SEC
 
     if side == "T":
@@ -2777,9 +2807,10 @@ def _assign_kill_phase(
             target_site_dist = dist_to_a
         elif target_site == "B":
             target_site_dist = dist_to_b
-        near_target_site = (
-            target_site_dist is not None and target_site_dist <= R_SITE if target_site else in_site_area
-        )
+        if target_site and target_site_dist is not None:
+            near_target_site = target_site_dist <= R_SITE
+        else:
+            near_target_site = in_site_area
         if not post_plant and near_target_site:
             return "t_execute"
         if post_plant and near_plant:
@@ -2813,6 +2844,7 @@ def compute_kill_output_by_phase(
     kills_by_phase_total = Counter()
     total_kills = 0
     missing_kill_debug: list[dict[str, Any]] = []
+    centers_by_map: dict[str | None, dict[str, tuple[float, float]]] = {}
 
     def is_target_attacker(kill: dict[str, Any]) -> bool:
         if kill.get("attacker_steamid64") == target_id:
@@ -2822,7 +2854,12 @@ def compute_kill_output_by_phase(
     for demo_index, parsed in enumerate(parsed_demos, start=1):
         map_name = parsed.map_name
         config = _load_zone_config(map_name)
-        centers = _site_centers(map_name, config)
+        if map_name in centers_by_map:
+            centers = centers_by_map[map_name]
+        else:
+            plant_centers = _compute_site_centers_from_plants(parsed_demos, map_name)
+            centers = plant_centers or _site_centers(map_name, config)
+            centers_by_map[map_name] = centers
         tick_rate = parsed.tick_rate or 64.0
         seconds_per_sample = (PROXIMITY_SAMPLE_STEP_TICKS / tick_rate) if tick_rate else 0.0
         kills_by_round: dict[int | None, list[dict[str, Any]]] = {}
@@ -2885,16 +2922,22 @@ def compute_kill_output_by_phase(
                     pos_x = pos.get("x")
                     pos_y = pos.get("y")
                     post_plant = _is_post_plant(pos_tick, pos_time, plant_tick, plant_time)
-                    site_zone = _site_zone_from_coords(map_name, pos_x, pos_y, config, centers)
-                    in_site = site_zone in {"A", "B"}
-                    offsite_far = _is_offsite_far(map_name, pos_x, pos_y, config, centers)
+                    dist_to_a = _distance_to_point(pos_x, pos_y, centers.get("A"))
+                    dist_to_b = _distance_to_point(pos_x, pos_y, centers.get("B"))
+                    near_site_a = dist_to_a is not None and dist_to_a <= R_SITE
+                    near_site_b = dist_to_b is not None and dist_to_b <= R_SITE
+                    in_site = near_site_a or near_site_b
+                    centers_complete = "A" in centers and "B" in centers
+                    offsite_far = bool(centers_complete and dist_to_a is not None and dist_to_b is not None)
+                    if offsite_far:
+                        offsite_far = dist_to_a >= R_FAR and dist_to_b >= R_FAR
                     if post_plant:
                         if _is_in_plant_area(pos_x, pos_y, plant_xy):
                             sec_post_plant_area += seconds_per_sample
                         continue
-                    if site_zone == "A":
+                    if near_site_a:
                         sec_pre_site_a += seconds_per_sample
-                    if site_zone == "B":
+                    if near_site_b:
                         sec_pre_site_b += seconds_per_sample
                     if in_site:
                         sec_pre_site_any += seconds_per_sample
