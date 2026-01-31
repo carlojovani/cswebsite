@@ -587,7 +587,11 @@ def ensure_pxt_in_cache(
         "presence_ct_pxt",
         "presence_t_pxt",
         "kills_pxt",
+        "kills_ct_pxt",
+        "kills_t_pxt",
         "deaths_pxt",
+        "deaths_ct_pxt",
+        "deaths_t_pxt",
     }
     dirty = False
     for cache_path in cache_paths:
@@ -602,13 +606,25 @@ def ensure_pxt_in_cache(
                 presence_all_px = cached.get("presence_all_px")
                 presence_all_pxt = cached.get("presence_all_pxt")
                 kills_px = cached.get("kills_px")
+                kills_ct_px = cached.get("kills_ct_px")
+                kills_t_px = cached.get("kills_t_px")
                 kills_pxt = cached.get("kills_pxt")
+                kills_ct_pxt = cached.get("kills_ct_pxt")
+                kills_t_pxt = cached.get("kills_t_pxt")
                 deaths_px = cached.get("deaths_px")
+                deaths_ct_px = cached.get("deaths_ct_px")
+                deaths_t_px = cached.get("deaths_t_px")
                 deaths_pxt = cached.get("deaths_pxt")
+                deaths_ct_pxt = cached.get("deaths_ct_pxt")
+                deaths_t_pxt = cached.get("deaths_t_pxt")
                 if (
                     (presence_all_px is not None and presence_all_px.shape[0] > 0 and presence_all_pxt is not None and presence_all_pxt.shape[0] == 0)
                     or (kills_px is not None and kills_px.shape[0] > 0 and kills_pxt is not None and kills_pxt.shape[0] == 0)
+                    or (kills_ct_px is not None and kills_ct_px.shape[0] > 0 and kills_ct_pxt is not None and kills_ct_pxt.shape[0] == 0)
+                    or (kills_t_px is not None and kills_t_px.shape[0] > 0 and kills_t_pxt is not None and kills_t_pxt.shape[0] == 0)
                     or (deaths_px is not None and deaths_px.shape[0] > 0 and deaths_pxt is not None and deaths_pxt.shape[0] == 0)
+                    or (deaths_ct_px is not None and deaths_ct_px.shape[0] > 0 and deaths_ct_pxt is not None and deaths_ct_pxt.shape[0] == 0)
+                    or (deaths_t_px is not None and deaths_t_px.shape[0] > 0 and deaths_t_pxt is not None and deaths_t_pxt.shape[0] == 0)
                 ):
                     dirty = True
                     break
@@ -674,13 +690,26 @@ def _collect_points_from_cache(
             cache_dir=media_root / "heatmaps_cache",
         )
 
-    points: list[tuple[float, float, float]] = []
     if metric == HeatmapAggregate.METRIC_KILLS:
-        array_key = "kills_px"
-        array_key_time = "kills_pxt"
+        if side == AnalyticsAggregate.SIDE_CT:
+            array_key = "kills_ct_px"
+            array_key_time = "kills_ct_pxt"
+        elif side == AnalyticsAggregate.SIDE_T:
+            array_key = "kills_t_px"
+            array_key_time = "kills_t_pxt"
+        else:
+            array_key = "kills_px"
+            array_key_time = "kills_pxt"
     elif metric == HeatmapAggregate.METRIC_DEATHS:
-        array_key = "deaths_px"
-        array_key_time = "deaths_pxt"
+        if side == AnalyticsAggregate.SIDE_CT:
+            array_key = "deaths_ct_px"
+            array_key_time = "deaths_ct_pxt"
+        elif side == AnalyticsAggregate.SIDE_T:
+            array_key = "deaths_t_px"
+            array_key_time = "deaths_t_pxt"
+        else:
+            array_key = "deaths_px"
+            array_key_time = "deaths_pxt"
     else:
         array_key = {
             AnalyticsAggregate.SIDE_ALL: "presence_all_px",
@@ -694,6 +723,33 @@ def _collect_points_from_cache(
         }.get(side, "presence_all_pxt")
 
     slice_range = parse_time_slice(time_slice)
+    required_keys = {array_key_time if slice_range else array_key}
+    missing_side_keys = False
+    for cache_path in cache_paths:
+        if not cache_path.exists():
+            missing_side_keys = True
+            break
+        try:
+            with np.load(cache_path) as cached:
+                if not required_keys.issubset(set(cached.files)):
+                    missing_side_keys = True
+                    break
+        except Exception:
+            missing_side_keys = True
+            break
+
+    if missing_side_keys:
+        analyzer.build_heatmaps_aggregate(
+            steamid64=steamid64,
+            map_name=map_name,
+            limit=_period_to_limit(period),
+            demos_dir=demos_dir,
+            out_dir=out_dir,
+            cache_dir=media_root / "heatmaps_cache",
+            force=True,
+        )
+
+    points: list[tuple[float, float, float]] = []
     if slice_range:
         meta["time_slice_applied"] = True
         ensure_pxt_in_cache(

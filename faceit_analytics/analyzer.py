@@ -595,77 +595,99 @@ def _extract_points_from_demo(
         if not kills_df.empty
         else None
     )
+    attacker_side_col = (
+        _pick_existing(kills_df, ["attacker_side", "attacker_team", "attackerSide", "attackerTeam"])
+        if not kills_df.empty
+        else None
+    )
+    victim_side_col = (
+        _pick_existing(kills_df, ["victim_side", "victim_team", "victimSide", "victimTeam"])
+        if not kills_df.empty
+        else None
+    )
     kx = _pick_existing(kills_df, ["attacker_X", "attacker_x"]) if not kills_df.empty else None
     ky = _pick_existing(kills_df, ["attacker_Y", "attacker_y"]) if not kills_df.empty else None
     round_kill_col = (
         demo_events._pick_column(kills_df, demo_events.ROUND_COL_CANDIDATES) if not kills_df.empty else None
     )
-    kills_my = _filter_by_steamid_numeric(kills_df, attacker_col, steamid64) if attacker_col else kills_df.iloc[0:0]
-    kill_pts = _world_to_pixel(_to_points_xy(kills_my, kx, ky), map_meta, radar_size) if kx and ky else _empty_points()
-    kills_pxt = _empty_points_time()
-    if not kills_my.empty and kx and ky:
-        kill_t_round = []
-        kill_rows = []
-        for _, row in kills_my.iterrows():
+    def _build_points_with_time(
+        df: pd.DataFrame,
+        x_col: str | None,
+        y_col: str | None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        pts = _world_to_pixel(_to_points_xy(df, x_col, y_col), map_meta, radar_size) if x_col and y_col else _empty_points()
+        pts_time = _empty_points_time()
+        if df.empty or not x_col or not y_col:
+            return pts, pts_time
+        points_rows = []
+        points_t_round = []
+        for _, row in df.iterrows():
             round_number = demo_events._safe_int(row.get(round_kill_col)) if round_kill_col else None
             t_round = demo_events._round_time_seconds(row, round_number, round_start_ticks, round_start_times, tick_rate)
             if t_round is None:
                 continue
-            kill_rows.append(row)
-            kill_t_round.append(float(t_round))
-        if kill_rows:
-            kill_df = pd.DataFrame(kill_rows)
-            kill_df["__t_round"] = kill_t_round
-            kills_pxt = _world_to_pixel_with_time(
+            points_rows.append(row)
+            points_t_round.append(float(t_round))
+        if points_rows:
+            points_df = pd.DataFrame(points_rows)
+            points_df["__t_round"] = points_t_round
+            pts_time = _world_to_pixel_with_time(
                 np.column_stack(
                     [
-                        pd.to_numeric(kill_df[kx], errors="coerce").to_numpy(),
-                        pd.to_numeric(kill_df[ky], errors="coerce").to_numpy(),
-                        pd.to_numeric(kill_df["__t_round"], errors="coerce").to_numpy(),
+                        pd.to_numeric(points_df[x_col], errors="coerce").to_numpy(),
+                        pd.to_numeric(points_df[y_col], errors="coerce").to_numpy(),
+                        pd.to_numeric(points_df["__t_round"], errors="coerce").to_numpy(),
                     ]
                 ).astype(np.float32, copy=False),
                 map_meta,
                 radar_size,
             )
+        return pts, pts_time
+
+    kills_my = _filter_by_steamid_numeric(kills_df, attacker_col, steamid64) if attacker_col else kills_df.iloc[0:0]
+    kill_pts, kills_pxt = _build_points_with_time(kills_my, kx, ky)
+    kills_ct_pts = _empty_points()
+    kills_t_pts = _empty_points()
+    kills_ct_pxt = _empty_points_time()
+    kills_t_pxt = _empty_points_time()
+    if attacker_side_col and not kills_my.empty:
+        side_norm = kills_my[attacker_side_col].map(_normalize_side_value)
+        kills_ct_pts, kills_ct_pxt = _build_points_with_time(kills_my[side_norm == "CT"], kx, ky)
+        kills_t_pts, kills_t_pxt = _build_points_with_time(kills_my[side_norm == "T"], kx, ky)
     if AUTO_OFFSET and (auto_dx or auto_dy):
         kill_pts = _apply_shift(kill_pts, auto_dx, auto_dy, radar_size)
+        kills_ct_pts = _apply_shift(kills_ct_pts, auto_dx, auto_dy, radar_size)
+        kills_t_pts = _apply_shift(kills_t_pts, auto_dx, auto_dy, radar_size)
         if kills_pxt.size:
             kills_pxt[:, :2] = _apply_shift(kills_pxt[:, :2], auto_dx, auto_dy, radar_size)
+        if kills_ct_pxt.size:
+            kills_ct_pxt[:, :2] = _apply_shift(kills_ct_pxt[:, :2], auto_dx, auto_dy, radar_size)
+        if kills_t_pxt.size:
+            kills_t_pxt[:, :2] = _apply_shift(kills_t_pxt[:, :2], auto_dx, auto_dy, radar_size)
 
     victim_col = _pick_existing(kills_df, ["victim_steamid", "victimSteamID"]) if not kills_df.empty else None
     dx = _pick_existing(kills_df, ["victim_X", "victim_x"]) if not kills_df.empty else None
     dy = _pick_existing(kills_df, ["victim_Y", "victim_y"]) if not kills_df.empty else None
     deaths_my = _filter_by_steamid_numeric(kills_df, victim_col, steamid64) if victim_col else kills_df.iloc[0:0]
-    death_pts = _world_to_pixel(_to_points_xy(deaths_my, dx, dy), map_meta, radar_size) if dx and dy else _empty_points()
-    deaths_pxt = _empty_points_time()
-    if not deaths_my.empty and dx and dy:
-        death_t_round = []
-        death_rows = []
-        for _, row in deaths_my.iterrows():
-            round_number = demo_events._safe_int(row.get(round_kill_col)) if round_kill_col else None
-            t_round = demo_events._round_time_seconds(row, round_number, round_start_ticks, round_start_times, tick_rate)
-            if t_round is None:
-                continue
-            death_rows.append(row)
-            death_t_round.append(float(t_round))
-        if death_rows:
-            death_df = pd.DataFrame(death_rows)
-            death_df["__t_round"] = death_t_round
-            deaths_pxt = _world_to_pixel_with_time(
-                np.column_stack(
-                    [
-                        pd.to_numeric(death_df[dx], errors="coerce").to_numpy(),
-                        pd.to_numeric(death_df[dy], errors="coerce").to_numpy(),
-                        pd.to_numeric(death_df["__t_round"], errors="coerce").to_numpy(),
-                    ]
-                ).astype(np.float32, copy=False),
-                map_meta,
-                radar_size,
-            )
+    death_pts, deaths_pxt = _build_points_with_time(deaths_my, dx, dy)
+    deaths_ct_pts = _empty_points()
+    deaths_t_pts = _empty_points()
+    deaths_ct_pxt = _empty_points_time()
+    deaths_t_pxt = _empty_points_time()
+    if victim_side_col and not deaths_my.empty:
+        side_norm = deaths_my[victim_side_col].map(_normalize_side_value)
+        deaths_ct_pts, deaths_ct_pxt = _build_points_with_time(deaths_my[side_norm == "CT"], dx, dy)
+        deaths_t_pts, deaths_t_pxt = _build_points_with_time(deaths_my[side_norm == "T"], dx, dy)
     if AUTO_OFFSET and (auto_dx or auto_dy):
         death_pts = _apply_shift(death_pts, auto_dx, auto_dy, radar_size)
+        deaths_ct_pts = _apply_shift(deaths_ct_pts, auto_dx, auto_dy, radar_size)
+        deaths_t_pts = _apply_shift(deaths_t_pts, auto_dx, auto_dy, radar_size)
         if deaths_pxt.size:
             deaths_pxt[:, :2] = _apply_shift(deaths_pxt[:, :2], auto_dx, auto_dy, radar_size)
+        if deaths_ct_pxt.size:
+            deaths_ct_pxt[:, :2] = _apply_shift(deaths_ct_pxt[:, :2], auto_dx, auto_dy, radar_size)
+        if deaths_t_pxt.size:
+            deaths_t_pxt[:, :2] = _apply_shift(deaths_t_pxt[:, :2], auto_dx, auto_dy, radar_size)
 
     points = {
         "presence_all_px": pts_px,
@@ -675,9 +697,17 @@ def _extract_points_from_demo(
         "presence_ct_pxt": ct_pxt,
         "presence_t_pxt": t_pxt,
         "kills_px": kill_pts,
+        "kills_ct_px": kills_ct_pts,
+        "kills_t_px": kills_t_pts,
         "deaths_px": death_pts,
+        "deaths_ct_px": deaths_ct_pts,
+        "deaths_t_px": deaths_t_pts,
         "kills_pxt": kills_pxt,
+        "kills_ct_pxt": kills_ct_pxt,
+        "kills_t_pxt": kills_t_pxt,
         "deaths_pxt": deaths_pxt,
+        "deaths_ct_pxt": deaths_ct_pxt,
+        "deaths_t_pxt": deaths_t_pxt,
     }
     debug = {
         "auto_offset_px": [int(auto_dx), int(auto_dy)],
@@ -873,14 +903,22 @@ def build_heatmaps_aggregate(
         "presence_ct_px": _empty_points(),
         "presence_t_px": _empty_points(),
         "kills_px": _empty_points(),
+        "kills_ct_px": _empty_points(),
+        "kills_t_px": _empty_points(),
         "deaths_px": _empty_points(),
+        "deaths_ct_px": _empty_points(),
+        "deaths_t_px": _empty_points(),
     }
     required_pxt_keys = {
         "presence_all_pxt": _empty_points_time(),
         "presence_ct_pxt": _empty_points_time(),
         "presence_t_pxt": _empty_points_time(),
         "kills_pxt": _empty_points_time(),
+        "kills_ct_pxt": _empty_points_time(),
+        "kills_t_pxt": _empty_points_time(),
         "deaths_pxt": _empty_points_time(),
+        "deaths_ct_pxt": _empty_points_time(),
+        "deaths_t_pxt": _empty_points_time(),
     }
 
     for dem_path in demo_paths:
@@ -890,13 +928,7 @@ def build_heatmaps_aggregate(
         demo_points = None
         if cache_path.exists() and not force:
             with np.load(cache_path) as cached:
-                required_time_keys = {
-                    "presence_all_pxt",
-                    "presence_ct_pxt",
-                    "presence_t_pxt",
-                    "kills_pxt",
-                    "deaths_pxt",
-                }
+                required_time_keys = set(required_pxt_keys.keys())
                 if not required_time_keys.issubset(set(cached.files)):
                     cache_needs_rebuild = True
                 else:
@@ -908,9 +940,17 @@ def build_heatmaps_aggregate(
                         "presence_ct_pxt": cached.get("presence_ct_pxt", _empty_points_time()),
                         "presence_t_pxt": cached.get("presence_t_pxt", _empty_points_time()),
                         "kills_px": cached.get("kills_px", _empty_points()),
+                        "kills_ct_px": cached.get("kills_ct_px", _empty_points()),
+                        "kills_t_px": cached.get("kills_t_px", _empty_points()),
                         "deaths_px": cached.get("deaths_px", _empty_points()),
+                        "deaths_ct_px": cached.get("deaths_ct_px", _empty_points()),
+                        "deaths_t_px": cached.get("deaths_t_px", _empty_points()),
                         "kills_pxt": cached.get("kills_pxt", _empty_points_time()),
+                        "kills_ct_pxt": cached.get("kills_ct_pxt", _empty_points_time()),
+                        "kills_t_pxt": cached.get("kills_t_pxt", _empty_points_time()),
                         "deaths_pxt": cached.get("deaths_pxt", _empty_points_time()),
+                        "deaths_ct_pxt": cached.get("deaths_ct_pxt", _empty_points_time()),
+                        "deaths_t_pxt": cached.get("deaths_t_pxt", _empty_points_time()),
                     }
                     if (
                         (demo_points["kills_px"].shape[0] > 0 and demo_points["kills_pxt"].shape[0] == 0)
@@ -952,9 +992,17 @@ def build_heatmaps_aggregate(
                 presence_ct_pxt=demo_points["presence_ct_pxt"],
                 presence_t_pxt=demo_points["presence_t_pxt"],
                 kills_px=demo_points["kills_px"],
+                kills_ct_px=demo_points["kills_ct_px"],
+                kills_t_px=demo_points["kills_t_px"],
                 deaths_px=demo_points["deaths_px"],
+                deaths_ct_px=demo_points["deaths_ct_px"],
+                deaths_t_px=demo_points["deaths_t_px"],
                 kills_pxt=demo_points["kills_pxt"],
+                kills_ct_pxt=demo_points["kills_ct_pxt"],
+                kills_t_pxt=demo_points["kills_t_pxt"],
                 deaths_pxt=demo_points["deaths_pxt"],
+                deaths_ct_pxt=demo_points["deaths_ct_pxt"],
+                deaths_t_pxt=demo_points["deaths_t_pxt"],
             )
         if demo_points is None:
             demo_points = {
@@ -965,9 +1013,17 @@ def build_heatmaps_aggregate(
                 "presence_ct_pxt": _empty_points_time(),
                 "presence_t_pxt": _empty_points_time(),
                 "kills_px": _empty_points(),
+                "kills_ct_px": _empty_points(),
+                "kills_t_px": _empty_points(),
                 "deaths_px": _empty_points(),
+                "deaths_ct_px": _empty_points(),
+                "deaths_t_px": _empty_points(),
                 "kills_pxt": _empty_points_time(),
+                "kills_ct_pxt": _empty_points_time(),
+                "kills_t_pxt": _empty_points_time(),
                 "deaths_pxt": _empty_points_time(),
+                "deaths_ct_pxt": _empty_points_time(),
+                "deaths_t_pxt": _empty_points_time(),
             }
 
         presence_all.append(_limit_points(demo_points["presence_all_px"], 15000))
