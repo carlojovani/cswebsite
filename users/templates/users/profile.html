@@ -1,5 +1,3 @@
-﻿[file name]: profile.html
-[file content begin]
 {% extends 'users/base.html' %}
 {% load dict_extras %}
 
@@ -23,9 +21,9 @@
             <h1>{{ profile_user.username }}</h1>
             <div class="profile-badges">
                 {% if profile_user.user_type == 'player' %}
-                    <span class="badge badge-player">РРіСЂРѕРє</span>
+                    <span class="badge badge-player">Игрок</span>
                 {% else %}
-                    <span class="badge badge-team">РљРѕРјР°РЅРґР°</span>
+                    <span class="badge badge-team">Команда</span>
                 {% endif %}
 
                 {% if profile_user.is_superuser %}
@@ -65,7 +63,7 @@
                     Обновить с Faceit
                 </a>
             {% else %}
-                <!-- РРЎРџР РђР’Р›Р•РќРќРђРЇ РЎРўР РћРљРђ: Р·Р°РјРµРЅРёР» edit_team_profile РЅР° edit_profile -->
+                <!-- ИСПРАВЛЕННАЯ СТРОКА: заменил edit_team_profile на edit_profile -->
                 <a href="{% url 'edit_profile' %}" class="btn btn-edit">
                     Редактировать профиль
                 </a>
@@ -131,7 +129,7 @@
 
                         {% if player_profile.region %}
                         <div class="detail-item">
-                            <strong>Р РµРіРёРѕРЅ:</strong> {{ player_profile.region }}
+                            <strong>Регион:</strong> {{ player_profile.region }}
                         </div>
                         {% endif %}
 
@@ -200,7 +198,7 @@
                                 <div class="role-item">
                                     <span>IGL</span>
                                     {% if player_profile.is_igl %}
-                                        <strong class="status-active">Р”Р°</strong>
+                                        <strong class="status-active">Да</strong>
                                     {% else %}
                                         <strong class="status-inactive">Нет</strong>
                                     {% endif %}
@@ -208,7 +206,7 @@
                                 <div class="role-item">
                                     <span>AWP</span>
                                     {% if player_profile.can_awp %}
-                                        <strong class="status-active">Р”Р°</strong>
+                                        <strong class="status-active">Да</strong>
                                     {% else %}
                                         <strong class="status-inactive">Нет</strong>
                                     {% endif %}
@@ -430,6 +428,44 @@
                     {% endif %}
                 </div>
 
+                {% if analytics_metrics.side_roles %}
+                <div class="analytics-card side-roles-card">
+                    <div class="analytics-header">
+                        <h3>Side roles</h3>
+                    </div>
+                    <div class="role-metrics-grid">
+                        {% with ct=analytics_metrics.side_roles.ct %}
+                            {% with a=ct.shares|get_item:"A" mid=ct.shares|get_item:"MID" b=ct.shares|get_item:"B" %}
+                                <div class="role-metric">
+                                    <span>CT роль</span>
+                                    <strong>{{ ct.label }}</strong>
+                                    <div class="role-metric__meta">
+                                        A {{ a|default:0|floatformat:0 }}% · MID {{ mid|default:0|floatformat:0 }}% · B {{ b|default:0|floatformat:0 }}%
+                                    </div>
+                                    {% if ct.approx %}
+                                        <span class="role-chip role-chip--approx">approx</span>
+                                    {% endif %}
+                                </div>
+                            {% endwith %}
+                        {% endwith %}
+                        {% with t=analytics_metrics.side_roles.t %}
+                            {% with a=t.shares|get_item:"A" mid=t.shares|get_item:"MID" b=t.shares|get_item:"B" %}
+                                <div class="role-metric">
+                                    <span>T роль</span>
+                                    <strong>{{ t.label }}</strong>
+                                    <div class="role-metric__meta">
+                                        A {{ a|default:0|floatformat:0 }}% · MID {{ mid|default:0|floatformat:0 }}% · B {{ b|default:0|floatformat:0 }}%
+                                    </div>
+                                    {% if t.approx %}
+                                        <span class="role-chip role-chip--approx">approx</span>
+                                    {% endif %}
+                                </div>
+                            {% endwith %}
+                        {% endwith %}
+                    </div>
+                </div>
+                {% endif %}
+
                 <div class="analytics-card playstyle-card">
                     <div class="analytics-header">
                         <h3>Архетип стиля игры</h3>
@@ -481,7 +517,7 @@
                                     </span>
                                 </div>
                                 <div class="playstyle-entry__row">
-                                    <span>РЎРѕР»Рѕ</span>
+                                    <span>Соло</span>
                                     <strong>
                                         {% if analytics_metrics.playstyle.entry_breakdown.solo_entry_pct != None %}
                                             {{ analytics_metrics.playstyle.entry_breakdown.solo_entry_pct|floatformat:1 }}%
@@ -492,14 +528,26 @@
                                     <span class="playstyle-entry__meta">
                                         по времени:
                                         {% for bucket in time_bucket_labels %}
-                                            {% if analytics_metrics.playstyle.entry_breakdown.solo_by_bucket_pct|get_item:bucket != None %}
-                                                {{ analytics_metrics.playstyle.entry_breakdown.solo_by_bucket_pct|get_item:bucket|floatformat:0 }}%
-                                            {% else %}
-                                                —
-                                            {% endif %}
+                                            {% with val=analytics_metrics.playstyle.entry_breakdown.solo_by_bucket_pct|get_item:bucket %}
+                                                {% if val != None %}
+                                                    {{ val|floatformat:0 }}%
+                                                {% else %}
+                                                    —
+                                                {% endif %}
+                                            {% endwith %}
                                             {% if not forloop.last %}/ {% endif %}
                                         {% endfor %}
                                     </span>
+                                </div>
+                                <div class="playstyle-entry__row">
+                                    <span>Неизвестно</span>
+                                    <strong>
+                                        {% if analytics_metrics.playstyle.entry_breakdown.unknown_entry_pct != None %}
+                                            {{ analytics_metrics.playstyle.entry_breakdown.unknown_entry_pct|floatformat:1 }}%
+                                        {% else %}
+                                            —
+                                        {% endif %}
+                                    </strong>
                                 </div>
                                 <div class="playstyle-entry__row">
                                     <span>С ассистом</span>
@@ -710,17 +758,7 @@
                         {% if analytics_metrics.multikill.by_state %}
                             <div class="multikill-context">
                                 <div class="multikill-context__row">
-                                    <span>T: entry / map control</span>
-                                    <strong>
-                                        1k {{ analytics_metrics.multikill.by_state.t_entry.k1|default:"0" }},
-                                        2k {{ analytics_metrics.multikill.by_state.t_entry.k2|default:"0" }},
-                                        3k {{ analytics_metrics.multikill.by_state.t_entry.k3|default:"0" }},
-                                        4k {{ analytics_metrics.multikill.by_state.t_entry.k4|default:"0" }},
-                                        5k {{ analytics_metrics.multikill.by_state.t_entry.k5|default:"0" }}
-                                    </strong>
-                                </div>
-                                <div class="multikill-context__row">
-                                    <span>T: execute (commit)</span>
+                                    <span>T Execute (до плента)</span>
                                     <strong>
                                         1k {{ analytics_metrics.multikill.by_state.t_execute.k1|default:"0" }},
                                         2k {{ analytics_metrics.multikill.by_state.t_execute.k2|default:"0" }},
@@ -730,27 +768,7 @@
                                     </strong>
                                 </div>
                                 <div class="multikill-context__row">
-                                    <span>T: site hold (pre-plant)</span>
-                                    <strong>
-                                        1k {{ analytics_metrics.multikill.by_state.t_hold.k1|default:"0" }},
-                                        2k {{ analytics_metrics.multikill.by_state.t_hold.k2|default:"0" }},
-                                        3k {{ analytics_metrics.multikill.by_state.t_hold.k3|default:"0" }},
-                                        4k {{ analytics_metrics.multikill.by_state.t_hold.k4|default:"0" }},
-                                        5k {{ analytics_metrics.multikill.by_state.t_hold.k5|default:"0" }}
-                                    </strong>
-                                </div>
-                                <div class="multikill-context__row">
-                                    <span>T: post-plant hold</span>
-                                    <strong>
-                                        1k {{ analytics_metrics.multikill.by_state.t_post_plant.k1|default:"0" }},
-                                        2k {{ analytics_metrics.multikill.by_state.t_post_plant.k2|default:"0" }},
-                                        3k {{ analytics_metrics.multikill.by_state.t_post_plant.k3|default:"0" }},
-                                        4k {{ analytics_metrics.multikill.by_state.t_post_plant.k4|default:"0" }},
-                                        5k {{ analytics_metrics.multikill.by_state.t_post_plant.k5|default:"0" }}
-                                    </strong>
-                                </div>
-                                <div class="multikill-context__row">
-                                    <span>CT: hold (pre-plant)</span>
+                                    <span>CT Hold (до плента)</span>
                                     <strong>
                                         1k {{ analytics_metrics.multikill.by_state.ct_hold.k1|default:"0" }},
                                         2k {{ analytics_metrics.multikill.by_state.ct_hold.k2|default:"0" }},
@@ -760,27 +778,17 @@
                                     </strong>
                                 </div>
                                 <div class="multikill-context__row">
-                                    <span>CT: push (pre-plant)</span>
+                                    <span>T Hold (после плента)</span>
                                     <strong>
-                                        1k {{ analytics_metrics.multikill.by_state.ct_push.k1|default:"0" }},
-                                        2k {{ analytics_metrics.multikill.by_state.ct_push.k2|default:"0" }},
-                                        3k {{ analytics_metrics.multikill.by_state.ct_push.k3|default:"0" }},
-                                        4k {{ analytics_metrics.multikill.by_state.ct_push.k4|default:"0" }},
-                                        5k {{ analytics_metrics.multikill.by_state.ct_push.k5|default:"0" }}
+                                        1k {{ analytics_metrics.multikill.by_state.t_post_plant.k1|default:"0" }},
+                                        2k {{ analytics_metrics.multikill.by_state.t_post_plant.k2|default:"0" }},
+                                        3k {{ analytics_metrics.multikill.by_state.t_post_plant.k3|default:"0" }},
+                                        4k {{ analytics_metrics.multikill.by_state.t_post_plant.k4|default:"0" }},
+                                        5k {{ analytics_metrics.multikill.by_state.t_post_plant.k5|default:"0" }}
                                     </strong>
                                 </div>
                                 <div class="multikill-context__row">
-                                    <span>CT: roam / rotation</span>
-                                    <strong>
-                                        1k {{ analytics_metrics.multikill.by_state.ct_roam.k1|default:"0" }},
-                                        2k {{ analytics_metrics.multikill.by_state.ct_roam.k2|default:"0" }},
-                                        3k {{ analytics_metrics.multikill.by_state.ct_roam.k3|default:"0" }},
-                                        4k {{ analytics_metrics.multikill.by_state.ct_roam.k4|default:"0" }},
-                                        5k {{ analytics_metrics.multikill.by_state.ct_roam.k5|default:"0" }}
-                                    </strong>
-                                </div>
-                                <div class="multikill-context__row">
-                                    <span>CT: retake (post-plant)</span>
+                                    <span>CT Retake (после плента)</span>
                                     <strong>
                                         1k {{ analytics_metrics.multikill.by_state.ct_retake.k1|default:"0" }},
                                         2k {{ analytics_metrics.multikill.by_state.ct_retake.k2|default:"0" }},
@@ -803,7 +811,7 @@
                     {% if analytics_metrics.kill_support %}
                         <div class="analytics-metrics">
                             <div class="analytics-metric">
-                                <span class="metric-label">РЎРѕР»Рѕ</span>
+                                <span class="metric-label">Соло</span>
                                 <strong class="metric-value">
                                     {% if analytics_metrics.kill_support.solo_pct != None %}
                                         {{ analytics_metrics.kill_support.solo_pct|floatformat:1 }}%
@@ -941,14 +949,14 @@
                     </div>
                 </div>
 
-                <!-- РРЅС„РѕСЂРјР°С†РёСЏ Рѕ РїРѕСЃР»РµРґРЅРµРј РѕР±РЅРѕРІР»РµРЅРёРё -->
+                <!-- Информация о последнем обновлении -->
                 {% if player_profile.last_faceit_update %}
                 <div class="update-info">
                     <p>
                         <small>
                             Данные обновлены: {{ player_profile.last_faceit_update|date:"d.m.Y H:i" }}
                             {% if days_since_update %}
-                                ({{ days_since_update }} РґРЅРµР№ РЅР°Р·Р°Рґ)
+                                ({{ days_since_update }} дней назад)
                             {% endif %}
                         </small>
                     </p>
@@ -968,7 +976,7 @@
             {% if team_profile %}
             <div class="team-profile">
                 <div class="team-info">
-                    <h2>РРЅС„РѕСЂРјР°С†РёСЏ Рѕ РєРѕРјР°РЅРґРµ</h2>
+                    <h2>Информация о команде</h2>
 
                     <div class="team-card">
                         <div class="team-main">
@@ -985,18 +993,18 @@
                             <h4>Требования к игрокам:</h4>
                             <div class="requirements-grid">
                                 <div class="requirement-item">
-                                    <strong>РС‰РµРј IGL:</strong>
+                                    <strong>Ищем IGL:</strong>
                                     {% if team_profile.looking_for_igl %}
-                                        <span class="status-active">Р”Р°</span>
+                                        <span class="status-active">Да</span>
                                     {% else %}
                                         <span class="status-inactive">Нет</span>
                                     {% endif %}
                                 </div>
                                 
                                 <div class="requirement-item">
-                                    <strong>РС‰РµРј AWP-РёСЃС‚Р°:</strong>
+                                    <strong>Ищем AWP-иста:</strong>
                                     {% if team_profile.looking_for_awper %}
-                                        <span class="status-active">Р”Р°</span>
+                                        <span class="status-active">Да</span>
                                     {% else %}
                                         <span class="status-inactive">Нет</span>
                                     {% endif %}
@@ -1012,7 +1020,7 @@
                                 </div>
 
                                 <div class="requirement-item">
-                                    <strong>РЎРѕР·РґР°РЅР°:</strong>
+                                    <strong>Создана:</strong>
                                     {{ team_profile.created_date|date:"d.m.Y" }}
                                 </div>
                             </div>
@@ -2192,4 +2200,3 @@
     });
 </script>
 {% endblock %}
-[file content end]

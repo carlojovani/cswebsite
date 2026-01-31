@@ -142,7 +142,7 @@ def test_name_fallback_matching():
         debug={},
     )
 
-    _, _, debug, _entry, _support = demo_events.aggregate_player_features([parsed], str(target_id))
+    _, _, debug, _entry, _support, _side_roles = demo_events.aggregate_player_features([parsed], str(target_id))
     assert debug["player_kills"] == 1
     assert debug["player_deaths"] == 1
     assert debug["target_name"] == "Player"
@@ -246,7 +246,7 @@ def test_global_round_ids_across_demos():
         debug={},
     )
 
-    events, _, _, _, _ = demo_events.aggregate_player_features([parsed_one, parsed_two], str(target_id))
+    events, _, _, _, _, _side_roles = demo_events.aggregate_player_features([parsed_one, parsed_two], str(target_id))
     kill_rounds = {event.get("round") for event in events if event.get("type") == "kill"}
     assert kill_rounds == {1001, 2001}
     assert {event.get("round_num") for event in events if event.get("type") == "kill"} == {1}
@@ -308,12 +308,141 @@ def test_entry_breakdown_assisted_by_proximity():
         debug={},
     )
 
-    _events, _meta, _debug, entry_breakdown, _support = demo_events.aggregate_player_features(
+    _events, _meta, _debug, entry_breakdown, _support, _side_roles = demo_events.aggregate_player_features(
         [parsed], str(target_id)
     )
     assert entry_breakdown["entry_attempts"] == 1
     assert entry_breakdown["assisted_entry_count"] == 1
     assert entry_breakdown["assisted_by_bucket"]["0-15"] == 1
+
+
+def test_has_true_assist_validates_steamid64():
+    kill_invalid = {"attacker": 76561198000000001, "assister": 1}
+    assert demo_events._has_true_assist(kill_invalid) is False
+
+    kill_self = {"attacker": 76561198000000001, "assister": 76561198000000001}
+    assert demo_events._has_true_assist(kill_self) is False
+
+    kill_valid = {"attacker": 76561198000000001, "assister": 76561198000000002}
+    assert demo_events._has_true_assist(kill_valid) is True
+
+
+def test_entry_breakdown_invalid_assister_not_assisted():
+    target_id = 76561198016259349
+    parsed = demo_events.ParsedDemoEvents(
+        kills=[
+            {
+                "round": 1,
+                "time": 5.0,
+                "tick": 100,
+                "attacker": target_id,
+                "attacker_steamid64": target_id,
+                "assister": 1,
+                "assister_steamid64": 1,
+                "victim_steamid64": 111,
+                "attacker_name": "Player",
+                "victim_name": "Enemy",
+                "attacker_side": "T",
+                "victim_side": "CT",
+                "attacker_x": 100.0,
+                "attacker_y": 100.0,
+            },
+        ],
+        flashes=[],
+        utility_damage=[],
+        flash_events_count=0,
+        round_winners={},
+        target_round_sides={1: "T"},
+        rounds_in_demo={1},
+        tick_positions_by_round={
+            1: [
+                {
+                    "time": 4.5,
+                    "tick": 96,
+                    "steamid": target_id,
+                    "x": 100.0,
+                    "y": 100.0,
+                    "is_target": True,
+                    "side": "T",
+                    "health": 100.0,
+                },
+            ]
+        },
+        bomb_plants_by_round={},
+        map_name="de_mirage",
+        tick_rate=128.0,
+        tick_rate_approx=False,
+        missing_time_kills=0,
+        missing_time_flashes=0,
+        missing_time_utility=0,
+        approx_time_kills=0,
+        attacker_none_count=0,
+        attacker_id_sample={"attacker": None, "victim": None},
+        debug={},
+    )
+
+    _events, _meta, _debug, entry_breakdown, _support, _side_roles = demo_events.aggregate_player_features(
+        [parsed], str(target_id)
+    )
+    assert entry_breakdown["assisted_entry_count"] == 0
+    assert entry_breakdown["solo_entry_count"] == 1
+
+
+def test_side_roles_classification():
+    target_id = 76561198016259349
+    ct_positions = [
+        {
+            "time": 10.0,
+            "tick": 100 + idx,
+            "steamid": target_id,
+            "x": 100.0,
+            "y": 100.0,
+            "is_target": True,
+            "side": "CT",
+            "place": "A Site",
+        }
+        for idx in range(25)
+    ]
+    t_positions = [
+        {
+            "time": 12.0,
+            "tick": 200 + idx,
+            "steamid": target_id,
+            "x": 50.0,
+            "y": 50.0,
+            "is_target": True,
+            "side": "T",
+            "place": "Top Mid",
+        }
+        for idx in range(20)
+    ]
+    parsed = demo_events.ParsedDemoEvents(
+        kills=[],
+        flashes=[],
+        utility_damage=[],
+        flash_events_count=0,
+        round_winners={},
+        target_round_sides={},
+        rounds_in_demo={1, 2},
+        tick_positions_by_round={1: ct_positions, 2: t_positions},
+        bomb_plants_by_round={},
+        map_name="de_mirage",
+        tick_rate=128.0,
+        tick_rate_approx=False,
+        missing_time_kills=0,
+        missing_time_flashes=0,
+        missing_time_utility=0,
+        approx_time_kills=0,
+        attacker_none_count=0,
+        attacker_id_sample={"attacker": None, "victim": None},
+        debug={},
+    )
+
+    _events, _meta, _debug, _entry_breakdown, _support, side_roles = demo_events.aggregate_player_features(
+        [parsed], str(target_id)
+    )
+    assert side_roles["ct"]["label"] == "A anchor"
+    assert side_roles["t"]["label"] == "Mid controller"
 
 
 def test_multikill_state_distribution_no_double_count():
@@ -375,7 +504,7 @@ def test_kill_support_proximity_window():
         debug={},
     )
 
-    events, _meta, _debug, _entry_breakdown, support = demo_events.aggregate_player_features(
+    events, _meta, _debug, _entry_breakdown, support, _side_roles = demo_events.aggregate_player_features(
         [parsed], str(target_id)
     )
     kill_event = next(event for event in events if event.get("type") == "kill")
