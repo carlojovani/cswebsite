@@ -54,7 +54,7 @@ def dump(metric_key):
     print("  head(5):", head.tolist())
 
     # only pxt has time col
-    if arr.shape[1] >= 3:
+    if metric_key.endswith("_pxt") and arr.shape[1] >= 3:
         t = arr[:,2]
         t_valid = t[~np.isnan(t)]
         if t_valid.size:
