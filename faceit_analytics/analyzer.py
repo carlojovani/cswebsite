@@ -23,6 +23,7 @@ In that case: use the awpy default radar OR adjust map-data.json scale/pos for y
 from pathlib import Path
 import hashlib
 import json
+import logging
 import math
 import os
 
@@ -34,6 +35,7 @@ from matplotlib import cm
 from awpy import Demo
 
 ANALYZER_VERSION = "radar-smooth-v8-aligned"
+logger = logging.getLogger(__name__)
 
 
 # ----------------------------
@@ -467,14 +469,18 @@ def _extract_points_from_demo(
     round_start_ticks, round_start_times, _round_winners, _rounds = demo_events._build_round_meta(rounds_df)
     tick_rate = demo_events._tick_rate_from_demo(dem)
 
-    ticks_df = dem.ticks.to_pandas()
-    sid_col = _pick_existing(ticks_df, ["steamid", "steamID", "player_steamid", "playerSteamID"])
-    xcol = _pick_existing(ticks_df, ["X", "x", "player_X", "player_x"])
-    ycol = _pick_existing(ticks_df, ["Y", "y", "player_Y", "player_y"])
-    tick_col = _pick_existing(ticks_df, ["tick", "ticks", "tick_num"])
-    round_col = demo_events._pick_column(ticks_df, ["round", "round_num", "round_number"])
+    ticks_df = demo_events._load_demo_dataframe(
+        getattr(dem, "ticks", None),
+        ["steamid", "player_steamid", "playerSteamID"],
+    )
+    ticks_df = ticks_df if ticks_df is not None else pd.DataFrame()
+    sid_col = _pick_existing(ticks_df, ["steamid", "steamID", "player_steamid", "playerSteamID"]) if not ticks_df.empty else None
+    xcol = _pick_existing(ticks_df, ["X", "x", "player_X", "player_x"]) if not ticks_df.empty else None
+    ycol = _pick_existing(ticks_df, ["Y", "y", "player_Y", "player_y"]) if not ticks_df.empty else None
+    tick_col = _pick_existing(ticks_df, ["tick", "ticks", "tick_num"]) if not ticks_df.empty else None
+    round_col = demo_events._pick_column(ticks_df, ["round", "round_num", "round_number"]) if not ticks_df.empty else None
 
-    ticks_my = _filter_by_steamid_numeric(ticks_df, sid_col, steamid64)
+    ticks_my = _filter_by_steamid_numeric(ticks_df, sid_col, steamid64) if sid_col else ticks_df.iloc[0:0]
     low = {c.lower(): c for c in ticks_my.columns}
     if "health" in low:
         hc = low["health"]
@@ -482,13 +488,17 @@ def _extract_points_from_demo(
         if len(alive) > 0:
             ticks_my = alive
 
-    ticks_my = _downsample_by_tick(ticks_my, tick_col)
+    if tick_col:
+        ticks_my = _downsample_by_tick(ticks_my, tick_col)
+    ticks_target_total = int(ticks_my.shape[0])
     t_round_values = []
     valid_rows = []
+    missing_t_round = 0
     for _, row in ticks_my.iterrows():
         round_number = demo_events._safe_int(row.get(round_col)) if round_col else None
         t_round = demo_events._round_time_seconds(row, round_number, round_start_ticks, round_start_times, tick_rate)
         if t_round is None:
+            missing_t_round += 1
             continue
         t_round_values.append(float(t_round))
         valid_rows.append(row)
@@ -499,7 +509,7 @@ def _extract_points_from_demo(
         ticks_my = ticks_my.iloc[0:0]
         ticks_my["__t_round"] = []
 
-    pts_px = _world_to_pixel(_to_points_xy(ticks_my, xcol, ycol), map_meta, radar_size)
+    pts_px = _world_to_pixel(_to_points_xy(ticks_my, xcol, ycol), map_meta, radar_size) if xcol and ycol else _empty_points()
     pts_pxt = _empty_points_time()
     if not ticks_my.empty and xcol and ycol and "__t_round" in ticks_my:
         pts_pxt = _world_to_pixel_with_time(
@@ -564,13 +574,21 @@ def _extract_points_from_demo(
             ct_pxt[:, :2] = _apply_shift(ct_pxt[:, :2], auto_dx, auto_dy, radar_size)
             t_pxt[:, :2] = _apply_shift(t_pxt[:, :2], auto_dx, auto_dy, radar_size)
 
-    kills_df = dem.kills.to_pandas()
-    attacker_col = _pick_existing(kills_df, ["attacker_steamid", "killer_steamid", "attackerSteamID", "killerSteamID"])
-    kx = _pick_existing(kills_df, ["attacker_X", "attacker_x"])
-    ky = _pick_existing(kills_df, ["attacker_Y", "attacker_y"])
-    round_kill_col = demo_events._pick_column(kills_df, ["round", "round_num", "round_number"])
-    kills_my = _filter_by_steamid_numeric(kills_df, attacker_col, steamid64)
-    kill_pts = _world_to_pixel(_to_points_xy(kills_my, kx, ky), map_meta, radar_size)
+    kills_df = demo_events._load_demo_dataframe(
+        getattr(dem, "kills", None),
+        ["attacker_steamid", "victim_steamid", "assister_steamid", "killer_steamid"],
+    )
+    kills_df = kills_df if kills_df is not None else pd.DataFrame()
+    attacker_col = (
+        _pick_existing(kills_df, ["attacker_steamid", "killer_steamid", "attackerSteamID", "killerSteamID"])
+        if not kills_df.empty
+        else None
+    )
+    kx = _pick_existing(kills_df, ["attacker_X", "attacker_x"]) if not kills_df.empty else None
+    ky = _pick_existing(kills_df, ["attacker_Y", "attacker_y"]) if not kills_df.empty else None
+    round_kill_col = demo_events._pick_column(kills_df, ["round", "round_num", "round_number"]) if not kills_df.empty else None
+    kills_my = _filter_by_steamid_numeric(kills_df, attacker_col, steamid64) if attacker_col else kills_df.iloc[0:0]
+    kill_pts = _world_to_pixel(_to_points_xy(kills_my, kx, ky), map_meta, radar_size) if kx and ky else _empty_points()
     kills_pxt = _empty_points_time()
     if not kills_my.empty and kx and ky:
         kill_t_round = []
@@ -601,11 +619,11 @@ def _extract_points_from_demo(
         if kills_pxt.size:
             kills_pxt[:, :2] = _apply_shift(kills_pxt[:, :2], auto_dx, auto_dy, radar_size)
 
-    victim_col = _pick_existing(kills_df, ["victim_steamid", "victimSteamID"])
-    dx = _pick_existing(kills_df, ["victim_X", "victim_x"])
-    dy = _pick_existing(kills_df, ["victim_Y", "victim_y"])
-    deaths_my = _filter_by_steamid_numeric(kills_df, victim_col, steamid64)
-    death_pts = _world_to_pixel(_to_points_xy(deaths_my, dx, dy), map_meta, radar_size)
+    victim_col = _pick_existing(kills_df, ["victim_steamid", "victimSteamID"]) if not kills_df.empty else None
+    dx = _pick_existing(kills_df, ["victim_X", "victim_x"]) if not kills_df.empty else None
+    dy = _pick_existing(kills_df, ["victim_Y", "victim_y"]) if not kills_df.empty else None
+    deaths_my = _filter_by_steamid_numeric(kills_df, victim_col, steamid64) if victim_col else kills_df.iloc[0:0]
+    death_pts = _world_to_pixel(_to_points_xy(deaths_my, dx, dy), map_meta, radar_size) if dx and dy else _empty_points()
     deaths_pxt = _empty_points_time()
     if not deaths_my.empty and dx and dy:
         death_t_round = []
@@ -651,6 +669,9 @@ def _extract_points_from_demo(
     debug = {
         "auto_offset_px": [int(auto_dx), int(auto_dy)],
         "auto_offset_score": float(auto_score),
+        "ticks_target_rows": int(ticks_my.shape[0]),
+        "ticks_target_total": ticks_target_total,
+        "ticks_missing_t_round": int(missing_t_round),
     }
     return points, debug
 
@@ -854,8 +875,7 @@ def build_heatmaps_aggregate(
         cache_path = cache_root / f"{demo_hash}.npz"
         cache_needs_rebuild = force or not cache_path.exists()
         demo_points = None
-        if cache_path.exists():
-            cache_hits += 1
+        if cache_path.exists() and not force:
             with np.load(cache_path) as cached:
                 required_time_keys = {
                     "presence_all_pxt",
@@ -879,11 +899,37 @@ def build_heatmaps_aggregate(
                         "kills_pxt": cached.get("kills_pxt", _empty_points_time()),
                         "deaths_pxt": cached.get("deaths_pxt", _empty_points_time()),
                     }
+                    if (
+                        (demo_points["kills_px"].shape[0] > 0 and demo_points["kills_pxt"].shape[0] == 0)
+                        or (demo_points["deaths_px"].shape[0] > 0 and demo_points["deaths_pxt"].shape[0] == 0)
+                        or (
+                            demo_points["presence_all_px"].shape[0] > 0
+                            and demo_points["presence_all_pxt"].shape[0] == 0
+                        )
+                    ):
+                        cache_needs_rebuild = True
+                        demo_points = None
+        if demo_points is not None and not cache_needs_rebuild:
+            cache_hits += 1
         if cache_needs_rebuild:
-            demo_points, _ = _extract_points_from_demo(dem_path, steamid64, meta, (w, h), map_mask_L)
+            demo_points, debug = _extract_points_from_demo(dem_path, steamid64, meta, (w, h), map_mask_L)
             for key, default_value in {**required_px_keys, **required_pxt_keys}.items():
                 if key not in demo_points or demo_points[key] is None:
                     demo_points[key] = default_value
+            if debug.get("ticks_target_total", 0) and demo_points["presence_all_px"].shape[0] == 0:
+                logger.warning(
+                    "Presence heatmap empty for %s despite %s ticks for steamid=%s",
+                    dem_path.name,
+                    debug.get("ticks_target_total"),
+                    steamid64,
+                )
+            if demo_points["kills_px"].shape[0] > 0 and demo_points["kills_pxt"].shape[0] == 0:
+                logger.warning(
+                    "Kill heatmap time data missing for %s (kills_px=%s, kills_pxt=0) steamid=%s",
+                    dem_path.name,
+                    demo_points["kills_px"].shape[0],
+                    steamid64,
+                )
             np.savez_compressed(
                 cache_path,
                 presence_all_px=demo_points["presence_all_px"],

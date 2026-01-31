@@ -50,7 +50,8 @@ PROXIMITY_SAMPLE_STEP_TICKS = int(getattr(settings, "PROXIMITY_SAMPLE_STEP_TICKS
 PUSH_DISTANCE = float(getattr(settings, "PUSH_DISTANCE", 1600.0))
 STEAMID64_MIN_VALUE = 7_000_000_000_000_000
 SIDE_ROLE_SAMPLE_SECONDS = 30.0
-SIDE_ROLE_MIN_SAMPLES = 20
+SIDE_ROLE_MIN_SAMPLES = 10
+SIDE_ROLE_APPROX_SAMPLES = 20
 
 KILLS_STEAMID_COLUMNS = ["attacker_steamid", "victim_steamid", "assister_steamid"]
 UTIL_DAMAGE_STEAMID_COLUMNS = ["attacker_steamid", "victim_steamid"]
@@ -111,8 +112,21 @@ def _has_true_assist(kill: dict[str, Any]) -> bool:
     if not _is_valid_steamid64(assister):
         return False
     if not _is_valid_steamid64(attacker):
-        return True
+        return False
     return int(assister) != int(attacker)
+
+
+def _align_round_number(rn: int | None, mapping: dict[int, Any]) -> int | None:
+    if rn is None:
+        return None
+    if rn in mapping:
+        return rn
+    if isinstance(rn, int):
+        if (rn - 1) in mapping:
+            return rn - 1
+        if (rn + 1) in mapping:
+            return rn + 1
+    return rn
 
 def _read_parquet_with_steamid_strings(parquet_path: Path, steam_cols: Iterable[str]) -> pd.DataFrame:
     table = pq.read_table(parquet_path)
@@ -476,8 +490,11 @@ def _round_time_seconds(
             time_value = _safe_float(value)
             break
 
-    if round_number is not None and time_value is not None:
-        start_time = round_start_times.get(round_number)
+    mapping = round_start_times if round_start_times else round_start_ticks
+    aligned_round = _align_round_number(round_number, mapping)
+
+    if aligned_round is not None and time_value is not None:
+        start_time = round_start_times.get(aligned_round)
         if start_time is not None:
             return time_value - start_time
 
@@ -488,8 +505,8 @@ def _round_time_seconds(
             tick_value = _safe_int(value)
             break
 
-    if round_number is not None and tick_value is not None:
-        start_tick = round_start_ticks.get(round_number)
+    if aligned_round is not None and tick_value is not None:
+        start_tick = round_start_ticks.get(aligned_round)
         if start_tick is not None and tick_rate:
             return (tick_value - start_tick) / tick_rate
 
@@ -538,11 +555,11 @@ def _extract_tick_positions(
     round_start_ticks: dict[int, int],
     round_start_times: dict[int, float],
     tick_rate: float,
-) -> dict[int, list[dict[str, Any]]]:
+) -> tuple[dict[int, list[dict[str, Any]]], int]:
     if ticks_df is None or ticks_df.empty:
-        return {}
+        return {}, 0
     if not target_round_sides:
-        return {}
+        return {}, 0
     steamid_col = _pick_column(ticks_df, ["steamid", "steamID", "player_steamid", "playerSteamID"])
     round_col = _pick_column(ticks_df, ["round", "round_num", "round_number"])
     side_col = _pick_column(ticks_df, ["side", "player_side", "playerSide"])
@@ -552,10 +569,11 @@ def _extract_tick_positions(
     place_col = _pick_column(ticks_df, ["place", "place_name", "placeName", "area_name", "areaName"])
     health_col = _pick_column(ticks_df, ["health", "hp", "player_health", "playerHP"])
     if not steamid_col or not round_col or not side_col or not x_col or not y_col:
-        return {}
+        return {}, 0
     ticks_df = _downsample_ticks_df(ticks_df, tick_col, PROXIMITY_SAMPLE_STEP_TICKS)
     positions_by_round: dict[int, list[dict[str, Any]]] = {}
     target_id = normalize_steamid64(target_steam_id) if target_steam_id else None
+    missing_t_round = 0
     for _, row in ticks_df.iterrows():
         round_number = _safe_int(row.get(round_col))
         if round_number is None:
@@ -569,6 +587,7 @@ def _extract_tick_positions(
             continue
         t_round = _round_time_seconds(row, round_number, round_start_ticks, round_start_times, tick_rate)
         if t_round is None:
+            missing_t_round += 1
             continue
         x_val = _safe_float(row.get(x_col))
         y_val = _safe_float(row.get(y_col))
@@ -590,7 +609,7 @@ def _extract_tick_positions(
                 "health": float(health_val) if health_val is not None else None,
             }
         )
-    return positions_by_round
+    return positions_by_round, missing_t_round
 
 
 def _extract_bomb_events(
@@ -803,39 +822,41 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
         attacker_col = _pick_column(
             kills_df,
             [
-                "killer",
-                "attacker",
                 "killer_steamid",
                 "attacker_steamid",
+                "attackerSteamID64",
+                "killerSteamID64",
                 "killerSteamID",
                 "killerSteamId",
                 "attackerSteamID",
                 "attackerSteamId",
-                "attackerSteamID64",
-                "killerSteamID64",
+                "killer",
+                "attacker",
             ],
         )
         victim_col = _pick_column(
             kills_df,
             [
-                "victim",
                 "victim_steamid",
+                "victimSteamID64",
                 "victimSteamID",
                 "victimSteamId",
-                "victimSteamID64",
+                "victim",
             ],
         )
         assister_col = _pick_column(
             kills_df,
             [
-                "assister",
-                "assist",
                 "assister_steamid",
                 "assistant_steamid",
+                "assisterSteamID64",
+                "assistantSteamID64",
                 "assisterSteamID",
                 "assisterSteamId",
                 "assistantSteamID",
                 "assistantSteamId",
+                "assister",
+                "assist",
             ],
         )
         attacker_name_col = _pick_column(kills_df, ["attacker_name", "killer_name"])
@@ -1090,7 +1111,7 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
     target_round_sides = (
         _extract_player_round_sides_from_ticks(ticks_df, target_steam_id) if target_steam_id else {}
     )
-    tick_positions_by_round = _extract_tick_positions(
+    tick_positions_by_round, ticks_missing_t_round = _extract_tick_positions(
         ticks_df,
         target_round_sides,
         target_steam_id,
@@ -1098,6 +1119,7 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
         round_start_times,
         tick_rate,
     )
+    debug_payload["ticks_missing_t_round"] = ticks_missing_t_round
     (
         bomb_plants_by_round,
         bomb_events_by_round,
@@ -2215,6 +2237,7 @@ def _side_role_shares(counts: Counter[str]) -> dict[str, float]:
 def _label_ct_role(shares: dict[str, float], samples: int, approx: bool) -> tuple[str, bool]:
     if samples < SIDE_ROLE_MIN_SAMPLES:
         return "Unknown", True
+    approx = approx or samples < SIDE_ROLE_APPROX_SAMPLES
     share_a = shares.get("A", 0.0)
     share_b = shares.get("B", 0.0)
     share_mid = shares.get("MID", 0.0)
@@ -2233,6 +2256,7 @@ def _label_ct_role(shares: dict[str, float], samples: int, approx: bool) -> tupl
 def _label_t_role(shares: dict[str, float], samples: int, approx: bool) -> tuple[str, bool]:
     if samples < SIDE_ROLE_MIN_SAMPLES:
         return "Unknown", True
+    approx = approx or samples < SIDE_ROLE_APPROX_SAMPLES
     share_a = shares.get("A", 0.0)
     share_b = shares.get("B", 0.0)
     share_mid = shares.get("MID", 0.0)
@@ -2486,26 +2510,37 @@ def compute_multikill_metrics(events: list[dict[str, Any]], map_name: str | None
             continue
         sorted_kills = sorted(round_kills, key=lambda k: k.get("time") or 0)
         total_kills_round = len(sorted_kills)
-        if total_kills_round >= 2:
-            multikill_events += 1
-            rounds_with_multikill.add(round_number)
-            start_time = float(sorted_kills[0].get("time") or 0)
-            key = "early" if start_time <= MULTIKILL_EARLY_THRESHOLD_SEC else "late"
-            timing_breakdown[key] += 1
-            zone = _kill_zone(sorted_kills[0], map_name)
-            zone_breakdown[zone] = zone_breakdown.get(zone, 0) + 1
         if total_kills_round >= 5:
             ace_rounds += 1
-        per_state_counts = {key: 0 for key in state_counts.keys()}
-        for kill in sorted_kills:
-            phase = kill.get("phase")
-            if phase in per_state_counts:
-                per_state_counts[phase] += 1
-        for phase, count in per_state_counts.items():
-            if count <= 0:
-                continue
-            streak_key = f"k{min(count, 5)}"
-            state_counts[phase][streak_key] += 1
+
+        best_count = 0
+        best_start_index = 0
+        left = 0
+        for right in range(total_kills_round):
+            while left <= right:
+                start_time = float(sorted_kills[left].get("time") or 0)
+                end_time = float(sorted_kills[right].get("time") or 0)
+                if end_time - start_time <= MULTIKILL_WINDOW_SEC:
+                    break
+                left += 1
+            window_count = right - left + 1
+            if window_count > best_count:
+                best_count = window_count
+                best_start_index = left
+
+        if best_count >= 2:
+            multikill_events += 1
+            rounds_with_multikill.add(round_number)
+            window_start_kill = sorted_kills[best_start_index]
+            start_time = float(window_start_kill.get("time") or 0)
+            key = "early" if start_time <= MULTIKILL_EARLY_THRESHOLD_SEC else "late"
+            timing_breakdown[key] += 1
+            zone = _kill_zone(window_start_kill, map_name)
+            zone_breakdown[zone] = zone_breakdown.get(zone, 0) + 1
+            phase = window_start_kill.get("phase")
+            if phase in state_counts:
+                streak_key = f"k{min(best_count, 5)}"
+                state_counts[phase][streak_key] += 1
 
     rounds_total = _rounds_from_events(events)
     total_kills = len(kills)

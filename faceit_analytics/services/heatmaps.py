@@ -599,6 +599,19 @@ def ensure_pxt_in_cache(
                 if not required_time_keys.issubset(set(cached.files)):
                     dirty = True
                     break
+                presence_all_px = cached.get("presence_all_px")
+                presence_all_pxt = cached.get("presence_all_pxt")
+                kills_px = cached.get("kills_px")
+                kills_pxt = cached.get("kills_pxt")
+                deaths_px = cached.get("deaths_px")
+                deaths_pxt = cached.get("deaths_pxt")
+                if (
+                    (presence_all_px is not None and presence_all_px.shape[0] > 0 and presence_all_pxt is not None and presence_all_pxt.shape[0] == 0)
+                    or (kills_px is not None and kills_px.shape[0] > 0 and kills_pxt is not None and kills_pxt.shape[0] == 0)
+                    or (deaths_px is not None and deaths_px.shape[0] > 0 and deaths_pxt is not None and deaths_pxt.shape[0] == 0)
+                ):
+                    dirty = True
+                    break
         except Exception:
             dirty = True
             break
