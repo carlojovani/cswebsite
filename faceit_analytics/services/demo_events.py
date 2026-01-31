@@ -56,7 +56,7 @@ SITE_DISTANCE_RADIUS = 650.0
 POSTPLANT_DISTANCE_RADIUS = 600.0
 R_SITE = 650.0
 R_PLANT = 600.0
-R_FAR = 900.0
+R_FAR = 1000.0
 ENTRY_WINDOW_SEC = 30.0
 MIN_SEC_IN_AREA = 4.0
 ROUND_COL_CANDIDATES = ["round", "round_num", "round_number", "roundNum", "roundNumber", "roundnum"]
@@ -1445,12 +1445,18 @@ def _kill_phase(
         post_plant = kill_time >= float(plant_time)
     approx = plant_tick is None and plant_time is None
     no_plant = plant_tick is None and plant_time is None
+    centers = _site_centers(map_name, config)
+    dist_to_a = _distance_to_point(kill_x, kill_y, centers.get("A"))
+    dist_to_b = _distance_to_point(kill_x, kill_y, centers.get("B"))
+    near_site = any(dist is not None and dist <= SITE_DISTANCE_RADIUS for dist in (dist_to_a, dist_to_b))
+    site_distances = [dist for dist in (dist_to_a, dist_to_b) if dist is not None]
+    far_from_sites = bool(site_distances) and all(dist >= R_FAR for dist in site_distances)
+    zone_from_coords = _zone_from_coords(map_name, kill_x, kill_y, config)
+    if zone_from_coords in {"A", "B"}:
+        near_site = True
+    if not site_distances and _is_offsite_far(map_name, kill_x, kill_y, config, centers):
+        far_from_sites = True
     site_hint = objective_site or (bomb_info.get("site") if bomb_info else None)
-
-    def _distance_to_center(center: tuple[float, float] | None) -> float | None:
-        if center is None or kill_x is None or kill_y is None:
-            return None
-        return math.hypot(float(kill_x) - center[0], float(kill_y) - center[1])
 
     if post_plant:
         center = None
@@ -1459,11 +1465,7 @@ def _kill_phase(
             bomb_y = bomb_info.get("y")
             if bomb_x is not None and bomb_y is not None:
                 center = (float(bomb_x), float(bomb_y))
-        if center is None and site_hint:
-            center = _site_center_world(map_name, site_hint, config)
-            if center is not None:
-                approx = True
-        dist = _distance_to_center(center)
+        dist = _distance_to_point(kill_x, kill_y, center)
         if kill_side == "T":
             if dist is not None and dist <= POSTPLANT_DISTANCE_RADIUS:
                 return "t_post_plant", approx, no_plant, False
@@ -1474,12 +1476,16 @@ def _kill_phase(
             return "ct_push", approx, no_plant, False
         return None, True, False, False
 
-    site_center = _site_center_world(map_name, site_hint, config) if site_hint else None
-    if site_center is None:
-        approx = True
-    dist = _distance_to_center(site_center)
     if kill_side == "T":
-        if dist is not None and dist <= SITE_DISTANCE_RADIUS:
+        target_site_dist = None
+        if site_hint == "A":
+            target_site_dist = dist_to_a
+        elif site_hint == "B":
+            target_site_dist = dist_to_b
+        near_target_site = (
+            target_site_dist is not None and target_site_dist <= SITE_DISTANCE_RADIUS if site_hint else near_site
+        )
+        if near_target_site:
             if kill_time is not None and kill_time <= ENTRY_PHASE_MAX_SECONDS:
                 return "t_execute", approx, no_plant, False
             if anchor_time is not None and kill_time is not None:
@@ -1488,9 +1494,11 @@ def _kill_phase(
             return "t_hold", approx, no_plant, False
         return "t_entry", approx, no_plant, False
     if kill_side == "CT":
-        if dist is None:
-            return "ct_roam", True, no_plant, True
-        return ("ct_hold" if dist <= SITE_DISTANCE_RADIUS else "ct_push"), approx, no_plant, False
+        if near_site:
+            return "ct_hold", approx, no_plant, False
+        if far_from_sites:
+            return "ct_push", approx, no_plant, False
+        return "ct_roam", approx, no_plant, not centers
     return None, True, False, False
 
 
@@ -2441,19 +2449,90 @@ def _pixel_to_world(
         return float(px), float(py)
 
 
-def _site_center_world(map_name: str | None, site_key: str | None, config: dict[str, Any]) -> tuple[float, float] | None:
-    if not map_name or not site_key or not config:
+def _center_from_points(points: list[tuple[float, float]]) -> tuple[float, float] | None:
+    if not points:
         return None
-    center_norm = (config.get("site_center_norm") or {}).get(site_key)
-    if not center_norm or not isinstance(center_norm, (list, tuple)) or len(center_norm) != 2:
+    xs, ys = zip(*points)
+    return (sum(xs) / len(xs), sum(ys) / len(ys))
+
+
+def _center_from_norm(
+    map_name: str | None,
+    norm: tuple[float, float] | list[float] | None,
+) -> tuple[float, float] | None:
+    if not map_name or not norm or len(norm) != 2:
         return None
     meta = _radar_meta(map_name)
     if not meta:
         return None
     radar_size, radar_meta = meta
-    px = float(center_norm[0]) * float(radar_size[0])
-    py = float(center_norm[1]) * float(radar_size[1])
+    px = float(norm[0]) * float(radar_size[0])
+    py = float(norm[1]) * float(radar_size[1])
     return _pixel_to_world(px, py, radar_size, radar_meta)
+
+
+def _maybe_point(value: Any) -> tuple[float, float] | None:
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        return None
+    try:
+        return (float(value[0]), float(value[1]))
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_normalized_point(point: tuple[float, float]) -> bool:
+    return 0.0 <= point[0] <= 1.0 and 0.0 <= point[1] <= 1.0
+
+
+def _center_from_polygon_config(
+    map_name: str | None,
+    config: dict[str, Any],
+    site_key: str,
+) -> tuple[float, float] | None:
+    polygons = (config.get("site_polygons") or {}).get(site_key)
+    if polygons:
+        points: list[tuple[float, float]] = []
+        for poly in polygons:
+            for pt in poly:
+                parsed = _maybe_point(pt)
+                if parsed:
+                    points.append(parsed)
+        return _center_from_points(points)
+    polygons_norm = (config.get("site_polygons_norm") or {}).get(site_key)
+    if not polygons_norm:
+        return None
+    points_norm: list[tuple[float, float]] = []
+    for poly in polygons_norm:
+        for pt in poly:
+            parsed = _maybe_point(pt)
+            if parsed:
+                points_norm.append(parsed)
+    if not points_norm:
+        return None
+    if not map_name:
+        return None
+    points_world = []
+    for pt in points_norm:
+        world = _center_from_norm(map_name, pt)
+        if world:
+            points_world.append(world)
+    return _center_from_points(points_world)
+
+
+def _site_center_world(map_name: str | None, site_key: str | None, config: dict[str, Any]) -> tuple[float, float] | None:
+    if not map_name or not site_key or not config:
+        return None
+    raw_center = (config.get("site_centers") or {}).get(site_key)
+    center = _maybe_point(raw_center)
+    if center is not None:
+        if _is_normalized_point(center):
+            return _center_from_norm(map_name, center)
+        return center
+    center = _center_from_polygon_config(map_name, config, site_key)
+    if center is not None:
+        return center
+    center_norm = (config.get("site_center_norm") or {}).get(site_key)
+    return _center_from_norm(map_name, center_norm)
 
 
 def _ct_hold_state(
@@ -2464,27 +2543,19 @@ def _ct_hold_state(
     objective_site: str | None,
 ) -> tuple[str, bool, bool]:
     config = _load_zone_config(map_name)
-    center = None
-    approx = False
-    if bomb_info:
-        bomb_x = bomb_info.get("x")
-        bomb_y = bomb_info.get("y")
-        if bomb_x is not None and bomb_y is not None:
-            center = (float(bomb_x), float(bomb_y))
-        else:
-            approx = True
-
-    site_hint = _safe_str(objective_site) if objective_site else None
-    if center is None and site_hint:
-        center = _site_center_world(map_name, site_hint, config)
-        if center is not None:
-            approx = True
-
-    if center is None or kill_x is None or kill_y is None:
+    centers = _site_centers(map_name, config)
+    dist_to_a = _distance_to_point(kill_x, kill_y, centers.get("A"))
+    dist_to_b = _distance_to_point(kill_x, kill_y, centers.get("B"))
+    approx = not centers
+    center_missing = not centers
+    if dist_to_a is None and dist_to_b is None:
         return "ct_roam", True, True
-
-    dist = math.hypot(float(kill_x) - center[0], float(kill_y) - center[1])
-    return ("ct_hold" if dist <= PUSH_DISTANCE else "ct_push"), approx, False
+    if any(dist is not None and dist <= R_SITE for dist in (dist_to_a, dist_to_b)):
+        return "ct_hold", approx, center_missing
+    site_distances = [dist for dist in (dist_to_a, dist_to_b) if dist is not None]
+    if site_distances and all(dist >= R_FAR for dist in site_distances):
+        return "ct_push", approx, center_missing
+    return "ct_roam", approx, center_missing
 
 
 def _ct_position_state(
@@ -2549,6 +2620,8 @@ def _kill_zone(kill: dict[str, Any], map_name: str | None) -> str:
 
 def _site_centers(map_name: str | None, config: dict[str, Any]) -> dict[str, tuple[float, float]]:
     centers: dict[str, tuple[float, float]] = {}
+    if not map_name or not config:
+        return centers
     for site_key in ("A", "B"):
         center = _site_center_world(map_name, site_key, config)
         if center is not None:
@@ -2671,6 +2744,7 @@ def _assign_kill_phase(
     config: dict[str, Any],
     centers: dict[str, tuple[float, float]],
     plant_info: dict[str, Any] | None,
+    objective_site: str | None,
 ) -> str:
     kill_time = kill.get("time")
     kill_tick = kill.get("tick")
@@ -2685,25 +2759,39 @@ def _assign_kill_phase(
         if plant_x is not None and plant_y is not None:
             plant_xy = (float(plant_x), float(plant_y))
     post_plant = _is_post_plant(kill_tick, kill_time, plant_tick, plant_time)
+    dist_to_a = _distance_to_point(kill_x, kill_y, centers.get("A"))
+    dist_to_b = _distance_to_point(kill_x, kill_y, centers.get("B"))
+    near_site = any(dist is not None and dist <= R_SITE for dist in (dist_to_a, dist_to_b))
+    site_distances = [dist for dist in (dist_to_a, dist_to_b) if dist is not None]
+    far_from_sites = bool(site_distances) and all(dist >= R_FAR for dist in site_distances)
     site_zone = _site_zone_from_coords(map_name, kill_x, kill_y, config, centers)
-    in_site_area = site_zone in {"A", "B"}
+    in_site_area = site_zone in {"A", "B"} or near_site
     near_plant = _is_in_plant_area(kill_x, kill_y, plant_xy) if post_plant else False
-    offsite_far = _is_offsite_far(map_name, kill_x, kill_y, config, centers)
+    offsite_far = far_from_sites or _is_offsite_far(map_name, kill_x, kill_y, config, centers)
     in_entry_window = kill_time is not None and kill_time <= ENTRY_WINDOW_SEC
 
     if side == "T":
-        if not post_plant and in_site_area:
+        target_site = objective_site if objective_site in {"A", "B"} else None
+        target_site_dist = None
+        if target_site == "A":
+            target_site_dist = dist_to_a
+        elif target_site == "B":
+            target_site_dist = dist_to_b
+        near_target_site = (
+            target_site_dist is not None and target_site_dist <= R_SITE if target_site else in_site_area
+        )
+        if not post_plant and near_target_site:
             return "t_execute"
         if post_plant and near_plant:
             return "t_postplant_hold"
         if in_entry_window and offsite_far:
             return "t_entry"
     if side == "CT":
-        if not post_plant and in_site_area:
-            return "ct_hold"
         if post_plant and near_plant:
             return "ct_retake"
-        if not post_plant and offsite_far:
+        if not post_plant and in_site_area:
+            return "ct_hold"
+        if not post_plant and far_from_sites:
             return "ct_push"
     return "other"
 
@@ -2840,7 +2928,7 @@ def compute_kill_output_by_phase(
                 round_counts = round_kill_counts.setdefault(round_key, Counter())
                 for kill in round_kills:
                     kill_side = target_side or _normalize_side(kill.get("attacker_side"))
-                    phase = _assign_kill_phase(kill, kill_side, map_name, config, centers, plant_info)
+                    phase = _assign_kill_phase(kill, kill_side, map_name, config, centers, plant_info, objective_site)
                     round_counts[phase] += 1
                     kills_by_phase_total[phase] += 1
                     opportunity[phase].add(round_key)
@@ -2848,7 +2936,7 @@ def compute_kill_output_by_phase(
         if None in kills_by_round:
             for kill in kills_by_round.get(None, []):
                 kill_side = _normalize_side(kill.get("attacker_side"))
-                phase = _assign_kill_phase(kill, kill_side, map_name, config, centers, {})
+                phase = _assign_kill_phase(kill, kill_side, map_name, config, centers, {}, None)
                 kills_by_phase_total[phase] += 1
 
     for phase in phases:
