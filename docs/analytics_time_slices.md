@@ -25,17 +25,28 @@ When `time_from` / `time_to` are passed, the API builds a normalized slice label
 
 ## Execute vs Hold (multi-kills)
 
-Multi-kill streaks are now classified by **context**:
+Multi-kill streaks are classified by **phase** with a professional execute/hold model:
 
-* **Execute** — kills on A/B (or ENTRY) during early phase, or within
-  `ENTRY_HOLD_DELAY_SECONDS` after the first on-site kill in the round.
-* **Hold** — later on-site kills (or any late streak when no entry window is detected).
+### T-side phases
 
-This is a heuristic driven by round time + A/B zone detection (from `place_map`/bbox).
-If plant events are available in the future, the same interface supports stronger signals.
+* **T: entry / map control (`t_entry`)** — kills away from the objective or before a site is identified.
+* **T: execute (commit) (`t_execute`)** — early on-site kills, or within
+  `ENTRY_HOLD_DELAY_SECONDS` of the first on-site kill in the round.
+* **T: site hold (pre-plant) (`t_hold`)** — later on-site kills before the plant.
+* **T: post-plant (`t_post_plant`)** — all post-plant kills.
 
-For each context we store counts for `k2`, `k3`, `k4`, `k5` (2k–5k) and the same
-breakdown per side (T/CT) when available.
+### CT-side phases
+
+* **CT: hold (pre-plant) (`ct_hold`)** — defending within the site hold radius.
+* **CT: push (pre-plant) (`ct_push`)** — defensive pushes away from the hold radius.
+* **CT: roam / rotation (`ct_roam`)** — no reliable objective center (no plant + no inferred site).
+* **CT: retake (post-plant) (`ct_retake`)** — all post-plant kills.
+
+Objective site comes from bomb plant coordinates when available. Otherwise, we infer it
+from the player's earliest on-site kill using zones (`place_map` + `site_places`).
+
+For each phase we store counts for `k2`, `k3`, `k4`, `k5` (2k–5k), and the same
+breakdown per side when available.
 
 ## Assisted vs Solo entry (playstyle)
 

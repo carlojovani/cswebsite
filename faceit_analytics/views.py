@@ -403,6 +403,18 @@ def _heatmap_response(request, profile: PlayerProfile) -> JsonResponse:
             if time_meta.get("missing_time_data_reason"):
                 response["status"] = "processing"
                 return JsonResponse(to_jsonable(response))
+        if (
+            aggregate
+            and not force_regen
+            and (aggregate.max_value is None or aggregate.max_value <= 0)
+            and time_meta is not None
+            and time_meta.get("points_total", 0) > 0
+        ):
+            force_regen = True
+            try:
+                cache.delete(cache_key)
+            except Exception:
+                pass
 
     if not force_regen:
         try:
