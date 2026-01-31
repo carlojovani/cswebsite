@@ -710,7 +710,17 @@
                         {% if analytics_metrics.multikill.by_state %}
                             <div class="multikill-context">
                                 <div class="multikill-context__row">
-                                    <span>T Execute (до плента)</span>
+                                    <span>T: entry / map control</span>
+                                    <strong>
+                                        1k {{ analytics_metrics.multikill.by_state.t_entry.k1|default:"0" }},
+                                        2k {{ analytics_metrics.multikill.by_state.t_entry.k2|default:"0" }},
+                                        3k {{ analytics_metrics.multikill.by_state.t_entry.k3|default:"0" }},
+                                        4k {{ analytics_metrics.multikill.by_state.t_entry.k4|default:"0" }},
+                                        5k {{ analytics_metrics.multikill.by_state.t_entry.k5|default:"0" }}
+                                    </strong>
+                                </div>
+                                <div class="multikill-context__row">
+                                    <span>T: execute (commit)</span>
                                     <strong>
                                         1k {{ analytics_metrics.multikill.by_state.t_execute.k1|default:"0" }},
                                         2k {{ analytics_metrics.multikill.by_state.t_execute.k2|default:"0" }},
@@ -720,17 +730,17 @@
                                     </strong>
                                 </div>
                                 <div class="multikill-context__row">
-                                    <span>CT Hold (до плента)</span>
+                                    <span>T: site hold (pre-plant)</span>
                                     <strong>
-                                        1k {{ analytics_metrics.multikill.by_state.ct_hold.k1|default:"0" }},
-                                        2k {{ analytics_metrics.multikill.by_state.ct_hold.k2|default:"0" }},
-                                        3k {{ analytics_metrics.multikill.by_state.ct_hold.k3|default:"0" }},
-                                        4k {{ analytics_metrics.multikill.by_state.ct_hold.k4|default:"0" }},
-                                        5k {{ analytics_metrics.multikill.by_state.ct_hold.k5|default:"0" }}
+                                        1k {{ analytics_metrics.multikill.by_state.t_hold.k1|default:"0" }},
+                                        2k {{ analytics_metrics.multikill.by_state.t_hold.k2|default:"0" }},
+                                        3k {{ analytics_metrics.multikill.by_state.t_hold.k3|default:"0" }},
+                                        4k {{ analytics_metrics.multikill.by_state.t_hold.k4|default:"0" }},
+                                        5k {{ analytics_metrics.multikill.by_state.t_hold.k5|default:"0" }}
                                     </strong>
                                 </div>
                                 <div class="multikill-context__row">
-                                    <span>T Hold (после плента)</span>
+                                    <span>T: post-plant hold</span>
                                     <strong>
                                         1k {{ analytics_metrics.multikill.by_state.t_post_plant.k1|default:"0" }},
                                         2k {{ analytics_metrics.multikill.by_state.t_post_plant.k2|default:"0" }},
@@ -740,7 +750,37 @@
                                     </strong>
                                 </div>
                                 <div class="multikill-context__row">
-                                    <span>CT Retake (после плента)</span>
+                                    <span>CT: hold (pre-plant)</span>
+                                    <strong>
+                                        1k {{ analytics_metrics.multikill.by_state.ct_hold.k1|default:"0" }},
+                                        2k {{ analytics_metrics.multikill.by_state.ct_hold.k2|default:"0" }},
+                                        3k {{ analytics_metrics.multikill.by_state.ct_hold.k3|default:"0" }},
+                                        4k {{ analytics_metrics.multikill.by_state.ct_hold.k4|default:"0" }},
+                                        5k {{ analytics_metrics.multikill.by_state.ct_hold.k5|default:"0" }}
+                                    </strong>
+                                </div>
+                                <div class="multikill-context__row">
+                                    <span>CT: push (pre-plant)</span>
+                                    <strong>
+                                        1k {{ analytics_metrics.multikill.by_state.ct_push.k1|default:"0" }},
+                                        2k {{ analytics_metrics.multikill.by_state.ct_push.k2|default:"0" }},
+                                        3k {{ analytics_metrics.multikill.by_state.ct_push.k3|default:"0" }},
+                                        4k {{ analytics_metrics.multikill.by_state.ct_push.k4|default:"0" }},
+                                        5k {{ analytics_metrics.multikill.by_state.ct_push.k5|default:"0" }}
+                                    </strong>
+                                </div>
+                                <div class="multikill-context__row">
+                                    <span>CT: roam / rotation</span>
+                                    <strong>
+                                        1k {{ analytics_metrics.multikill.by_state.ct_roam.k1|default:"0" }},
+                                        2k {{ analytics_metrics.multikill.by_state.ct_roam.k2|default:"0" }},
+                                        3k {{ analytics_metrics.multikill.by_state.ct_roam.k3|default:"0" }},
+                                        4k {{ analytics_metrics.multikill.by_state.ct_roam.k4|default:"0" }},
+                                        5k {{ analytics_metrics.multikill.by_state.ct_roam.k5|default:"0" }}
+                                    </strong>
+                                </div>
+                                <div class="multikill-context__row">
+                                    <span>CT: retake (post-plant)</span>
                                     <strong>
                                         1k {{ analytics_metrics.multikill.by_state.ct_retake.k1|default:"0" }},
                                         2k {{ analytics_metrics.multikill.by_state.ct_retake.k2|default:"0" }},
@@ -2153,4 +2193,3 @@
 </script>
 {% endblock %}
 [file content end]
-

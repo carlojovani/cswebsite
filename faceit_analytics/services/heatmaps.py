@@ -631,6 +631,9 @@ def _collect_points_from_cache(
         "cache_has_time_data": True,
         "time_slice_applied": False,
         "missing_time_data_reason": None,
+        "points_total": 0,
+        "npz_files_total": 0,
+        "npz_with_time_arrays": 0,
     }
 
     demo_paths = sorted(demos_dir.glob("*.dem"), key=lambda p: p.stat().st_mtime, reverse=True)
@@ -646,6 +649,7 @@ def _collect_points_from_cache(
     for dem_path in demo_paths:
         cache_name = analyzer._demo_cache_hash(dem_path, radar_name, radar_size)
         cache_paths.append(cache_dir / f"{cache_name}.npz")
+    meta["npz_files_total"] = len(cache_paths)
 
     if not all(path.exists() for path in cache_paths):
         analyzer.build_heatmaps_aggregate(
@@ -693,6 +697,8 @@ def _collect_points_from_cache(
         if not cache_path.exists():
             continue
         with np.load(cache_path) as cached:
+            if array_key_time in cached.files:
+                meta["npz_with_time_arrays"] = int(meta.get("npz_with_time_arrays", 0)) + 1
             data = cached.get(array_key_time)
             if slice_range:
                 if array_key_time not in cached.files:
@@ -763,8 +769,10 @@ def _collect_points_from_cache(
             map_name,
             time_slice,
         )
+        meta["points_total"] = 0
         return [], radar_size, meta
 
+    meta["points_total"] = len(points)
     return points, radar_size, meta
 
 

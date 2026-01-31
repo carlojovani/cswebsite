@@ -173,6 +173,86 @@ def test_multikill_basic_case():
     assert result["by_state"]["t_execute"]["k2"] == 1
 
 
+def test_global_round_ids_across_demos():
+    target_id = 76561198016259349
+    parsed_one = demo_events.ParsedDemoEvents(
+        kills=[
+            {
+                "round": 1,
+                "time": 5.0,
+                "tick": 100,
+                "attacker_steamid64": target_id,
+                "victim_steamid64": 111,
+                "attacker_name": "Player",
+                "victim_name": "Enemy",
+                "attacker_side": "T",
+                "victim_side": "CT",
+                "attacker_x": 100.0,
+                "attacker_y": 100.0,
+            },
+        ],
+        flashes=[],
+        utility_damage=[],
+        flash_events_count=0,
+        round_winners={},
+        target_round_sides={1: "T"},
+        rounds_in_demo={1},
+        tick_positions_by_round={},
+        bomb_plants_by_round={},
+        map_name="de_mirage",
+        tick_rate=128.0,
+        tick_rate_approx=False,
+        missing_time_kills=0,
+        missing_time_flashes=0,
+        missing_time_utility=0,
+        approx_time_kills=0,
+        attacker_none_count=0,
+        attacker_id_sample={"attacker": None, "victim": None},
+        debug={},
+    )
+    parsed_two = demo_events.ParsedDemoEvents(
+        kills=[
+            {
+                "round": 1,
+                "time": 8.0,
+                "tick": 110,
+                "attacker_steamid64": target_id,
+                "victim_steamid64": 222,
+                "attacker_name": "Player",
+                "victim_name": "Enemy2",
+                "attacker_side": "T",
+                "victim_side": "CT",
+                "attacker_x": 120.0,
+                "attacker_y": 110.0,
+            },
+        ],
+        flashes=[],
+        utility_damage=[],
+        flash_events_count=0,
+        round_winners={},
+        target_round_sides={1: "T"},
+        rounds_in_demo={1},
+        tick_positions_by_round={},
+        bomb_plants_by_round={},
+        map_name="de_mirage",
+        tick_rate=128.0,
+        tick_rate_approx=False,
+        missing_time_kills=0,
+        missing_time_flashes=0,
+        missing_time_utility=0,
+        approx_time_kills=0,
+        attacker_none_count=0,
+        attacker_id_sample={"attacker": None, "victim": None},
+        debug={},
+    )
+
+    events, _, _, _, _ = demo_events.aggregate_player_features([parsed_one, parsed_two], str(target_id))
+    kill_rounds = {event.get("round") for event in events if event.get("type") == "kill"}
+    assert kill_rounds == {1001, 2001}
+    assert {event.get("round_num") for event in events if event.get("type") == "kill"} == {1}
+    assert {event.get("demo_index") for event in events if event.get("type") == "kill"} == {1, 2}
+
+
 def test_entry_breakdown_assisted_by_proximity():
     target_id = 76561198016259349
     parsed = demo_events.ParsedDemoEvents(

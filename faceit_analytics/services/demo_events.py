@@ -221,6 +221,22 @@ def _normalize_side(value: Any) -> str | None:
     return None
 
 
+def normalize_bombsite(value: Any) -> str | None:
+    if value is None:
+        return None
+    value_str = str(value).strip().lower()
+    if not value_str:
+        return None
+    value_str = value_str.replace("bombsite", "").replace("_", "").replace(" ", "")
+    if value_str.startswith("site"):
+        value_str = value_str.replace("site", "")
+    if value_str.endswith("a") or value_str == "a":
+        return "A"
+    if value_str.endswith("b") or value_str == "b":
+        return "B"
+    return None
+
+
 def _pick_column(df: pd.DataFrame, candidates: Iterable[str]) -> str | None:
     if df is None or df.empty:
         return None
@@ -563,6 +579,7 @@ def _extract_bomb_events(
     round_start_ticks: dict[int, int],
     round_start_times: dict[int, float],
     rounds_df: pd.DataFrame | None,
+    map_name: str | None = None,
 ) -> tuple[dict[int, dict[str, Any]], dict[int, list[dict[str, Any]]], dict[str, int], int, int]:
     bomb_df = _load_demo_dataframe(
         _first_non_none_attr(demo, ["bomb", "bombs"]),
@@ -583,6 +600,8 @@ def _extract_bomb_events(
         steamid_col = _pick_column(bomb_df, ["steamid", "steam_id", "player_steamid", "playerSteamID"])
         x_col = _pick_column(bomb_df, ["X", "x", "pos_x"])
         y_col = _pick_column(bomb_df, ["Y", "y", "pos_y"])
+        z_col = _pick_column(bomb_df, ["Z", "z", "pos_z"])
+        zone_config = _load_zone_config(map_name)
         for _, row in bomb_df.iterrows():
             event_raw = _cell(row, event_col) if event_col else None
             event_value = _safe_str(event_raw).lower() if event_raw is not None else ""
@@ -617,14 +636,25 @@ def _extract_bomb_events(
                 missing_time_bomb += 1
 
             site_value = _cell_str(row, site_col)
-            site_value = site_value.strip().upper() if site_value else None
+            site_raw = normalize_bombsite(site_value)
+            site_calc = _zone_from_coords(
+                map_name,
+                _safe_float(row.get(x_col)) if x_col else None,
+                _safe_float(row.get(y_col)) if y_col else None,
+                zone_config,
+            )
+            site_calc = site_calc if site_calc in {"A", "B"} else None
+            site_value = site_calc or site_raw
             event_payload = {
                 "event": event_key,
                 "tick": tick_value,
                 "time": t_round,
                 "x": _safe_float(row.get(x_col)) if x_col else None,
                 "y": _safe_float(row.get(y_col)) if y_col else None,
+                "z": _safe_float(row.get(z_col)) if z_col else None,
                 "site": site_value,
+                "site_raw": site_raw,
+                "site_calc": site_calc,
                 "steamid": normalize_steamid64(row.get(steamid_col)) if steamid_col else None,
             }
             events_by_round.setdefault(round_number, []).append(event_payload)
@@ -638,8 +668,11 @@ def _extract_bomb_events(
                         "tick": event_payload.get("tick"),
                         "x": event_payload.get("x"),
                         "y": event_payload.get("y"),
+                        "z": event_payload.get("z"),
                         "site": event_payload.get("site"),
-                        "approx": event_payload.get("time") is None,
+                        "site_raw": event_payload.get("site_raw"),
+                        "site_calc": event_payload.get("site_calc"),
+                        "approx": event_payload.get("time") is None or event_payload.get("site") is None,
                     }
             elif event_key == "defuse":
                 counts["defuses"] += 1
@@ -649,7 +682,6 @@ def _extract_bomb_events(
     if rounds_df is not None and not rounds_df.empty:
         round_col = _pick_column(rounds_df, ["round", "round_num", "round_number"])
         plant_col = _pick_column(rounds_df, ["bomb_plant", "bombPlant", "bomb_plant_tick", "bombPlantTick"])
-        site_col = _pick_column(rounds_df, ["bomb_site", "bombSite", "bombsite"])
         if round_col and plant_col:
             for _, row in rounds_df.iterrows():
                 round_number = _safe_int(_cell(row, round_col))
@@ -669,15 +701,16 @@ def _extract_bomb_events(
                         approx_time_bomb += 1
                 if t_round is None and tick_value is None:
                     continue
-                site_value = _cell_str(row, site_col)
-                site_value = site_value.strip().upper() if site_value else None
                 plants[round_number] = {
                     "time": t_round,
                     "tick": tick_value,
                     "x": None,
                     "y": None,
-                    "site": site_value,
-                    "approx": t_round is None,
+                    "z": None,
+                    "site": None,
+                    "site_raw": None,
+                    "site_calc": None,
+                    "approx": True,
                 }
 
     return plants, events_by_round, counts, missing_time_bomb, approx_time_bomb
@@ -701,6 +734,7 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
 
     rounds_df = _load_demo_dataframe(getattr(demo, "rounds", None), [])
     round_start_ticks, round_start_times, round_winners, rounds_in_demo = _build_round_meta(rounds_df)
+    map_name = header.get("map_name") if isinstance(header, dict) else None
 
     kills_df = _load_demo_dataframe(getattr(demo, "kills", None), KILLS_STEAMID_COLUMNS)
     flashes_df = _load_demo_dataframe(getattr(demo, "flashes", None), [])
@@ -1056,10 +1090,9 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
         round_start_ticks,
         round_start_times,
         rounds_df,
+        map_name,
     )
     debug_payload["bomb_event_counts"] = bomb_debug_counts
-
-    map_name = header.get("map_name") if isinstance(header, dict) else None
     logger.debug(
         "Parsed demo=%s tick_rate=%s approx=%s round_start_tick_sample=%s steamid_dtypes=%s",
         dem_path,
@@ -1281,6 +1314,53 @@ def _support_category(
     return "solo"
 
 
+def _objective_site_from_kills(
+    kills: list[dict[str, Any]],
+    config: dict[str, Any],
+) -> str | None:
+    site_places = config.get("site_places") or {}
+    for kill in sorted(kills, key=lambda k: k.get("time") or 0):
+        place = kill.get("attacker_place")
+        zone = _zone_from_place(place, config)
+        if zone in {"A", "B"}:
+            return zone
+        if place:
+            for site_key in ("A", "B"):
+                site_data = site_places.get(site_key) or {}
+                if _place_matches(place, site_data.get("core") or []) or _place_matches(
+                    place, site_data.get("buffer") or []
+                ):
+                    return site_key
+    return None
+
+
+def _is_in_objective_area(
+    place: str | None,
+    objective_site: str | None,
+    config: dict[str, Any],
+    map_name: str | None = None,
+    x: float | None = None,
+    y: float | None = None,
+) -> bool:
+    if not place or objective_site not in {"A", "B"} or not config:
+        return False
+    site_places = (config.get("site_places") or {}).get(objective_site) or {}
+    if _place_matches(place, site_places.get("core") or []) or _place_matches(place, site_places.get("buffer") or []):
+        return True
+    zone = _zone_from_place(place, config)
+    if zone == objective_site:
+        return True
+    if map_name and x is not None and y is not None:
+        zone_from_coords = _zone_from_coords(map_name, x, y, config)
+        if zone_from_coords == objective_site:
+            return True
+    if zone == "ENTRY":
+        return _place_matches(place, site_places.get("core") or []) or _place_matches(
+            place, site_places.get("buffer") or []
+        )
+    return False
+
+
 def _kill_phase(
     kill_side: str | None,
     kill_time: float | None,
@@ -1290,6 +1370,9 @@ def _kill_phase(
     kill_place: str | None,
     map_name: str | None,
     bomb_info: dict[str, Any] | None,
+    objective_site: str | None,
+    anchor_time: float | None,
+    config: dict[str, Any],
 ) -> tuple[str | None, bool, bool, bool]:
     if not kill_side:
         return None, True, False, False
@@ -1298,17 +1381,32 @@ def _kill_phase(
     approx = plant_time is None or bomb_info is None
     no_plant = plant_time is None or bomb_info is None
     if kill_side == "T":
-        return ("t_post_plant" if post_plant else "t_execute"), approx, no_plant, False
+        if post_plant:
+            return "t_post_plant", approx, no_plant, False
+        if objective_site is None:
+            return "t_entry", approx, no_plant, False
+        if _is_in_objective_area(kill_place, objective_site, config, map_name, kill_x, kill_y):
+            if kill_time is not None and kill_time <= ENTRY_PHASE_MAX_SECONDS:
+                return "t_execute", approx, no_plant, False
+            if anchor_time is not None and kill_time is not None:
+                if kill_time <= anchor_time + ENTRY_HOLD_DELAY_SECONDS:
+                    return "t_execute", approx, no_plant, False
+            return "t_hold", approx, no_plant, False
+        return "t_entry", approx, no_plant, False
     if kill_side == "CT":
         if post_plant:
             return "ct_retake", approx, no_plant, False
+        if objective_site is None and (bomb_info is None or bomb_info.get("site") not in {"A", "B"}):
+            return "ct_roam", approx, no_plant, True
         ct_state, ct_approx, center_missing = _ct_hold_state(
             kill_x,
             kill_y,
-            kill_place,
             map_name,
             bomb_info,
+            objective_site,
         )
+        if center_missing:
+            return "ct_roam", True, no_plant, True
         return ct_state, approx or ct_approx, no_plant, center_missing
     return None, True, False, False
 
@@ -1472,6 +1570,7 @@ def aggregate_player_features(
 
     for demo_index, parsed in enumerate(parsed_demos, start=1):
         tick_rate = parsed.tick_rate or tick_rate
+        map_config = _load_zone_config(parsed.map_name)
         if parsed.target_round_sides:
             rounds_seen.update({(demo_index, r) for r in parsed.target_round_sides.keys()})
 
@@ -1500,6 +1599,7 @@ def aggregate_player_features(
         round_numbers = set(by_round.keys()) | set(flashes_by_round.keys()) | set(utility_by_round.keys())
         for round_number in round_numbers:
             round_key = (demo_index, round_number or 0)
+            global_round_id = demo_index * 1000 + int(round_number or 0)
             round_kills_sorted = sorted(by_round.get(round_number, []), key=lambda k: k.get("time") or 0)
             target_side = _target_side_for_round(
                 round_number,
@@ -1523,6 +1623,34 @@ def aggregate_player_features(
             bomb_info = parsed.bomb_plants_by_round.get(round_number or 0, {}) if parsed.bomb_plants_by_round else {}
             if not bomb_info or bomb_info.get("time") is None:
                 no_plant_rounds.add(round_key)
+
+            objective_site = None
+            if bomb_info and bomb_info.get("site") in {"A", "B"}:
+                objective_site = bomb_info.get("site")
+            if objective_site is None:
+                player_kills_in_round = [kill for kill in round_kills_sorted if is_target_attacker(kill)]
+                objective_site = _objective_site_from_kills(player_kills_in_round, map_config)
+
+            anchor_time = None
+            if objective_site and round_kills_sorted:
+                plant_time = bomb_info.get("time") if bomb_info else None
+                for kill in round_kills_sorted:
+                    if not is_target_attacker(kill):
+                        continue
+                    kill_time = kill.get("time")
+                    if kill_time is None:
+                        continue
+                    if plant_time is not None and kill_time >= plant_time:
+                        continue
+                    if _is_in_objective_area(
+                        kill.get("attacker_place"),
+                        objective_site,
+                        map_config,
+                        parsed.map_name,
+                        kill.get("attacker_x"),
+                        kill.get("attacker_y"),
+                    ):
+                        anchor_time = kill_time if anchor_time is None else min(anchor_time, kill_time)
 
             for idx, kill in enumerate(round_kills_sorted):
                 kill_time = kill.get("time")
@@ -1556,6 +1684,9 @@ def aggregate_player_features(
                         kill.get("attacker_place"),
                         parsed.map_name,
                         bomb_info,
+                        objective_site,
+                        anchor_time,
+                        map_config,
                     )
                     ct_position_state = None
                     ct_position_approx = False
@@ -1566,6 +1697,7 @@ def aggregate_player_features(
                             kill.get("attacker_y"),
                             parsed.map_name,
                             bomb_info,
+                            objective_site,
                         )
                         hold_center_missing = hold_center_missing or center_missing
                     if no_plant:
@@ -1577,24 +1709,23 @@ def aggregate_player_features(
                         support_breakdown["assist_kills"] += 1
                     if has_flash_assist:
                         support_breakdown["flash_kills"] += 1
-                    if nearby_count is None:
-                        support_breakdown["approx"] = True
-                    else:
-                        if nearby_count >= 1:
-                            support_breakdown["with_partner_kills"] += 1
-                        if nearby_count >= 2:
-                            support_breakdown["group_kills"] += 1
                     support_breakdown["categories"][support_category] = (
                         support_breakdown["categories"].get(support_category, 0) + 1
                     )
                     if support_category == "solo":
                         support_breakdown["solo_kills"] += 1
-                    if support_category == "unknown":
+                    elif support_category == "partner":
+                        support_breakdown["with_partner_kills"] += 1
+                    elif support_category == "group":
+                        support_breakdown["group_kills"] += 1
+                    if support_category == "unknown" or nearby_count is None or support_approx:
                         support_breakdown["approx"] = True
                     round_events.append(
                         {
                             "type": "kill",
-                            "round": round_number,
+                            "round": global_round_id,
+                            "round_num": round_number,
+                            "demo_index": demo_index,
                             "time": kill_time,
                             "tick": kill.get("tick"),
                             "round_start_tick": kill.get("round_start_tick"),
@@ -1627,7 +1758,9 @@ def aggregate_player_features(
                     round_events.append(
                         {
                             "type": "death",
-                            "round": round_number,
+                            "round": global_round_id,
+                            "round_num": round_number,
+                            "demo_index": demo_index,
                             "time": kill_time,
                             "tick": kill.get("tick"),
                             "round_start_tick": kill.get("round_start_tick"),
@@ -1647,7 +1780,9 @@ def aggregate_player_features(
                     round_events.append(
                         {
                             "type": "assist",
-                            "round": round_number,
+                            "round": global_round_id,
+                            "round_num": round_number,
+                            "demo_index": demo_index,
                             "time": kill_time,
                             "tick": kill.get("tick"),
                             "round_start_tick": kill.get("round_start_tick"),
@@ -1671,7 +1806,9 @@ def aggregate_player_features(
                     round_events.append(
                         {
                             "type": "flash_assist",
-                            "round": round_number,
+                            "round": global_round_id,
+                            "round_num": round_number,
+                            "demo_index": demo_index,
                             "time": kill_time,
                             "is_flash_assist": True,
                             "exclude_from_timing": True,
@@ -1685,7 +1822,9 @@ def aggregate_player_features(
                 round_events.append(
                     {
                         "type": "flash",
-                        "round": round_number,
+                        "round": global_round_id,
+                        "round_num": round_number,
+                        "demo_index": demo_index,
                         "time": flash.get("time"),
                         "is_friendly_flash": flash.get("is_teamflash"),
                         "exclude_from_timing": True,
@@ -1698,7 +1837,9 @@ def aggregate_player_features(
                 round_events.append(
                     {
                         "type": "damage",
-                        "round": round_number,
+                        "round": global_round_id,
+                        "round_num": round_number,
+                        "demo_index": demo_index,
                         "time": dmg.get("time"),
                         "utility_damage": dmg.get("damage"),
                         "exclude_from_timing": True,
@@ -1727,7 +1868,9 @@ def aggregate_player_features(
                         round_events.append(
                             {
                                 "type": "clutch_opportunity",
-                                "round": round_number,
+                                "round": global_round_id,
+                                "round_num": round_number,
+                                "demo_index": demo_index,
                                 "time": kill.get("time"),
                                 "clutch_opportunity": True,
                                 "exclude_from_timing": True,
@@ -1738,7 +1881,9 @@ def aggregate_player_features(
                             round_events.append(
                                 {
                                     "type": "clutch_win",
-                                    "round": round_number,
+                                    "round": global_round_id,
+                                    "round_num": round_number,
+                                    "demo_index": demo_index,
                                     "time": kill.get("time"),
                                     "clutch_win": True,
                                     "exclude_from_timing": True,
@@ -1761,6 +1906,11 @@ def aggregate_player_features(
                         ):
                             event["is_first_contact"] = True
                             break
+
+            for event in round_events:
+                event.setdefault("round", global_round_id)
+                event.setdefault("round_num", round_number)
+                event.setdefault("demo_index", demo_index)
 
             events.extend(round_events)
 
@@ -2046,9 +2196,9 @@ def _site_center_world(map_name: str | None, site_key: str | None, config: dict[
 def _ct_hold_state(
     kill_x: float | None,
     kill_y: float | None,
-    kill_place: str | None,
     map_name: str | None,
     bomb_info: dict[str, Any] | None,
+    objective_site: str | None,
 ) -> tuple[str, bool, bool]:
     config = _load_zone_config(map_name)
     center = None
@@ -2061,22 +2211,14 @@ def _ct_hold_state(
         else:
             approx = True
 
-    site_hint = None
-    if bomb_info:
-        site_hint = _safe_str(bomb_info.get("site"))
-    if not site_hint:
-        zone = _zone_from_place(kill_place, config)
-        if zone in {"A", "B"}:
-            site_hint = zone
-            approx = True
-
+    site_hint = _safe_str(objective_site) if objective_site else None
     if center is None and site_hint:
         center = _site_center_world(map_name, site_hint, config)
         if center is not None:
             approx = True
 
     if center is None or kill_x is None or kill_y is None:
-        return "ct_hold", True, True
+        return "ct_roam", True, True
 
     dist = math.hypot(float(kill_x) - center[0], float(kill_y) - center[1])
     return ("ct_hold" if dist <= PUSH_DISTANCE else "ct_push"), approx, False
@@ -2088,13 +2230,14 @@ def _ct_position_state(
     kill_y: float | None,
     map_name: str | None,
     bomb_info: dict[str, Any] | None,
+    objective_site: str | None,
 ) -> tuple[str, bool, bool]:
     state, approx, center_missing = _ct_hold_state(
         kill_x,
         kill_y,
-        kill_place,
         map_name,
         bomb_info,
+        objective_site,
     )
     return state.replace("ct_", ""), approx, center_missing
 
@@ -2105,12 +2248,15 @@ def _zone_from_coords(map_name: str | None, x: float | None, y: float | None, co
     bboxes = config.get("bbox") or {}
     if not bboxes:
         return None
+    meta = _radar_meta(map_name)
+    if not meta:
+        return None
+    radar_size, radar_meta = meta
     try:
         from faceit_analytics import analyzer
 
-        radar, meta, _radar_name = analyzer.load_radar_and_meta(map_name)
-        w, h = radar.size
-        pixel = analyzer._world_to_pixel(np.array([[x, y]], dtype=np.float32), meta, (w, h))
+        w, h = radar_size
+        pixel = analyzer._world_to_pixel(np.array([[x, y]], dtype=np.float32), radar_meta, (w, h))
         if pixel.size == 0:
             return None
         px, py = float(pixel[0][0]), float(pixel[0][1])
@@ -2141,19 +2287,23 @@ def _kill_zone(kill: dict[str, Any], map_name: str | None) -> str:
 def compute_multikill_metrics(events: list[dict[str, Any]], map_name: str | None = None) -> dict[str, Any]:
     kills = [event for event in events if event.get("type") == "kill" and event.get("time") is not None]
     if not kills:
+        empty_state = {
+            "t_entry": {"k1": 0, "k2": 0, "k3": 0, "k4": 0, "k5": 0},
+            "t_execute": {"k1": 0, "k2": 0, "k3": 0, "k4": 0, "k5": 0},
+            "t_hold": {"k1": 0, "k2": 0, "k3": 0, "k4": 0, "k5": 0},
+            "t_post_plant": {"k1": 0, "k2": 0, "k3": 0, "k4": 0, "k5": 0},
+            "ct_hold": {"k1": 0, "k2": 0, "k3": 0, "k4": 0, "k5": 0},
+            "ct_push": {"k1": 0, "k2": 0, "k3": 0, "k4": 0, "k5": 0},
+            "ct_roam": {"k1": 0, "k2": 0, "k3": 0, "k4": 0, "k5": 0},
+            "ct_retake": {"k1": 0, "k2": 0, "k3": 0, "k4": 0, "k5": 0},
+        }
         return {
             "multikill_round_rate": None,
             "multikill_event_rate": None,
             "multikill_events": 0,
             "rounds_with_multikill": 0,
             "by_timing": {"early": 0, "late": 0},
-            "by_state": {
-                "t_execute": {"k1": 0, "k2": 0, "k3": 0, "k4": 0, "k5": 0},
-                "ct_hold": {"k1": 0, "k2": 0, "k3": 0, "k4": 0, "k5": 0},
-                "ct_push": {"k1": 0, "k2": 0, "k3": 0, "k4": 0, "k5": 0},
-                "t_post_plant": {"k1": 0, "k2": 0, "k3": 0, "k4": 0, "k5": 0},
-                "ct_retake": {"k1": 0, "k2": 0, "k3": 0, "k4": 0, "k5": 0},
-            },
+            "by_state": empty_state,
             "by_zone": {},
             "ace_rounds": 0,
             "window_sec": MULTIKILL_WINDOW_SEC,
@@ -2166,10 +2316,13 @@ def compute_multikill_metrics(events: list[dict[str, Any]], map_name: str | None
     multikill_events = 0
     timing_breakdown = {"early": 0, "late": 0}
     state_counts = {
+        "t_entry": {"k1": 0, "k2": 0, "k3": 0, "k4": 0, "k5": 0},
         "t_execute": {"k1": 0, "k2": 0, "k3": 0, "k4": 0, "k5": 0},
+        "t_hold": {"k1": 0, "k2": 0, "k3": 0, "k4": 0, "k5": 0},
+        "t_post_plant": {"k1": 0, "k2": 0, "k3": 0, "k4": 0, "k5": 0},
         "ct_hold": {"k1": 0, "k2": 0, "k3": 0, "k4": 0, "k5": 0},
         "ct_push": {"k1": 0, "k2": 0, "k3": 0, "k4": 0, "k5": 0},
-        "t_post_plant": {"k1": 0, "k2": 0, "k3": 0, "k4": 0, "k5": 0},
+        "ct_roam": {"k1": 0, "k2": 0, "k3": 0, "k4": 0, "k5": 0},
         "ct_retake": {"k1": 0, "k2": 0, "k3": 0, "k4": 0, "k5": 0},
     }
     zone_breakdown: dict[str, int] = {}

@@ -65,7 +65,10 @@ def analyze_demo(demo_path: Path, target_steam: str):
     rounds_pd = _to_pandas(getattr(dem, "rounds", None))
     kills_pd = _to_pandas(getattr(dem, "kills", None))
     ticks_pd = _to_pandas(getattr(dem, "ticks", None))
-    bomb_pd = _to_pandas(getattr(dem, "bomb", None) or getattr(dem, "bombs", None))
+    bomb_raw = getattr(dem, "bomb", None)
+    if bomb_raw is None or (hasattr(bomb_raw, "is_empty") and bomb_raw.is_empty()):
+        bomb_raw = getattr(dem, "bombs", None)
+    bomb_pd = _to_pandas(bomb_raw)
 
     # tickrate
     tickrate = None
