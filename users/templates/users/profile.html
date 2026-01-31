@@ -497,13 +497,19 @@
                                 <div class="playstyle-entry__row">
                                     <span>С поддержкой</span>
                                     <strong>
-                                        {% if analytics_metrics.playstyle.entry_breakdown.assisted_entry_pct != None %}
-                                            {{ analytics_metrics.playstyle.entry_breakdown.assisted_entry_pct|floatformat:1 }}%
+                                        {% if analytics_metrics.playstyle.entry_breakdown.assisted_entry_pct_all != None %}
+                                            {{ analytics_metrics.playstyle.entry_breakdown.assisted_entry_pct_all|floatformat:1 }}%
                                         {% else %}
                                             —
                                         {% endif %}
                                     </strong>
                                     <span class="playstyle-entry__meta">
+                                        {% if analytics_metrics.playstyle.entry_breakdown.assisted_entry_pct_known != None %}
+                                            из известных: {{ analytics_metrics.playstyle.entry_breakdown.assisted_entry_pct_known|floatformat:1 }}%
+                                        {% else %}
+                                            из известных: —
+                                        {% endif %}
+                                        ·
                                         по времени:
                                         {% for bucket in time_bucket_labels %}
                                             {% with val=analytics_metrics.playstyle.entry_breakdown.assisted_by_bucket_pct|get_item:bucket %}
@@ -519,13 +525,19 @@
                                 <div class="playstyle-entry__row">
                                     <span>Соло</span>
                                     <strong>
-                                        {% if analytics_metrics.playstyle.entry_breakdown.solo_entry_pct != None %}
-                                            {{ analytics_metrics.playstyle.entry_breakdown.solo_entry_pct|floatformat:1 }}%
+                                        {% if analytics_metrics.playstyle.entry_breakdown.solo_entry_pct_all != None %}
+                                            {{ analytics_metrics.playstyle.entry_breakdown.solo_entry_pct_all|floatformat:1 }}%
                                         {% else %}
                                             —
                                         {% endif %}
                                     </strong>
                                     <span class="playstyle-entry__meta">
+                                        {% if analytics_metrics.playstyle.entry_breakdown.solo_entry_pct_known != None %}
+                                            из известных: {{ analytics_metrics.playstyle.entry_breakdown.solo_entry_pct_known|floatformat:1 }}%
+                                        {% else %}
+                                            из известных: —
+                                        {% endif %}
+                                        ·
                                         по времени:
                                         {% for bucket in time_bucket_labels %}
                                             {% with val=analytics_metrics.playstyle.entry_breakdown.solo_by_bucket_pct|get_item:bucket %}

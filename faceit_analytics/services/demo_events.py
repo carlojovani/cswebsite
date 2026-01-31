@@ -50,8 +50,33 @@ PROXIMITY_SAMPLE_STEP_TICKS = int(getattr(settings, "PROXIMITY_SAMPLE_STEP_TICKS
 PUSH_DISTANCE = float(getattr(settings, "PUSH_DISTANCE", 1600.0))
 STEAMID64_MIN_VALUE = 7_000_000_000_000_000
 SIDE_ROLE_SAMPLE_SECONDS = 30.0
-SIDE_ROLE_MIN_SAMPLES = 10
+SIDE_ROLE_MIN_SAMPLES = 6
 SIDE_ROLE_APPROX_SAMPLES = 20
+SITE_DISTANCE_RADIUS = 650.0
+POSTPLANT_DISTANCE_RADIUS = 600.0
+ROUND_COL_CANDIDATES = ["round", "round_num", "round_number", "roundNum", "roundNumber", "roundnum"]
+TICK_COL_CANDIDATES = ["tick", "ticks", "tick_num"]
+START_TICK_CANDIDATES = [
+    "start_tick",
+    "round_start_tick",
+    "freeze_end_tick",
+    "startTick",
+    "roundStartTick",
+    "freezeEndTick",
+    "freezeTimeEndTick",
+    "freeze_time_end_tick",
+    "freezeTimeEnd",
+    "freezeEnd",
+]
+START_TIME_CANDIDATES = [
+    "start_time",
+    "round_start_time",
+    "freeze_end_time",
+    "startTime",
+    "roundStartTime",
+    "freezeEndTime",
+    "freezeTimeEndTime",
+]
 
 KILLS_STEAMID_COLUMNS = ["attacker_steamid", "victim_steamid", "assister_steamid"]
 UTIL_DAMAGE_STEAMID_COLUMNS = ["attacker_steamid", "victim_steamid"]
@@ -438,35 +463,56 @@ def _tick_rate_from_demo(demo: Demo) -> float:
     return 64.0
 
 
-def _build_round_meta(rounds_df: pd.DataFrame) -> tuple[dict[int, int], dict[int, float], dict[int, str | None], set[int]]:
+def _build_round_meta(
+    rounds_df: pd.DataFrame,
+    ticks_df: pd.DataFrame | None = None,
+) -> tuple[dict[int, int], dict[int, float], dict[int, str | None], set[int]]:
     round_start_ticks: dict[int, int] = {}
     round_start_times: dict[int, float] = {}
     round_winners: dict[int, str | None] = {}
     rounds_in_demo: set[int] = set()
 
     if rounds_df is None or rounds_df.empty:
-        return round_start_ticks, round_start_times, round_winners, rounds_in_demo
+        rounds_df = None
 
-    round_col = _pick_column(rounds_df, ["round", "round_num", "round_number"])
-    start_tick_col = _pick_column(rounds_df, ["start_tick", "round_start_tick", "freeze_end_tick"])
-    start_time_col = _pick_column(rounds_df, ["start_time", "round_start_time", "freeze_end_time"])
-    winner_col = _pick_column(rounds_df, ["winner", "winning_side", "round_winner"])
+    round_col = _pick_column(rounds_df, ROUND_COL_CANDIDATES) if rounds_df is not None else None
+    start_tick_col = _pick_column(rounds_df, START_TICK_CANDIDATES) if rounds_df is not None else None
+    start_time_col = _pick_column(rounds_df, START_TIME_CANDIDATES) if rounds_df is not None else None
+    winner_col = _pick_column(rounds_df, ["winner", "winning_side", "round_winner"]) if rounds_df is not None else None
 
-    for _, row in rounds_df.iterrows():
-        round_number = _safe_int(_cell(row, round_col)) if round_col else None
-        if round_number is None:
-            continue
-        rounds_in_demo.add(round_number)
-        if start_tick_col:
-            start_tick = _safe_int(_cell(row, start_tick_col))
-            if start_tick is not None:
-                round_start_ticks[round_number] = start_tick
-        if start_time_col:
-            start_time = _safe_float(_cell(row, start_time_col))
-            if start_time is not None:
-                round_start_times[round_number] = start_time
-        if winner_col:
-            round_winners[round_number] = _normalize_side(_cell(row, winner_col))
+    if rounds_df is not None and not rounds_df.empty:
+        for _, row in rounds_df.iterrows():
+            round_number = _safe_int(_cell(row, round_col)) if round_col else None
+            if round_number is None:
+                continue
+            rounds_in_demo.add(round_number)
+            if start_tick_col:
+                start_tick = _safe_int(_cell(row, start_tick_col))
+                if start_tick is not None:
+                    round_start_ticks[round_number] = start_tick
+            if start_time_col:
+                start_time = _safe_float(_cell(row, start_time_col))
+                if start_time is not None:
+                    round_start_times[round_number] = start_time
+            if winner_col:
+                round_winners[round_number] = _normalize_side(_cell(row, winner_col))
+
+    if (start_tick_col is None or not round_start_ticks) and ticks_df is not None and not ticks_df.empty:
+        tick_round_col = _pick_column(ticks_df, ROUND_COL_CANDIDATES)
+        tick_col = _pick_column(ticks_df, TICK_COL_CANDIDATES)
+        if tick_round_col and tick_col:
+            tick_rounds = pd.to_numeric(ticks_df[tick_round_col], errors="coerce")
+            tick_values = pd.to_numeric(ticks_df[tick_col], errors="coerce")
+            grouped = pd.DataFrame({"round": tick_rounds, "tick": tick_values}).dropna()
+            if not grouped.empty:
+                start_ticks = grouped.groupby("round", as_index=False)["tick"].min()
+                for _, row in start_ticks.iterrows():
+                    round_number = _safe_int(row.get("round"))
+                    start_tick = _safe_int(row.get("tick"))
+                    if round_number is None or start_tick is None:
+                        continue
+                    round_start_ticks[round_number] = start_tick
+                    rounds_in_demo.add(round_number)
 
     return round_start_ticks, round_start_times, round_winners, rounds_in_demo
 
@@ -517,7 +563,7 @@ def _extract_player_round_sides_from_ticks(ticks_df: pd.DataFrame, target_steam_
     if ticks_df is None or ticks_df.empty:
         return {}
     steamid_col = _pick_column(ticks_df, ["steamid", "steamID", "player_steamid", "playerSteamID"])
-    round_col = _pick_column(ticks_df, ["round", "round_num", "round_number"])
+    round_col = _pick_column(ticks_df, ROUND_COL_CANDIDATES)
     side_col = _pick_column(ticks_df, ["side", "player_side", "playerSide"])
     if not steamid_col or not round_col or not side_col:
         return {}
@@ -561,11 +607,11 @@ def _extract_tick_positions(
     if not target_round_sides:
         return {}, 0
     steamid_col = _pick_column(ticks_df, ["steamid", "steamID", "player_steamid", "playerSteamID"])
-    round_col = _pick_column(ticks_df, ["round", "round_num", "round_number"])
+    round_col = _pick_column(ticks_df, ROUND_COL_CANDIDATES)
     side_col = _pick_column(ticks_df, ["side", "player_side", "playerSide"])
     x_col = _pick_column(ticks_df, ["X", "x", "player_X", "player_x"])
     y_col = _pick_column(ticks_df, ["Y", "y", "player_Y", "player_y"])
-    tick_col = _pick_column(ticks_df, ["tick", "ticks", "tick_num"])
+    tick_col = _pick_column(ticks_df, TICK_COL_CANDIDATES)
     place_col = _pick_column(ticks_df, ["place", "place_name", "placeName", "area_name", "areaName"])
     health_col = _pick_column(ticks_df, ["health", "hp", "player_health", "playerHP"])
     if not steamid_col or not round_col or not side_col or not x_col or not y_col:
@@ -632,8 +678,8 @@ def _extract_bomb_events(
 
     if bomb_df is not None and not bomb_df.empty:
         event_col = _pick_column(bomb_df, ["event", "bomb_event", "type", "action"])
-        round_col = _pick_column(bomb_df, ["round", "round_num", "round_number"])
-        tick_col = _pick_column(bomb_df, ["tick", "tick_num", "ticks"])
+        round_col = _pick_column(bomb_df, ROUND_COL_CANDIDATES)
+        tick_col = _pick_column(bomb_df, TICK_COL_CANDIDATES)
         time_col = _pick_column(bomb_df, ["time", "seconds", "round_time"])
         site_col = _pick_column(bomb_df, ["bombsite", "bomb_site", "site"])
         steamid_col = _pick_column(bomb_df, ["steamid", "steam_id", "player_steamid", "playerSteamID"])
@@ -718,40 +764,6 @@ def _extract_bomb_events(
             elif event_key == "explode":
                 counts["explodes"] += 1
 
-    if rounds_df is not None and not rounds_df.empty:
-        round_col = _pick_column(rounds_df, ["round", "round_num", "round_number"])
-        plant_col = _pick_column(rounds_df, ["bomb_plant", "bombPlant", "bomb_plant_tick", "bombPlantTick"])
-        if round_col and plant_col:
-            for _, row in rounds_df.iterrows():
-                round_number = _safe_int(_cell(row, round_col))
-                if round_number is None or round_number in plants:
-                    continue
-                plant_value = _cell(row, plant_col)
-                if plant_value is None:
-                    continue
-                t_round = None
-                tick_value = _safe_int(plant_value)
-                if tick_value is None:
-                    t_round = _safe_float(plant_value)
-                if t_round is None and tick_value is not None:
-                    start_tick = round_start_ticks.get(round_number)
-                    if start_tick is not None and tick_rate:
-                        t_round = max((tick_value - start_tick) / tick_rate, 0.0)
-                        approx_time_bomb += 1
-                if t_round is None and tick_value is None:
-                    continue
-                plants[round_number] = {
-                    "time": t_round,
-                    "tick": tick_value,
-                    "x": None,
-                    "y": None,
-                    "z": None,
-                    "site": None,
-                    "site_raw": None,
-                    "site_calc": None,
-                    "approx": True,
-                }
-
     return plants, events_by_round, counts, missing_time_bomb, approx_time_bomb
 
 
@@ -772,7 +784,11 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
         tick_rate_approx = False
 
     rounds_df = _load_demo_dataframe(getattr(demo, "rounds", None), [])
-    round_start_ticks, round_start_times, round_winners, rounds_in_demo = _build_round_meta(rounds_df)
+    ticks_df = _load_demo_dataframe(getattr(demo, "ticks", None), ["steamid", "player_steamid", "playerSteamID"])
+    round_start_ticks, round_start_times, round_winners, rounds_in_demo = _build_round_meta(
+        rounds_df,
+        ticks_df=ticks_df,
+    )
     map_name = header.get("map_name") if isinstance(header, dict) else None
 
     kills_df = _load_demo_dataframe(getattr(demo, "kills", None), KILLS_STEAMID_COLUMNS)
@@ -817,8 +833,8 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
         debug_payload["time_fields_present"] = [
             column for column in raw_kill_columns if column.lower() in time_fields
         ]
-        round_col = _pick_column(kills_df, ["round", "round_num", "round_number"])
-        tick_col = _pick_column(kills_df, ["tick", "tick_num", "ticks"])
+        round_col = _pick_column(kills_df, ROUND_COL_CANDIDATES)
+        tick_col = _pick_column(kills_df, TICK_COL_CANDIDATES)
         attacker_col = _pick_column(
             kills_df,
             [
@@ -967,8 +983,8 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
     flash_events_count = 0
     missing_time_flashes = 0
     if flashes_df is not None and not flashes_df.empty:
-        round_col = _pick_column(flashes_df, ["round", "round_num", "round_number"])
-        tick_col = _pick_column(flashes_df, ["tick", "tick_num", "ticks"])
+        round_col = _pick_column(flashes_df, ROUND_COL_CANDIDATES)
+        tick_col = _pick_column(flashes_df, TICK_COL_CANDIDATES)
         thrower_col = _pick_column(
             flashes_df,
             ["attacker_steamid", "thrower_steamid", "flasher_steamid", "attackerSteamID"],
@@ -1039,8 +1055,8 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
             for col in UTIL_DAMAGE_STEAMID_COLUMNS
             if col in damages_df.columns
         }
-        round_col = _pick_column(damages_df, ["round", "round_num", "round_number"])
-        tick_col = _pick_column(damages_df, ["tick", "tick_num", "ticks"])
+        round_col = _pick_column(damages_df, ROUND_COL_CANDIDATES)
+        tick_col = _pick_column(damages_df, TICK_COL_CANDIDATES)
         attacker_col = _pick_column(
             damages_df,
             ["attacker_steamid", "attackerSteamID", "attacker_steam_id"],
@@ -1107,10 +1123,7 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
                 }
             )
 
-    ticks_df = _load_demo_dataframe(getattr(demo, "ticks", None), ["steamid", "player_steamid", "playerSteamID"])
-    target_round_sides = (
-        _extract_player_round_sides_from_ticks(ticks_df, target_steam_id) if target_steam_id else {}
-    )
+    target_round_sides = _extract_player_round_sides_from_ticks(ticks_df, target_steam_id) if target_steam_id else {}
     tick_positions_by_round, ticks_missing_t_round = _extract_tick_positions(
         ticks_df,
         target_round_sides,
@@ -1418,16 +1431,50 @@ def _kill_phase(
 ) -> tuple[str | None, bool, bool, bool]:
     if not kill_side:
         return None, True, False, False
+    plant_tick = bomb_info.get("tick") if bomb_info else None
     plant_time = bomb_info.get("time") if bomb_info else None
-    post_plant = plant_time is not None and kill_time is not None and kill_time >= float(plant_time)
-    approx = plant_time is None or bomb_info is None
-    no_plant = plant_time is None or bomb_info is None
-    if kill_side == "T":
-        if post_plant:
-            return "t_post_plant", approx, no_plant, False
-        if objective_site is None:
+    post_plant = False
+    if plant_tick is not None and kill_tick is not None:
+        post_plant = int(kill_tick) >= int(plant_tick)
+    elif plant_time is not None and kill_time is not None:
+        post_plant = kill_time >= float(plant_time)
+    approx = plant_tick is None and plant_time is None
+    no_plant = plant_tick is None and plant_time is None
+    site_hint = objective_site or (bomb_info.get("site") if bomb_info else None)
+
+    def _distance_to_center(center: tuple[float, float] | None) -> float | None:
+        if center is None or kill_x is None or kill_y is None:
+            return None
+        return math.hypot(float(kill_x) - center[0], float(kill_y) - center[1])
+
+    if post_plant:
+        center = None
+        if bomb_info:
+            bomb_x = bomb_info.get("x")
+            bomb_y = bomb_info.get("y")
+            if bomb_x is not None and bomb_y is not None:
+                center = (float(bomb_x), float(bomb_y))
+        if center is None and site_hint:
+            center = _site_center_world(map_name, site_hint, config)
+            if center is not None:
+                approx = True
+        dist = _distance_to_center(center)
+        if kill_side == "T":
+            if dist is not None and dist <= POSTPLANT_DISTANCE_RADIUS:
+                return "t_post_plant", approx, no_plant, False
             return "t_entry", approx, no_plant, False
-        if _is_in_objective_area(kill_place, objective_site, config, map_name, kill_x, kill_y):
+        if kill_side == "CT":
+            if dist is not None and dist <= POSTPLANT_DISTANCE_RADIUS:
+                return "ct_retake", approx, no_plant, False
+            return "ct_push", approx, no_plant, False
+        return None, True, False, False
+
+    site_center = _site_center_world(map_name, site_hint, config) if site_hint else None
+    if site_center is None:
+        approx = True
+    dist = _distance_to_center(site_center)
+    if kill_side == "T":
+        if dist is not None and dist <= SITE_DISTANCE_RADIUS:
             if kill_time is not None and kill_time <= ENTRY_PHASE_MAX_SECONDS:
                 return "t_execute", approx, no_plant, False
             if anchor_time is not None and kill_time is not None:
@@ -1436,20 +1483,9 @@ def _kill_phase(
             return "t_hold", approx, no_plant, False
         return "t_entry", approx, no_plant, False
     if kill_side == "CT":
-        if post_plant:
-            return "ct_retake", approx, no_plant, False
-        if objective_site is None and (bomb_info is None or bomb_info.get("site") not in {"A", "B"}):
-            return "ct_roam", approx, no_plant, True
-        ct_state, ct_approx, center_missing = _ct_hold_state(
-            kill_x,
-            kill_y,
-            map_name,
-            bomb_info,
-            objective_site,
-        )
-        if center_missing:
+        if dist is None:
             return "ct_roam", True, no_plant, True
-        return ct_state, approx or ct_approx, no_plant, center_missing
+        return ("ct_hold" if dist <= SITE_DISTANCE_RADIUS else "ct_push"), approx, no_plant, False
     return None, True, False, False
 
 
@@ -1468,11 +1504,19 @@ def _init_entry_breakdown() -> dict[str, Any]:
         "unknown_support_count": 0,
         "assisted_entry_pct": None,
         "solo_entry_pct": None,
+        "assisted_entry_pct_known": None,
+        "solo_entry_pct_known": None,
+        "assisted_entry_pct_all": None,
+        "solo_entry_pct_all": None,
         "unknown_entry_pct": None,
         "entry_with_assist_pct": None,
         "entry_with_flash_pct": None,
         "entry_with_partner_pct": None,
         "entry_with_group_pct": None,
+        "entry_with_assist_pct_known": None,
+        "entry_with_flash_pct_known": None,
+        "entry_with_partner_pct_known": None,
+        "entry_with_group_pct_known": None,
         "assisted_by_bucket": dict(buckets),
         "solo_by_bucket": dict(buckets),
         "assisted_by_bucket_pct": dict(bucket_pcts),
@@ -1499,12 +1543,20 @@ def _finalize_entry_breakdown(entry_breakdown: dict[str, Any], entry_times: list
     unknown = entry_breakdown.get("unknown_entry_count", 0)
     total_all = total + unknown
     if total:
-        entry_breakdown["assisted_entry_pct"] = (assisted / total) * 100
-        entry_breakdown["solo_entry_pct"] = (solo / total) * 100
-        entry_breakdown["entry_with_assist_pct"] = (entry_breakdown["entry_with_assist"] / total) * 100
-        entry_breakdown["entry_with_flash_pct"] = (entry_breakdown["entry_with_flash"] / total) * 100
-        entry_breakdown["entry_with_partner_pct"] = (entry_breakdown["entry_with_partner"] / total) * 100
-        entry_breakdown["entry_with_group_pct"] = (entry_breakdown["entry_with_group"] / total) * 100
+        assisted_pct_known = (assisted / total) * 100
+        solo_pct_known = (solo / total) * 100
+        entry_breakdown["assisted_entry_pct_known"] = assisted_pct_known
+        entry_breakdown["solo_entry_pct_known"] = solo_pct_known
+        entry_breakdown["assisted_entry_pct"] = assisted_pct_known
+        entry_breakdown["solo_entry_pct"] = solo_pct_known
+        entry_breakdown["entry_with_assist_pct_known"] = (entry_breakdown["entry_with_assist"] / total) * 100
+        entry_breakdown["entry_with_flash_pct_known"] = (entry_breakdown["entry_with_flash"] / total) * 100
+        entry_breakdown["entry_with_partner_pct_known"] = (entry_breakdown["entry_with_partner"] / total) * 100
+        entry_breakdown["entry_with_group_pct_known"] = (entry_breakdown["entry_with_group"] / total) * 100
+        entry_breakdown["entry_with_assist_pct"] = entry_breakdown["entry_with_assist_pct_known"]
+        entry_breakdown["entry_with_flash_pct"] = entry_breakdown["entry_with_flash_pct_known"]
+        entry_breakdown["entry_with_partner_pct"] = entry_breakdown["entry_with_partner_pct_known"]
+        entry_breakdown["entry_with_group_pct"] = entry_breakdown["entry_with_group_pct_known"]
         assisted_by_bucket_pct = {}
         solo_by_bucket_pct = {}
         for key in entry_breakdown["assisted_by_bucket"].keys():
@@ -1516,6 +1568,8 @@ def _finalize_entry_breakdown(entry_breakdown: dict[str, Any], entry_times: list
         entry_breakdown["assisted_by_bucket_pct"] = assisted_by_bucket_pct
         entry_breakdown["solo_by_bucket_pct"] = solo_by_bucket_pct
     if total_all:
+        entry_breakdown["assisted_entry_pct_all"] = (assisted / total_all) * 100
+        entry_breakdown["solo_entry_pct_all"] = (solo / total_all) * 100
         entry_breakdown["unknown_entry_pct"] = (unknown / total_all) * 100
     if entry_times:
         entry_breakdown["avg_entry_time_s"] = sum(entry_times) / len(entry_times)
@@ -1794,6 +1848,7 @@ def aggregate_player_features(
                             "attacker_x": kill.get("attacker_x"),
                             "attacker_y": kill.get("attacker_y"),
                             "side": kill.get("attacker_side") or target_side,
+                            "assister": kill.get("assister_steamid64") or kill.get("assister"),
                             "assisted_by_teammate": has_true_assist or bool(kill.get("assistedflash")),
                             "has_true_assist": has_true_assist,
                             "has_flash_assist": has_flash_assist,
@@ -2018,23 +2073,52 @@ def aggregate_player_features(
                 )
                 has_true_assist = bool(entry.get("has_true_assist"))
                 has_flash_assist = bool(entry.get("has_flash_assist"))
-                support_category = entry.get("support_category") or _support_category(
-                    has_true_assist,
-                    has_flash_assist,
-                    nearby_count,
-                )
+                assister_support_unknown = False
+                effective_true_assist = False
+                if has_true_assist:
+                    assister_id = _safe_int(entry.get("assister"))
+                    if assister_id is None or entry_time is None or entry_x is None or entry_y is None:
+                        assister_support_unknown = True
+                    else:
+                        assister_positions = [
+                            (pos.get("time"), pos.get("x"), pos.get("y"))
+                            for pos in round_positions
+                            if pos.get("steamid") == assister_id
+                        ]
+                        if assister_positions:
+                            effective_true_assist = _entry_support_nearby(
+                                float(entry_time),
+                                float(entry_x),
+                                float(entry_y),
+                                [
+                                    (float(t), float(x), float(y))
+                                    for t, x, y in assister_positions
+                                    if t is not None and x is not None and y is not None
+                                ],
+                            )
+                        else:
+                            assister_support_unknown = True
+                if assister_support_unknown and has_true_assist and not has_flash_assist:
+                    support_category = "unknown"
+                    support_approx = True
+                else:
+                    support_category = _support_category(
+                        effective_true_assist,
+                        has_flash_assist,
+                        nearby_count,
+                    )
                 assisted_flag = support_category in {"assist", "flash", "group", "partner"}
                 if assisted_flag:
                     entry_breakdown["assisted_entry_count"] += 1
                     if entry_bucket in entry_breakdown["assisted_by_bucket"]:
                         entry_breakdown["assisted_by_bucket"][entry_bucket] += 1
-                    if support_category == "assist":
+                    if effective_true_assist:
                         entry_breakdown["entry_with_assist"] += 1
-                    elif support_category == "flash":
+                    if has_flash_assist:
                         entry_breakdown["entry_with_flash"] += 1
-                    elif support_category == "group":
+                    if support_category == "group":
                         entry_breakdown["entry_with_group"] += 1
-                    elif support_category == "partner":
+                    if support_category == "partner":
                         entry_breakdown["entry_with_partner"] += 1
                 else:
                     unknown_support = (
@@ -2043,6 +2127,7 @@ def aggregate_player_features(
                         or entry_y is None
                         or support_category == "unknown"
                         or support_approx
+                        or assister_support_unknown
                     )
                     if unknown_support:
                         entry_breakdown["unknown_support_count"] += 1

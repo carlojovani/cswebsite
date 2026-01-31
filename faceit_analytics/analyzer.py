@@ -465,20 +465,22 @@ def _extract_points_from_demo(
 
     from faceit_analytics.services import demo_events
 
-    rounds_df = dem.rounds.to_pandas() if getattr(dem, "rounds", None) is not None else None
-    round_start_ticks, round_start_times, _round_winners, _rounds = demo_events._build_round_meta(rounds_df)
-    tick_rate = demo_events._tick_rate_from_demo(dem)
-
     ticks_df = demo_events._load_demo_dataframe(
         getattr(dem, "ticks", None),
         ["steamid", "player_steamid", "playerSteamID"],
     )
     ticks_df = ticks_df if ticks_df is not None else pd.DataFrame()
+    rounds_df = demo_events._load_demo_dataframe(getattr(dem, "rounds", None), [])
+    round_start_ticks, round_start_times, _round_winners, _rounds = demo_events._build_round_meta(
+        rounds_df,
+        ticks_df=ticks_df,
+    )
+    tick_rate = demo_events._tick_rate_from_demo(dem)
     sid_col = _pick_existing(ticks_df, ["steamid", "steamID", "player_steamid", "playerSteamID"]) if not ticks_df.empty else None
     xcol = _pick_existing(ticks_df, ["X", "x", "player_X", "player_x"]) if not ticks_df.empty else None
     ycol = _pick_existing(ticks_df, ["Y", "y", "player_Y", "player_y"]) if not ticks_df.empty else None
-    tick_col = _pick_existing(ticks_df, ["tick", "ticks", "tick_num"]) if not ticks_df.empty else None
-    round_col = demo_events._pick_column(ticks_df, ["round", "round_num", "round_number"]) if not ticks_df.empty else None
+    tick_col = _pick_existing(ticks_df, demo_events.TICK_COL_CANDIDATES) if not ticks_df.empty else None
+    round_col = demo_events._pick_column(ticks_df, demo_events.ROUND_COL_CANDIDATES) if not ticks_df.empty else None
 
     ticks_my = _filter_by_steamid_numeric(ticks_df, sid_col, steamid64) if sid_col else ticks_df.iloc[0:0]
     low = {c.lower(): c for c in ticks_my.columns}
@@ -508,6 +510,15 @@ def _extract_points_from_demo(
     else:
         ticks_my = ticks_my.iloc[0:0]
         ticks_my["__t_round"] = []
+    if ticks_target_total and ticks_target_total > 0:
+        missing_ratio = missing_t_round / max(ticks_target_total, 1)
+        if missing_ratio >= 0.9:
+            logger.warning(
+                "Round time missing for %s/%s tick rows (%.1f%%). Check round start meta.",
+                missing_t_round,
+                ticks_target_total,
+                missing_ratio * 100,
+            )
 
     pts_px = _world_to_pixel(_to_points_xy(ticks_my, xcol, ycol), map_meta, radar_size) if xcol and ycol else _empty_points()
     pts_pxt = _empty_points_time()
@@ -586,7 +597,9 @@ def _extract_points_from_demo(
     )
     kx = _pick_existing(kills_df, ["attacker_X", "attacker_x"]) if not kills_df.empty else None
     ky = _pick_existing(kills_df, ["attacker_Y", "attacker_y"]) if not kills_df.empty else None
-    round_kill_col = demo_events._pick_column(kills_df, ["round", "round_num", "round_number"]) if not kills_df.empty else None
+    round_kill_col = (
+        demo_events._pick_column(kills_df, demo_events.ROUND_COL_CANDIDATES) if not kills_df.empty else None
+    )
     kills_my = _filter_by_steamid_numeric(kills_df, attacker_col, steamid64) if attacker_col else kills_df.iloc[0:0]
     kill_pts = _world_to_pixel(_to_points_xy(kills_my, kx, ky), map_meta, radar_size) if kx and ky else _empty_points()
     kills_pxt = _empty_points_time()
