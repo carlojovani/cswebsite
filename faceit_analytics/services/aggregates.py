@@ -61,6 +61,7 @@ def enrich_metrics_with_role_features(
     entry_breakdown = None
     kill_support = None
     side_roles = None
+    kill_output_by_phase = None
     if demo_features:
         timing_slices = demo_features.get("timing_slices")
         role_fingerprint = demo_features.get("role_fingerprint")
@@ -71,6 +72,7 @@ def enrich_metrics_with_role_features(
         kill_support = demo_features.get("kill_support")
         side_roles = demo_features.get("side_roles")
         kda = demo_features.get("kda")
+        kill_output_by_phase = demo_features.get("kill_output_by_phase")
         demo_features_debug = demo_features.get("debug")
         if demo_features.get("insufficient_rounds"):
             demo_features_approx = True
@@ -95,6 +97,7 @@ def enrich_metrics_with_role_features(
     metrics["timing_slices"] = timing_slices
     metrics["awareness_before_death"] = awareness
     metrics["multikill"] = multikill
+    metrics["kill_output_by_phase"] = kill_output_by_phase
     metrics["entry_breakdown"] = entry_breakdown
     metrics["kill_support"] = kill_support
     metrics["side_roles"] = side_roles
