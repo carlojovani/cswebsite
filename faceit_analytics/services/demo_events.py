@@ -888,10 +888,10 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
         victim_side_col = _pick_column(kills_df, ["victim_side", "victim_side_name", "victim_team", "victimTeam"])
         attacker_place_col = _pick_column(kills_df, ["attacker_place", "attackerPlace"])
         victim_place_col = _pick_column(kills_df, ["victim_place", "victimPlace"])
-        attacker_x_col = _pick_column(kills_df, ["attacker_X", "attacker_x"])
-        attacker_y_col = _pick_column(kills_df, ["attacker_Y", "attacker_y"])
-        victim_x_col = _pick_column(kills_df, ["victim_X", "victim_x"])
-        victim_y_col = _pick_column(kills_df, ["victim_Y", "victim_y"])
+        attacker_x_col = _pick_column(kills_df, ["attacker_X", "attacker_x", "attackerX"])
+        attacker_y_col = _pick_column(kills_df, ["attacker_Y", "attacker_y", "attackerY"])
+        victim_x_col = _pick_column(kills_df, ["victim_X", "victim_x", "victimX"])
+        victim_y_col = _pick_column(kills_df, ["victim_Y", "victim_y", "victimY"])
 
         if round_col and tick_col:
             for _, row in kills_df.iterrows():
@@ -2714,7 +2714,7 @@ def compute_kill_output_by_phase(
     target_name: str | None,
 ) -> dict[str, Any]:
     target_id = normalize_steamid64(target_steam_id)
-    phases = ["t_entry", "t_execute", "t_postplant_hold", "ct_hold", "ct_push", "ct_retake"]
+    phases = ["t_entry", "t_execute", "t_postplant_hold", "ct_hold", "ct_push", "ct_retake", "other"]
     hist_template = {f"k{i}": 0 for i in range(6)}
     output = {phase: {**hist_template, "total_rounds": 0} for phase in phases}
     if target_id is None:
@@ -2722,6 +2722,9 @@ def compute_kill_output_by_phase(
 
     opportunity: dict[str, set[tuple[int, int]]] = {phase: set() for phase in phases}
     round_kill_counts: dict[tuple[int, int], Counter[str]] = {}
+    kills_by_phase_total = Counter()
+    total_kills = 0
+    missing_kill_debug: list[dict[str, Any]] = []
 
     def is_target_attacker(kill: dict[str, Any]) -> bool:
         if kill.get("attacker_steamid64") == target_id:
@@ -2738,6 +2741,7 @@ def compute_kill_output_by_phase(
         for kill in parsed.kills:
             if is_target_attacker(kill):
                 kills_by_round.setdefault(kill.get("round"), []).append(kill)
+                total_kills += 1
 
         rounds = set(kills_by_round.keys()) | set((parsed.tick_positions_by_round or {}).keys())
         for round_number in rounds:
@@ -2752,8 +2756,6 @@ def compute_kill_output_by_phase(
                 target_id,
                 target_name,
             )
-            if not target_side:
-                continue
             plant_info = parsed.bomb_plants_by_round.get(round_number, {}) if parsed.bomb_plants_by_round else {}
             plant_tick = plant_info.get("tick") if plant_info else None
             plant_time = plant_info.get("time") if plant_info else None
@@ -2786,58 +2788,68 @@ def compute_kill_output_by_phase(
             sec_entry_offsite = 0.0
             sec_post_plant_area = 0.0
 
-            for pos in target_positions:
-                pos_time = pos.get("time")
-                if pos_time is None:
-                    continue
-                pos_tick = pos.get("tick")
-                pos_x = pos.get("x")
-                pos_y = pos.get("y")
-                post_plant = _is_post_plant(pos_tick, pos_time, plant_tick, plant_time)
-                site_zone = _site_zone_from_coords(map_name, pos_x, pos_y, config, centers)
-                in_site = site_zone in {"A", "B"}
-                offsite_far = _is_offsite_far(map_name, pos_x, pos_y, config, centers)
-                if post_plant:
-                    if _is_in_plant_area(pos_x, pos_y, plant_xy):
-                        sec_post_plant_area += seconds_per_sample
-                    continue
-                if site_zone == "A":
-                    sec_pre_site_a += seconds_per_sample
-                if site_zone == "B":
-                    sec_pre_site_b += seconds_per_sample
-                if in_site:
-                    sec_pre_site_any += seconds_per_sample
-                if offsite_far:
-                    sec_pre_offsite_far += seconds_per_sample
-                    if pos_time <= ENTRY_WINDOW_SEC:
-                        sec_entry_offsite += seconds_per_sample
+            if target_side:
+                for pos in target_positions:
+                    pos_time = pos.get("time")
+                    if pos_time is None:
+                        continue
+                    pos_tick = pos.get("tick")
+                    pos_x = pos.get("x")
+                    pos_y = pos.get("y")
+                    post_plant = _is_post_plant(pos_tick, pos_time, plant_tick, plant_time)
+                    site_zone = _site_zone_from_coords(map_name, pos_x, pos_y, config, centers)
+                    in_site = site_zone in {"A", "B"}
+                    offsite_far = _is_offsite_far(map_name, pos_x, pos_y, config, centers)
+                    if post_plant:
+                        if _is_in_plant_area(pos_x, pos_y, plant_xy):
+                            sec_post_plant_area += seconds_per_sample
+                        continue
+                    if site_zone == "A":
+                        sec_pre_site_a += seconds_per_sample
+                    if site_zone == "B":
+                        sec_pre_site_b += seconds_per_sample
+                    if in_site:
+                        sec_pre_site_any += seconds_per_sample
+                    if offsite_far:
+                        sec_pre_offsite_far += seconds_per_sample
+                        if pos_time <= ENTRY_WINDOW_SEC:
+                            sec_entry_offsite += seconds_per_sample
 
-            if target_side == "T":
-                if objective_site == "A":
-                    sec_target_site = sec_pre_site_a
-                elif objective_site == "B":
-                    sec_target_site = sec_pre_site_b
-                else:
-                    sec_target_site = sec_pre_site_any
-                if sec_target_site >= MIN_SEC_IN_AREA:
-                    opportunity["t_execute"].add(round_key)
-                if plant_info and sec_post_plant_area >= MIN_SEC_IN_AREA:
-                    opportunity["t_postplant_hold"].add(round_key)
-                if sec_entry_offsite >= MIN_SEC_IN_AREA:
-                    opportunity["t_entry"].add(round_key)
-            elif target_side == "CT":
-                if sec_pre_site_any >= MIN_SEC_IN_AREA:
-                    opportunity["ct_hold"].add(round_key)
-                if plant_info and sec_post_plant_area >= MIN_SEC_IN_AREA:
-                    opportunity["ct_retake"].add(round_key)
-                if sec_pre_offsite_far >= MIN_SEC_IN_AREA:
-                    opportunity["ct_push"].add(round_key)
+                if target_side == "T":
+                    if objective_site == "A":
+                        sec_target_site = sec_pre_site_a
+                    elif objective_site == "B":
+                        sec_target_site = sec_pre_site_b
+                    else:
+                        sec_target_site = sec_pre_site_any
+                    if sec_target_site >= MIN_SEC_IN_AREA:
+                        opportunity["t_execute"].add(round_key)
+                    if plant_info and sec_post_plant_area >= MIN_SEC_IN_AREA:
+                        opportunity["t_postplant_hold"].add(round_key)
+                    if sec_entry_offsite >= MIN_SEC_IN_AREA:
+                        opportunity["t_entry"].add(round_key)
+                elif target_side == "CT":
+                    if sec_pre_site_any >= MIN_SEC_IN_AREA:
+                        opportunity["ct_hold"].add(round_key)
+                    if plant_info and sec_post_plant_area >= MIN_SEC_IN_AREA:
+                        opportunity["ct_retake"].add(round_key)
+                    if sec_pre_offsite_far >= MIN_SEC_IN_AREA:
+                        opportunity["ct_push"].add(round_key)
 
             if round_kills:
                 round_counts = round_kill_counts.setdefault(round_key, Counter())
                 for kill in round_kills:
-                    phase = _assign_kill_phase(kill, target_side, map_name, config, centers, plant_info)
+                    kill_side = target_side or _normalize_side(kill.get("attacker_side"))
+                    phase = _assign_kill_phase(kill, kill_side, map_name, config, centers, plant_info)
                     round_counts[phase] += 1
+                    kills_by_phase_total[phase] += 1
+                    opportunity[phase].add(round_key)
+
+        if None in kills_by_round:
+            for kill in kills_by_round.get(None, []):
+                kill_side = _normalize_side(kill.get("attacker_side"))
+                phase = _assign_kill_phase(kill, kill_side, map_name, config, centers, {})
+                kills_by_phase_total[phase] += 1
 
     for phase in phases:
         rounds = opportunity[phase]
@@ -2847,7 +2859,42 @@ def compute_kill_output_by_phase(
             bucket = min(int(count), 5)
             output[phase][f"k{bucket}"] += 1
 
-    return {"phases": output}
+    accounted_kills = sum(kills_by_phase_total.values())
+    missing_kills = total_kills - accounted_kills
+    if missing_kills:
+        for parsed in parsed_demos:
+            for kill in parsed.kills:
+                if not is_target_attacker(kill):
+                    continue
+                missing_kill_debug.append(
+                    {
+                        "round": kill.get("round"),
+                        "time": kill.get("time"),
+                        "attacker_side": kill.get("attacker_side"),
+                        "attacker_x": kill.get("attacker_x"),
+                        "attacker_y": kill.get("attacker_y"),
+                        "victim_x": kill.get("victim_x"),
+                        "victim_y": kill.get("victim_y"),
+                    }
+                )
+        logger.debug(
+            "Kill output by phase missing kills=%s target_id=%s debug_sample=%s",
+            missing_kills,
+            target_id,
+            missing_kill_debug[:5],
+        )
+
+    reconciliation = {
+        "total_kills": total_kills,
+        "accounted_kills": accounted_kills,
+        "missing_kills": missing_kills,
+    }
+    kills_by_phase_total_payload = {phase: int(kills_by_phase_total.get(phase, 0)) for phase in phases}
+    return {
+        "phases": output,
+        "kills_by_phase_total": kills_by_phase_total_payload,
+        "reconciliation": reconciliation,
+    }
 
 
 def compute_multikill_metrics(events: list[dict[str, Any]], map_name: str | None = None) -> dict[str, Any]:
