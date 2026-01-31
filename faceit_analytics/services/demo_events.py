@@ -54,6 +54,11 @@ SIDE_ROLE_MIN_SAMPLES = 6
 SIDE_ROLE_APPROX_SAMPLES = 20
 SITE_DISTANCE_RADIUS = 650.0
 POSTPLANT_DISTANCE_RADIUS = 600.0
+R_SITE = 650.0
+R_PLANT = 600.0
+R_FAR = 900.0
+ENTRY_WINDOW_SEC = 30.0
+MIN_SEC_IN_AREA = 4.0
 ROUND_COL_CANDIDATES = ["round", "round_num", "round_number", "roundNum", "roundNumber", "roundnum"]
 TICK_COL_CANDIDATES = ["tick", "ticks", "tick_num"]
 START_TICK_CANDIDATES = [
@@ -2542,6 +2547,309 @@ def _kill_zone(kill: dict[str, Any], map_name: str | None) -> str:
     return _quadrant_from_coords(kill.get("attacker_x"), kill.get("attacker_y"))
 
 
+def _site_centers(map_name: str | None, config: dict[str, Any]) -> dict[str, tuple[float, float]]:
+    centers: dict[str, tuple[float, float]] = {}
+    for site_key in ("A", "B"):
+        center = _site_center_world(map_name, site_key, config)
+        if center is not None:
+            centers[site_key] = center
+    return centers
+
+
+def _distance_to_point(
+    x: float | None,
+    y: float | None,
+    center: tuple[float, float] | None,
+) -> float | None:
+    if x is None or y is None or center is None:
+        return None
+    return math.hypot(float(x) - center[0], float(y) - center[1])
+
+
+def _site_zone_from_coords(
+    map_name: str | None,
+    x: float | None,
+    y: float | None,
+    config: dict[str, Any],
+    centers: dict[str, tuple[float, float]],
+) -> str | None:
+    zone = _zone_from_coords(map_name, x, y, config)
+    if zone in {"A", "B"}:
+        return zone
+    if x is None or y is None:
+        return None
+    best_site = None
+    best_dist = None
+    for site_key, center in centers.items():
+        dist = _distance_to_point(x, y, center)
+        if dist is None:
+            continue
+        if dist <= R_SITE and (best_dist is None or dist < best_dist):
+            best_site = site_key
+            best_dist = dist
+    return best_site
+
+
+def _is_offsite_far(
+    map_name: str | None,
+    x: float | None,
+    y: float | None,
+    config: dict[str, Any],
+    centers: dict[str, tuple[float, float]],
+) -> bool:
+    zone = _zone_from_coords(map_name, x, y, config)
+    if zone in {"A", "B"}:
+        return False
+    if x is None or y is None:
+        return False
+    if centers:
+        distances = [
+            _distance_to_point(x, y, center)
+            for center in centers.values()
+            if _distance_to_point(x, y, center) is not None
+        ]
+        if distances:
+            return all(dist >= R_FAR for dist in distances if dist is not None)
+    return zone is not None and zone not in {"A", "B"}
+
+
+def _is_in_plant_area(
+    x: float | None,
+    y: float | None,
+    plant_xy: tuple[float, float] | None,
+) -> bool:
+    if x is None or y is None or plant_xy is None:
+        return False
+    return math.hypot(float(x) - plant_xy[0], float(y) - plant_xy[1]) <= R_PLANT
+
+
+def _is_post_plant(
+    tick: int | None,
+    time: float | None,
+    plant_tick: int | None,
+    plant_time: float | None,
+) -> bool:
+    if plant_tick is not None and tick is not None:
+        return int(tick) >= int(plant_tick)
+    if plant_time is not None and time is not None:
+        return float(time) >= float(plant_time)
+    return False
+
+
+def _infer_objective_site_from_ticks(
+    positions: list[dict[str, Any]],
+    round_kills: list[dict[str, Any]],
+    map_name: str | None,
+    config: dict[str, Any],
+    centers: dict[str, tuple[float, float]],
+    plant_tick: int | None,
+    plant_time: float | None,
+) -> str | None:
+    site_counts: Counter[str] = Counter()
+    for pos in positions:
+        t_round = pos.get("time")
+        if t_round is None or t_round > ENTRY_WINDOW_SEC:
+            continue
+        if _is_post_plant(pos.get("tick"), t_round, plant_tick, plant_time):
+            continue
+        site_zone = _site_zone_from_coords(map_name, pos.get("x"), pos.get("y"), config, centers)
+        if site_zone in {"A", "B"}:
+            site_counts[site_zone] += 1
+    if site_counts:
+        return site_counts.most_common(1)[0][0]
+    for kill in sorted(round_kills, key=lambda k: k.get("time") or 0):
+        site_zone = _site_zone_from_coords(map_name, kill.get("attacker_x"), kill.get("attacker_y"), config, centers)
+        if site_zone in {"A", "B"}:
+            return site_zone
+    return None
+
+
+def _assign_kill_phase(
+    kill: dict[str, Any],
+    side: str | None,
+    map_name: str | None,
+    config: dict[str, Any],
+    centers: dict[str, tuple[float, float]],
+    plant_info: dict[str, Any] | None,
+) -> str:
+    kill_time = kill.get("time")
+    kill_tick = kill.get("tick")
+    kill_x = kill.get("attacker_x")
+    kill_y = kill.get("attacker_y")
+    plant_tick = plant_info.get("tick") if plant_info else None
+    plant_time = plant_info.get("time") if plant_info else None
+    plant_xy = None
+    if plant_info:
+        plant_x = plant_info.get("x")
+        plant_y = plant_info.get("y")
+        if plant_x is not None and plant_y is not None:
+            plant_xy = (float(plant_x), float(plant_y))
+    post_plant = _is_post_plant(kill_tick, kill_time, plant_tick, plant_time)
+    site_zone = _site_zone_from_coords(map_name, kill_x, kill_y, config, centers)
+    in_site_area = site_zone in {"A", "B"}
+    near_plant = _is_in_plant_area(kill_x, kill_y, plant_xy) if post_plant else False
+    offsite_far = _is_offsite_far(map_name, kill_x, kill_y, config, centers)
+    in_entry_window = kill_time is not None and kill_time <= ENTRY_WINDOW_SEC
+
+    if side == "T":
+        if not post_plant and in_site_area:
+            return "t_execute"
+        if post_plant and near_plant:
+            return "t_postplant_hold"
+        if in_entry_window and offsite_far:
+            return "t_entry"
+    if side == "CT":
+        if not post_plant and in_site_area:
+            return "ct_hold"
+        if post_plant and near_plant:
+            return "ct_retake"
+        if not post_plant and offsite_far:
+            return "ct_push"
+    return "other"
+
+
+def compute_kill_output_by_phase(
+    parsed_demos: list[ParsedDemoEvents],
+    target_steam_id: str,
+    target_name: str | None,
+) -> dict[str, Any]:
+    target_id = normalize_steamid64(target_steam_id)
+    phases = ["t_entry", "t_execute", "t_postplant_hold", "ct_hold", "ct_push", "ct_retake"]
+    hist_template = {f"k{i}": 0 for i in range(6)}
+    output = {phase: {**hist_template, "total_rounds": 0} for phase in phases}
+    if target_id is None:
+        return {"phases": output}
+
+    opportunity: dict[str, set[tuple[int, int]]] = {phase: set() for phase in phases}
+    round_kill_counts: dict[tuple[int, int], Counter[str]] = {}
+
+    def is_target_attacker(kill: dict[str, Any]) -> bool:
+        if kill.get("attacker_steamid64") == target_id:
+            return True
+        return bool(target_name and kill.get("attacker_name") == target_name)
+
+    for demo_index, parsed in enumerate(parsed_demos, start=1):
+        map_name = parsed.map_name
+        config = _load_zone_config(map_name)
+        centers = _site_centers(map_name, config)
+        tick_rate = parsed.tick_rate or 64.0
+        seconds_per_sample = (PROXIMITY_SAMPLE_STEP_TICKS / tick_rate) if tick_rate else 0.0
+        kills_by_round: dict[int | None, list[dict[str, Any]]] = {}
+        for kill in parsed.kills:
+            if is_target_attacker(kill):
+                kills_by_round.setdefault(kill.get("round"), []).append(kill)
+
+        rounds = set(kills_by_round.keys()) | set((parsed.tick_positions_by_round or {}).keys())
+        for round_number in rounds:
+            if round_number is None:
+                continue
+            round_key = (demo_index, round_number)
+            round_kills = kills_by_round.get(round_number, [])
+            target_side = _target_side_for_round(
+                round_number,
+                parsed.target_round_sides,
+                round_kills,
+                target_id,
+                target_name,
+            )
+            if not target_side:
+                continue
+            plant_info = parsed.bomb_plants_by_round.get(round_number, {}) if parsed.bomb_plants_by_round else {}
+            plant_tick = plant_info.get("tick") if plant_info else None
+            plant_time = plant_info.get("time") if plant_info else None
+            plant_xy = None
+            if plant_info:
+                plant_x = plant_info.get("x")
+                plant_y = plant_info.get("y")
+                if plant_x is not None and plant_y is not None:
+                    plant_xy = (float(plant_x), float(plant_y))
+
+            round_positions = (parsed.tick_positions_by_round or {}).get(round_number, [])
+            target_positions = [pos for pos in round_positions if pos.get("is_target")]
+
+            objective_site = plant_info.get("site") if plant_info else None
+            if objective_site not in {"A", "B"}:
+                objective_site = _infer_objective_site_from_ticks(
+                    target_positions,
+                    round_kills,
+                    map_name,
+                    config,
+                    centers,
+                    plant_tick,
+                    plant_time,
+                )
+
+            sec_pre_site_a = 0.0
+            sec_pre_site_b = 0.0
+            sec_pre_site_any = 0.0
+            sec_pre_offsite_far = 0.0
+            sec_entry_offsite = 0.0
+            sec_post_plant_area = 0.0
+
+            for pos in target_positions:
+                pos_time = pos.get("time")
+                if pos_time is None:
+                    continue
+                pos_tick = pos.get("tick")
+                pos_x = pos.get("x")
+                pos_y = pos.get("y")
+                post_plant = _is_post_plant(pos_tick, pos_time, plant_tick, plant_time)
+                site_zone = _site_zone_from_coords(map_name, pos_x, pos_y, config, centers)
+                in_site = site_zone in {"A", "B"}
+                offsite_far = _is_offsite_far(map_name, pos_x, pos_y, config, centers)
+                if post_plant:
+                    if _is_in_plant_area(pos_x, pos_y, plant_xy):
+                        sec_post_plant_area += seconds_per_sample
+                    continue
+                if site_zone == "A":
+                    sec_pre_site_a += seconds_per_sample
+                if site_zone == "B":
+                    sec_pre_site_b += seconds_per_sample
+                if in_site:
+                    sec_pre_site_any += seconds_per_sample
+                if offsite_far:
+                    sec_pre_offsite_far += seconds_per_sample
+                    if pos_time <= ENTRY_WINDOW_SEC:
+                        sec_entry_offsite += seconds_per_sample
+
+            if target_side == "T":
+                if objective_site == "A":
+                    sec_target_site = sec_pre_site_a
+                elif objective_site == "B":
+                    sec_target_site = sec_pre_site_b
+                else:
+                    sec_target_site = sec_pre_site_any
+                if sec_target_site >= MIN_SEC_IN_AREA:
+                    opportunity["t_execute"].add(round_key)
+                if plant_info and sec_post_plant_area >= MIN_SEC_IN_AREA:
+                    opportunity["t_postplant_hold"].add(round_key)
+                if sec_entry_offsite >= MIN_SEC_IN_AREA:
+                    opportunity["t_entry"].add(round_key)
+            elif target_side == "CT":
+                if sec_pre_site_any >= MIN_SEC_IN_AREA:
+                    opportunity["ct_hold"].add(round_key)
+                if plant_info and sec_post_plant_area >= MIN_SEC_IN_AREA:
+                    opportunity["ct_retake"].add(round_key)
+                if sec_pre_offsite_far >= MIN_SEC_IN_AREA:
+                    opportunity["ct_push"].add(round_key)
+
+            if round_kills:
+                round_counts = round_kill_counts.setdefault(round_key, Counter())
+                for kill in round_kills:
+                    phase = _assign_kill_phase(kill, target_side, map_name, config, centers, plant_info)
+                    round_counts[phase] += 1
+
+    for phase in phases:
+        rounds = opportunity[phase]
+        output[phase]["total_rounds"] = len(rounds)
+        for round_key in rounds:
+            count = round_kill_counts.get(round_key, {}).get(phase, 0)
+            bucket = min(int(count), 5)
+            output[phase][f"k{bucket}"] += 1
+
+    return {"phases": output}
+
+
 def compute_multikill_metrics(events: list[dict[str, Any]], map_name: str | None = None) -> dict[str, Any]:
     kills = [event for event in events if event.get("type") == "kill" and event.get("time") is not None]
     if not kills:
@@ -2738,6 +3046,7 @@ def get_or_build_demo_features(
             "window_sec": PROXIMITY_WINDOW_SECONDS,
         }
         side_roles = _compute_side_roles([])
+        kill_output_by_phase = compute_kill_output_by_phase([], steam_id or "", None)
         payload = {
             "role_fingerprint": role_fingerprint,
             "utility_iq": utility_iq,
@@ -2745,6 +3054,7 @@ def get_or_build_demo_features(
             "entry_breakdown": entry_breakdown,
             "kill_support": support_breakdown,
             "side_roles": side_roles,
+            "kill_output_by_phase": kill_output_by_phase,
             "debug": debug,
             "rounds_total": 0,
             "demos_count": demos_count,
@@ -2827,6 +3137,11 @@ def get_or_build_demo_features(
 
     awareness = compute_awareness_before_death(events)
     multikill = compute_multikill_metrics(events, map_name)
+    kill_output_by_phase = compute_kill_output_by_phase(
+        parsed_demos,
+        steam_id,
+        player_debug.get("target_name"),
+    )
 
     kills = debug.get("player_kills", 0) or 0
     deaths = debug.get("player_deaths", 0) or 0
@@ -2886,6 +3201,7 @@ def get_or_build_demo_features(
         "timing_slices": timing_slices,
         "awareness_before_death": awareness,
         "multikill": multikill,
+        "kill_output_by_phase": kill_output_by_phase,
         "entry_breakdown": entry_breakdown,
         "kill_support": support_breakdown,
         "side_roles": side_roles,

@@ -735,82 +735,137 @@
                     {% endif %}
                 </div>
 
-                <div class="analytics-card multikill-card">
+                <div class="analytics-card kill-output-card" id="kill-output-card">
                     <div class="analytics-header">
-                        <h3>Мультикиллы по фазам</h3>
-                    </div>
-                    {% if analytics_metrics.multikill %}
-                        <div class="analytics-metrics">
-                            <div class="analytics-metric">
-                                <span class="metric-label">Доля мультикиллов</span>
-                                <strong class="metric-value">
-                                    {% if analytics_metrics.multikill.multikill_round_rate != None %}
-                                        {{ analytics_metrics.multikill.multikill_round_rate|floatformat:2 }}%
-                                    {% else %}
-                                        —
-                                    {% endif %}
-                                </strong>
-                            </div>
-                            <div class="analytics-metric">
-                                <span class="metric-label">Раундов с 2+ киллами</span>
-                                <strong class="metric-value">{{ analytics_metrics.multikill.multikill_events }}</strong>
-                            </div>
-                            <div class="analytics-metric">
-                                <span class="metric-label">Ранние/поздние</span>
-                                <strong class="metric-value">
-                                    {{ analytics_metrics.multikill.by_timing.early|default:"0" }} /
-                                    {{ analytics_metrics.multikill.by_timing.late|default:"0" }}
-                                </strong>
-                            </div>
-                            <div class="analytics-metric">
-                                <span class="metric-label">Эйсы (5 за раунд)</span>
-                                <strong class="metric-value">{{ analytics_metrics.multikill.ace_rounds|default:"0" }}</strong>
+                        <div>
+                            <h3>Kill Output by Phase (0–5 kills per round)</h3>
+                            <div class="analytics-meta">
+                                Доля считается от раундов, где была возможность сыграть фазу (включая 0k).
                             </div>
                         </div>
-                        {% if analytics_metrics.multikill.by_state %}
-                            <div class="multikill-context">
-                                <div class="multikill-context__row">
-                                    <span>T Execute (до плента)</span>
-                                    <strong>
-                                        1k {{ analytics_metrics.multikill.by_state.t_execute.k1|default:"0" }},
-                                        2k {{ analytics_metrics.multikill.by_state.t_execute.k2|default:"0" }},
-                                        3k {{ analytics_metrics.multikill.by_state.t_execute.k3|default:"0" }},
-                                        4k {{ analytics_metrics.multikill.by_state.t_execute.k4|default:"0" }},
-                                        5k {{ analytics_metrics.multikill.by_state.t_execute.k5|default:"0" }}
-                                    </strong>
-                                </div>
-                                <div class="multikill-context__row">
-                                    <span>CT Hold (до плента)</span>
-                                    <strong>
-                                        1k {{ analytics_metrics.multikill.by_state.ct_hold.k1|default:"0" }},
-                                        2k {{ analytics_metrics.multikill.by_state.ct_hold.k2|default:"0" }},
-                                        3k {{ analytics_metrics.multikill.by_state.ct_hold.k3|default:"0" }},
-                                        4k {{ analytics_metrics.multikill.by_state.ct_hold.k4|default:"0" }},
-                                        5k {{ analytics_metrics.multikill.by_state.ct_hold.k5|default:"0" }}
-                                    </strong>
-                                </div>
-                                <div class="multikill-context__row">
-                                    <span>T Hold (после плента)</span>
-                                    <strong>
-                                        1k {{ analytics_metrics.multikill.by_state.t_post_plant.k1|default:"0" }},
-                                        2k {{ analytics_metrics.multikill.by_state.t_post_plant.k2|default:"0" }},
-                                        3k {{ analytics_metrics.multikill.by_state.t_post_plant.k3|default:"0" }},
-                                        4k {{ analytics_metrics.multikill.by_state.t_post_plant.k4|default:"0" }},
-                                        5k {{ analytics_metrics.multikill.by_state.t_post_plant.k5|default:"0" }}
-                                    </strong>
-                                </div>
-                                <div class="multikill-context__row">
-                                    <span>CT Retake (после плента)</span>
-                                    <strong>
-                                        1k {{ analytics_metrics.multikill.by_state.ct_retake.k1|default:"0" }},
-                                        2k {{ analytics_metrics.multikill.by_state.ct_retake.k2|default:"0" }},
-                                        3k {{ analytics_metrics.multikill.by_state.ct_retake.k3|default:"0" }},
-                                        4k {{ analytics_metrics.multikill.by_state.ct_retake.k4|default:"0" }},
-                                        5k {{ analytics_metrics.multikill.by_state.ct_retake.k5|default:"0" }}
-                                    </strong>
-                                </div>
-                            </div>
-                        {% endif %}
+                        <div class="kill-output-controls">
+                            <label>
+                                <span>Side</span>
+                                <select id="kill-output-side" class="analytics-select">
+                                    <option value="auto" selected>Auto</option>
+                                    <option value="both">Both</option>
+                                </select>
+                            </label>
+                            <label>
+                                <span>Role</span>
+                                <select id="kill-output-role" class="analytics-select" disabled>
+                                    <option value="all" selected>All</option>
+                                </select>
+                            </label>
+                        </div>
+                    </div>
+                    {% if analytics_metrics.kill_output_by_phase %}
+                        <div class="kill-output-matrix" data-side="t">
+                            <h4>T Phases</h4>
+                            {% with phases=analytics_metrics.kill_output_by_phase.phases %}
+                                <table class="kill-output-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Phase</th>
+                                            <th>0k</th>
+                                            <th>1k</th>
+                                            <th>2k</th>
+                                            <th>3k</th>
+                                            <th>4k</th>
+                                            <th>5k</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% with phase=phases.t_entry %}
+                                            <tr>
+                                                <td>T Entry</td>
+                                                <td>{{ phase.k0|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k0 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k1|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k1 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k2|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k2 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k3|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k3 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k4|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k4 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k5|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k5 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                            </tr>
+                                        {% endwith %}
+                                        {% with phase=phases.t_execute %}
+                                            <tr>
+                                                <td>T Execute</td>
+                                                <td>{{ phase.k0|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k0 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k1|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k1 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k2|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k2 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k3|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k3 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k4|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k4 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k5|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k5 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                            </tr>
+                                        {% endwith %}
+                                        {% with phase=phases.t_postplant_hold %}
+                                            <tr>
+                                                <td>T Postplant Hold</td>
+                                                <td>{{ phase.k0|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k0 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k1|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k1 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k2|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k2 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k3|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k3 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k4|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k4 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k5|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k5 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                            </tr>
+                                        {% endwith %}
+                                    </tbody>
+                                </table>
+                            {% endwith %}
+                        </div>
+                        <div class="kill-output-matrix" data-side="ct">
+                            <h4>CT Phases</h4>
+                            {% with phases=analytics_metrics.kill_output_by_phase.phases %}
+                                <table class="kill-output-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Phase</th>
+                                            <th>0k</th>
+                                            <th>1k</th>
+                                            <th>2k</th>
+                                            <th>3k</th>
+                                            <th>4k</th>
+                                            <th>5k</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% with phase=phases.ct_hold %}
+                                            <tr>
+                                                <td>CT Hold</td>
+                                                <td>{{ phase.k0|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k0 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k1|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k1 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k2|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k2 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k3|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k3 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k4|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k4 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k5|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k5 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                            </tr>
+                                        {% endwith %}
+                                        {% with phase=phases.ct_push %}
+                                            <tr>
+                                                <td>CT Push</td>
+                                                <td>{{ phase.k0|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k0 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k1|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k1 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k2|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k2 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k3|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k3 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k4|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k4 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k5|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k5 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                            </tr>
+                                        {% endwith %}
+                                        {% with phase=phases.ct_retake %}
+                                            <tr>
+                                                <td>CT Retake</td>
+                                                <td>{{ phase.k0|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k0 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k1|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k1 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k2|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k2 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k3|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k3 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k4|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k4 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k5|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k5 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                            </tr>
+                                        {% endwith %}
+                                    </tbody>
+                                </table>
+                            {% endwith %}
+                        </div>
                     {% else %}
                         <div class="analytics-empty">Недостаточно данных</div>
                     {% endif %}
@@ -1269,21 +1324,63 @@
         color: #6c757d;
     }
 
-    .multikill-context {
-        margin-top: 1rem;
-        padding: 0.75rem 1rem;
-        background: #f8f9fa;
-        border-radius: 8px;
-        display: grid;
-        gap: 0.35rem;
-        font-size: 0.9rem;
+    .kill-output-controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: center;
     }
 
-    .multikill-context__row {
+    .kill-output-controls label {
         display: flex;
-        justify-content: space-between;
-        gap: 0.75rem;
-        flex-wrap: wrap;
+        flex-direction: column;
+        gap: 0.25rem;
+        font-size: 0.85rem;
+        color: #6c757d;
+    }
+
+    .analytics-select {
+        padding: 0.4rem 0.65rem;
+        border-radius: 8px;
+        border: 1px solid rgba(0, 0, 0, 0.12);
+        background: #fff;
+        min-width: 120px;
+    }
+
+    .kill-output-matrix {
+        margin-top: 1.25rem;
+    }
+
+    .kill-output-matrix h4 {
+        margin: 0 0 0.5rem;
+        font-size: 0.95rem;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        color: #343a40;
+    }
+
+    .kill-output-table {
+        width: 100%;
+        border-collapse: collapse;
+        background: #fff;
+        border-radius: 10px;
+        overflow: hidden;
+        border: 1px solid #e9ecef;
+    }
+
+    .kill-output-table th,
+    .kill-output-table td {
+        padding: 0.55rem 0.7rem;
+        border-bottom: 1px solid #e9ecef;
+        text-align: left;
+        font-size: 0.9rem;
+        white-space: nowrap;
+    }
+
+    .kill-output-table th {
+        background: #f8f9fa;
+        font-weight: 600;
+        color: #495057;
     }
 
     /* Details Grid */
@@ -1961,6 +2058,8 @@
         const spinner = document.getElementById("hm-spinner");
         const regenerateBtn = document.getElementById("hm-regenerate");
         const regenerateStatus = document.getElementById("hm-regenerate-status");
+        const killOutputSide = document.getElementById("kill-output-side");
+        const killOutputMatrices = Array.from(document.querySelectorAll(".kill-output-matrix"));
         const heatmapProfileId = (root?.dataset?.profileId || "").trim();
         const defaultMap = (root?.dataset?.map || "de_mirage").trim() || "de_mirage";
         const period = (root?.dataset?.period || "last_20").trim() || "last_20";
@@ -1981,6 +2080,33 @@
 
         function setActive(tabs, value) {
             tabs.forEach((t) => t.classList.toggle("active", t.dataset.value === value));
+        }
+
+        function resolveKillOutputSide() {
+            if (!killOutputSide) {
+                return "both";
+            }
+            const selection = killOutputSide.value;
+            if (selection === "both") {
+                return "both";
+            }
+            if (selection === "auto") {
+                const activeTab = sideTabs.find((tab) => tab.classList.contains("active"));
+                const activeSide = activeTab?.dataset?.value;
+                return activeSide === "ct" || activeSide === "t" ? activeSide : "both";
+            }
+            return selection;
+        }
+
+        function updateKillOutputMatrix() {
+            if (!killOutputMatrices.length) {
+                return;
+            }
+            const side = resolveKillOutputSide();
+            killOutputMatrices.forEach((matrix) => {
+                const matrixSide = matrix.dataset.side;
+                matrix.hidden = side !== "both" && matrixSide !== side;
+            });
         }
 
         if (!heatmapProfileId) {
@@ -2146,6 +2272,7 @@
                 currentSide = t.dataset.value;
                 setActive(sideTabs, currentSide);
                 fetchHeatmap();
+                updateKillOutputMatrix();
             })
         );
 
@@ -2192,6 +2319,12 @@
             });
         }
 
+        if (killOutputSide) {
+            killOutputSide.addEventListener("change", () => {
+                updateKillOutputMatrix();
+            });
+        }
+
         if (regenerateBtn) {
             regenerateBtn.addEventListener("click", async () => {
                 setRegenerating(true);
@@ -2209,6 +2342,7 @@
         setActive(metricTabs, currentMetric);
         toggleSlice(currentBucket === "all");
         fetchHeatmap();
+        updateKillOutputMatrix();
     });
 </script>
 {% endblock %}
