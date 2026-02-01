@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import math
+from bisect import bisect_left
 from collections import Counter
 from decimal import Decimal, InvalidOperation
 from functools import lru_cache
@@ -56,8 +57,11 @@ SITE_DISTANCE_RADIUS = 650.0
 POSTPLANT_DISTANCE_RADIUS = 600.0
 R_SITE = 650.0
 R_PLANT = 600.0
+R_PLANT_EXIT = 900.0
 R_FAR = 1000.0
 ENTRY_WINDOW_SEC = 30.0
+EARLY_SEC = 20.0
+ENTRY_EARLY_SEC = 20.0
 MIN_SEC_IN_AREA = 4.0
 ROUND_COL_CANDIDATES = ["round", "round_num", "round_number", "roundNum", "roundNumber", "roundnum"]
 TICK_COL_CANDIDATES = ["tick", "ticks", "tick_num"]
@@ -2766,6 +2770,44 @@ def _infer_objective_site_from_ticks(
     return None
 
 
+def _nearest_target_tick_info(
+    round_number: int | None,
+    kill_tick: int | None,
+    kill_time: float | None,
+    tick_positions_by_round: dict[int, list[dict[str, Any]]],
+) -> dict[str, Any]:
+    if round_number is None or (kill_tick is None and kill_time is None):
+        return {}
+    positions = tick_positions_by_round.get(round_number, [])
+    if not positions:
+        return {}
+    target_positions = [pos for pos in positions if pos.get("is_target")]
+    if not target_positions:
+        return {}
+
+    use_tick = kill_tick is not None and any(pos.get("tick") is not None for pos in target_positions)
+    key = "tick" if use_tick else "time"
+    target_value = kill_tick if use_tick else kill_time
+    if target_value is None:
+        return {}
+    sorted_positions = sorted(
+        (pos for pos in target_positions if pos.get(key) is not None),
+        key=lambda pos: pos.get(key) or 0,
+    )
+    if not sorted_positions:
+        return {}
+    keys = [pos.get(key) or 0 for pos in sorted_positions]
+    idx = bisect_left(keys, target_value)
+    candidates = []
+    if 0 <= idx < len(sorted_positions):
+        candidates.append(sorted_positions[idx])
+    if idx - 1 >= 0:
+        candidates.append(sorted_positions[idx - 1])
+    if not candidates:
+        return {}
+    return min(candidates, key=lambda pos: abs((pos.get(key) or 0) - target_value))
+
+
 def _assign_kill_phase(
     kill: dict[str, Any],
     side: str | None,
@@ -2774,11 +2816,18 @@ def _assign_kill_phase(
     centers: dict[str, tuple[float, float]],
     plant_info: dict[str, Any] | None,
     objective_site: str | None,
+    kill_place: str | None = None,
+    t_round: float | None = None,
+    round_winner: str | None = None,
+    explode_tick: int | None = None,
+    round_end_tick: int | None = None,
 ) -> str:
-    kill_time = kill.get("time")
+    kill_time = t_round if t_round is not None else kill.get("time")
     kill_tick = kill.get("tick")
     kill_x = kill.get("attacker_x")
     kill_y = kill.get("attacker_y")
+    if kill_x is None or kill_y is None or (kill_tick is None and kill_time is None):
+        return "other"
     plant_tick = plant_info.get("tick") if plant_info else None
     plant_time = plant_info.get("time") if plant_info else None
     plant_xy = None
@@ -2796,9 +2845,10 @@ def _assign_kill_phase(
     if far_from_sites:
         far_from_sites = dist_to_a >= R_FAR and dist_to_b >= R_FAR
     in_site_area = near_site
-    near_plant = _is_in_plant_area(kill_x, kill_y, plant_xy) if post_plant else False
+    dist_to_plant = _distance_to_point(kill_x, kill_y, plant_xy) if post_plant else None
+    near_plant = dist_to_plant is not None and dist_to_plant <= R_PLANT if post_plant else False
     offsite_far = far_from_sites
-    in_entry_window = kill_time is not None and kill_time <= ENTRY_WINDOW_SEC
+    in_entry_window = kill_time is not None and kill_time <= ENTRY_EARLY_SEC
 
     if side == "T":
         target_site = objective_site if objective_site in {"A", "B"} else None
@@ -2811,19 +2861,48 @@ def _assign_kill_phase(
             near_target_site = target_site_dist <= R_SITE
         else:
             near_target_site = in_site_area
-        if not post_plant and near_target_site:
-            return "t_execute"
-        if post_plant and near_plant:
-            return "t_postplant_hold"
+        if post_plant:
+            if near_plant:
+                return "t_postplant_hold"
+            return "t_roam"
         if in_entry_window and offsite_far:
             return "t_entry"
+        if near_target_site:
+            return "t_execute"
+        return "t_roam"
     if side == "CT":
-        if post_plant and near_plant:
-            return "ct_retake"
-        if not post_plant and in_site_area:
+        if post_plant:
+            if explode_tick is not None and kill_tick is not None and kill_tick >= explode_tick:
+                return "ct_exit_frag"
+            if round_winner == "T" and dist_to_plant is not None and dist_to_plant > R_PLANT_EXIT:
+                return "ct_exit_frag"
+            if (
+                round_winner is None
+                and explode_tick is None
+                and round_end_tick is not None
+                and kill_tick is not None
+                and kill_tick >= round_end_tick
+                and dist_to_plant is not None
+                and dist_to_plant > R_PLANT_EXIT
+            ):
+                return "ct_exit_frag"
+            if near_plant:
+                return "ct_retake"
+            return "ct_roam"
+        if in_site_area:
+            aggressive_places = {
+                "Pit",
+                "Underpass",
+                "B Under",
+                "Apartments Under",
+                "Under",
+            }
+            if kill_place in aggressive_places and kill_time is not None and kill_time <= EARLY_SEC:
+                return "ct_push"
             return "ct_hold"
-        if not post_plant and far_from_sites:
+        if far_from_sites:
             return "ct_push"
+        return "ct_roam"
     return "other"
 
 
@@ -2833,7 +2912,18 @@ def compute_kill_output_by_phase(
     target_name: str | None,
 ) -> dict[str, Any]:
     target_id = normalize_steamid64(target_steam_id)
-    phases = ["t_entry", "t_execute", "t_postplant_hold", "ct_hold", "ct_push", "ct_retake", "other"]
+    phases = [
+        "t_entry",
+        "t_execute",
+        "t_postplant_hold",
+        "t_roam",
+        "ct_hold",
+        "ct_push",
+        "ct_retake",
+        "ct_roam",
+        "ct_exit_frag",
+        "other",
+    ]
     hist_template = {f"k{i}": 0 for i in range(6)}
     output = {phase: {**hist_template, "total_rounds": 0} for phase in phases}
     if target_id is None:
@@ -2906,6 +2996,33 @@ def compute_kill_output_by_phase(
                     plant_time,
                 )
 
+            round_winner = None
+            if parsed.round_winners:
+                round_winner = parsed.round_winners.get(round_number)
+            round_events = (parsed.bomb_events_by_round or {}).get(round_number, [])
+            explode_tick = None
+            defuse_tick = None
+            round_end_tick = None
+            if round_events:
+                for event in round_events:
+                    event_type = event.get("event")
+                    event_tick = _safe_int(event.get("tick"))
+                    if event_type == "explode" and event_tick is not None:
+                        explode_tick = event_tick
+                    if event_type == "defuse" and event_tick is not None:
+                        defuse_tick = event_tick
+            if round_winner is None and defuse_tick is not None:
+                round_winner = "CT"
+            if explode_tick is not None:
+                round_end_tick = explode_tick
+            elif defuse_tick is not None:
+                round_end_tick = defuse_tick
+            elif round_positions:
+                round_end_tick = max(
+                    (pos.get("tick") for pos in round_positions if pos.get("tick") is not None),
+                    default=None,
+                )
+
             sec_pre_site_a = 0.0
             sec_pre_site_b = 0.0
             sec_pre_site_any = 0.0
@@ -2959,6 +3076,8 @@ def compute_kill_output_by_phase(
                         opportunity["t_postplant_hold"].add(round_key)
                     if sec_entry_offsite >= MIN_SEC_IN_AREA:
                         opportunity["t_entry"].add(round_key)
+                    if target_positions:
+                        opportunity["t_roam"].add(round_key)
                 elif target_side == "CT":
                     if sec_pre_site_any >= MIN_SEC_IN_AREA:
                         opportunity["ct_hold"].add(round_key)
@@ -2966,12 +3085,41 @@ def compute_kill_output_by_phase(
                         opportunity["ct_retake"].add(round_key)
                     if sec_pre_offsite_far >= MIN_SEC_IN_AREA:
                         opportunity["ct_push"].add(round_key)
+                    if target_positions:
+                        opportunity["ct_roam"].add(round_key)
+                    if plant_info:
+                        opportunity["ct_exit_frag"].add(round_key)
 
             if round_kills:
                 round_counts = round_kill_counts.setdefault(round_key, Counter())
                 for kill in round_kills:
                     kill_side = target_side or _normalize_side(kill.get("attacker_side"))
-                    phase = _assign_kill_phase(kill, kill_side, map_name, config, centers, plant_info, objective_site)
+                    tick_info = _nearest_target_tick_info(
+                        round_number,
+                        _safe_int(kill.get("tick")),
+                        _safe_float(kill.get("time")),
+                        parsed.tick_positions_by_round or {},
+                    )
+                    kill_payload = dict(kill)
+                    if kill_payload.get("tick") is None and tick_info.get("tick") is not None:
+                        kill_payload["tick"] = tick_info.get("tick")
+                    if kill_payload.get("time") is None and tick_info.get("time") is not None:
+                        kill_payload["time"] = tick_info.get("time")
+                    kill_time = _safe_float(kill_payload.get("time"))
+                    phase = _assign_kill_phase(
+                        kill_payload,
+                        kill_side,
+                        map_name,
+                        config,
+                        centers,
+                        plant_info,
+                        objective_site,
+                        kill_place=tick_info.get("place"),
+                        t_round=kill_time,
+                        round_winner=round_winner,
+                        explode_tick=explode_tick,
+                        round_end_tick=round_end_tick,
+                    )
                     round_counts[phase] += 1
                     kills_by_phase_total[phase] += 1
                     opportunity[phase].add(round_key)
@@ -2979,7 +3127,15 @@ def compute_kill_output_by_phase(
         if None in kills_by_round:
             for kill in kills_by_round.get(None, []):
                 kill_side = _normalize_side(kill.get("attacker_side"))
-                phase = _assign_kill_phase(kill, kill_side, map_name, config, centers, {}, None)
+                phase = _assign_kill_phase(
+                    kill,
+                    kill_side,
+                    map_name,
+                    config,
+                    centers,
+                    {},
+                    None,
+                )
                 kills_by_phase_total[phase] += 1
 
     for phase in phases:

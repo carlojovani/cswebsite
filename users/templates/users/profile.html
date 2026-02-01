@@ -809,6 +809,17 @@
                                                 <td>{{ phase.k5|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k5 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
                                             </tr>
                                         {% endwith %}
+                                        {% with phase=phases.t_roam %}
+                                            <tr>
+                                                <td>T Roam</td>
+                                                <td>{{ phase.k0|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k0 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k1|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k1 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k2|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k2 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k3|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k3 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k4|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k4 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k5|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k5 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                            </tr>
+                                        {% endwith %}
                                     </tbody>
                                 </table>
                             {% endwith %}
@@ -862,39 +873,63 @@
                                                 <td>{{ phase.k5|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k5 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
                                             </tr>
                                         {% endwith %}
+                                        {% with phase=phases.ct_roam %}
+                                            <tr>
+                                                <td>CT Roam</td>
+                                                <td>{{ phase.k0|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k0 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k1|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k1 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k2|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k2 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k3|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k3 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k4|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k4 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k5|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k5 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                            </tr>
+                                        {% endwith %}
+                                        {% with phase=phases.ct_exit_frag %}
+                                            <tr>
+                                                <td>CT Exit Frag</td>
+                                                <td>{{ phase.k0|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k0 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k1|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k1 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k2|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k2 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k3|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k3 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k4|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k4 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k5|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k5 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                            </tr>
+                                        {% endwith %}
                                     </tbody>
                                 </table>
                             {% endwith %}
                         </div>
-                        <div class="kill-output-matrix" data-side="other">
-                            <h4>Other / Unclassified</h4>
-                            {% with phase=analytics_metrics.kill_output_by_phase.phases.other %}
-                                <table class="kill-output-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Phase</th>
-                                            <th>0k</th>
-                                            <th>1k</th>
-                                            <th>2k</th>
-                                            <th>3k</th>
-                                            <th>4k</th>
-                                            <th>5k</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr>
-                                            <td>Other / Unclassified</td>
-                                            <td>{{ phase.k0|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k0 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
-                                            <td>{{ phase.k1|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k1 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
-                                            <td>{{ phase.k2|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k2 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
-                                            <td>{{ phase.k3|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k3 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
-                                            <td>{{ phase.k4|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k4 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
-                                            <td>{{ phase.k5|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k5 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            {% endwith %}
-                        </div>
+                        {% if analytics_metrics.kill_output_by_phase.kills_by_phase_total.other|default:0 %}
+                            <div class="kill-output-matrix" data-side="other">
+                                <h4>Unclassified (missing data)</h4>
+                                {% with phase=analytics_metrics.kill_output_by_phase.phases.other %}
+                                    <table class="kill-output-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Phase</th>
+                                                <th>0k</th>
+                                                <th>1k</th>
+                                                <th>2k</th>
+                                                <th>3k</th>
+                                                <th>4k</th>
+                                                <th>5k</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td>Unclassified (missing data)</td>
+                                                <td>{{ phase.k0|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k0 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k1|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k1 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k2|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k2 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k3|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k3 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k4|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k4 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                                <td>{{ phase.k5|default:"0" }}{% if phase.total_rounds %} ({% widthratio phase.k5 phase.total_rounds 100 %}%) {% else %} (—){% endif %}</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                {% endwith %}
+                            </div>
+                        {% endif %}
                         {% if analytics_metrics.kill_output_by_phase.reconciliation %}
                             <div class="kill-output-reconciliation">
                                 Accounted kills: {{ analytics_metrics.kill_output_by_phase.reconciliation.accounted_kills|default:"0" }}
