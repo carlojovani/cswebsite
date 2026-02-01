@@ -236,8 +236,13 @@
                     {% endif %}
                 </div>
 
+                <div class="analytics-view" data-view="classic">
+                <div class="analytics-block-heading" data-block="combat">
+                    <h3>Combat</h3>
+                    <p>Общий бой: KDA, стиль и разбор фаз.</p>
+                </div>
                 <div id="analytics-root"
-                     class="analytics-card"
+                     class="analytics-card analytics-overview-card"
                      data-profile-id="{{ player_profile.id }}"
                      data-job-id="{% if analytics_job %}{{ analytics_job.id }}{% endif %}"
                      data-job-status="{% if analytics_job %}{{ analytics_job.status }}{% endif %}"
@@ -245,6 +250,10 @@
                      data-can-trigger="{% if can_trigger_analytics %}1{% else %}0{% endif %}">
                     <div class="analytics-header">
                         <h3>Аналитика</h3>
+                        <div class="analytics-view-toggle" role="tablist" aria-label="Analytics view">
+                            <button type="button" class="analytics-view-btn" data-view="classic">Classic</button>
+                            <button type="button" class="analytics-view-btn" data-view="dashboard">Dashboard</button>
+                        </div>
                         <div class="analytics-actions">
                             <form method="post" action="{% url 'analyze_profile' player_profile.id %}">
                                 {% csrf_token %}
@@ -334,6 +343,11 @@
                             </div>
                         {% endif %}
                     {% endif %}
+                </div>
+
+                <div class="analytics-block-heading" data-block="roles">
+                    <h3>Roles</h3>
+                    <p>Позиции, роли сторон и поведенческие теги.</p>
                 </div>
 
                 <div class="analytics-card role-fingerprint-card">
@@ -428,40 +442,74 @@
                     {% endif %}
                 </div>
 
-                {% if analytics_metrics.side_roles %}
+                {% if analytics_metrics.side_roles or analytics_metrics.side_roles_v2 %}
                 <div class="analytics-card side-roles-card">
                     <div class="analytics-header">
                         <h3>Side roles</h3>
+                        <div class="analytics-meta">0–30 sec + подтверждение действиями</div>
                     </div>
                     <div class="role-metrics-grid">
-                        {% with ct=analytics_metrics.side_roles.ct %}
-                            {% with a=ct.shares|get_item:"A" mid=ct.shares|get_item:"MID" b=ct.shares|get_item:"B" %}
-                                <div class="role-metric">
-                                    <span>CT роль</span>
-                                    <strong>{{ ct.label }}</strong>
-                                    <div class="role-metric__meta">
-                                        A {{ a|default:0|floatformat:0 }}% · MID {{ mid|default:0|floatformat:0 }}% · B {{ b|default:0|floatformat:0 }}%
+                        {% if analytics_metrics.side_roles_v2 %}
+                            {% with ct=analytics_metrics.side_roles_v2.ct %}
+                                {% with a=ct.macro|get_item:"A" mid=ct.macro|get_item:"MID" b=ct.macro|get_item:"B" %}
+                                    <div class="role-metric">
+                                        <span>CT позиция</span>
+                                        <strong>{{ ct.label }}</strong>
+                                        <div class="role-metric__meta">
+                                            Conf. {{ ct.confidence|default:0|floatformat:2 }} ·
+                                            A {{ a|default:0|floatformat:2 }} · MID {{ mid|default:0|floatformat:2 }} · B {{ b|default:0|floatformat:2 }}
+                                        </div>
+                                        {% if ct.approx %}
+                                            <span class="role-chip role-chip--approx">approx</span>
+                                        {% endif %}
                                     </div>
-                                    {% if ct.approx %}
-                                        <span class="role-chip role-chip--approx">approx</span>
-                                    {% endif %}
-                                </div>
+                                {% endwith %}
                             {% endwith %}
-                        {% endwith %}
-                        {% with t=analytics_metrics.side_roles.t %}
-                            {% with a=t.shares|get_item:"A" mid=t.shares|get_item:"MID" b=t.shares|get_item:"B" %}
-                                <div class="role-metric">
-                                    <span>T роль</span>
-                                    <strong>{{ t.label }}</strong>
-                                    <div class="role-metric__meta">
-                                        A {{ a|default:0|floatformat:0 }}% · MID {{ mid|default:0|floatformat:0 }}% · B {{ b|default:0|floatformat:0 }}%
+                            {% with t=analytics_metrics.side_roles_v2.t %}
+                                {% with a=t.macro|get_item:"A" mid=t.macro|get_item:"MID" b=t.macro|get_item:"B" %}
+                                    <div class="role-metric">
+                                        <span>T роль</span>
+                                        <strong>{{ t.label }}</strong>
+                                        <div class="role-metric__meta">
+                                            Conf. {{ t.confidence|default:0|floatformat:2 }} ·
+                                            A {{ a|default:0|floatformat:2 }} · MID {{ mid|default:0|floatformat:2 }} · B {{ b|default:0|floatformat:2 }}
+                                        </div>
+                                        {% if t.approx %}
+                                            <span class="role-chip role-chip--approx">approx</span>
+                                        {% endif %}
                                     </div>
-                                    {% if t.approx %}
-                                        <span class="role-chip role-chip--approx">approx</span>
-                                    {% endif %}
-                                </div>
+                                {% endwith %}
                             {% endwith %}
-                        {% endwith %}
+                        {% else %}
+                            {% with ct=analytics_metrics.side_roles.ct %}
+                                {% with a=ct.shares|get_item:"A" mid=ct.shares|get_item:"MID" b=ct.shares|get_item:"B" %}
+                                    <div class="role-metric">
+                                        <span>CT роль</span>
+                                        <strong>{{ ct.label }}</strong>
+                                        <div class="role-metric__meta">
+                                            A {{ a|default:0|floatformat:0 }}% · MID {{ mid|default:0|floatformat:0 }}% · B {{ b|default:0|floatformat:0 }}%
+                                        </div>
+                                        {% if ct.approx %}
+                                            <span class="role-chip role-chip--approx">approx</span>
+                                        {% endif %}
+                                    </div>
+                                {% endwith %}
+                            {% endwith %}
+                            {% with t=analytics_metrics.side_roles.t %}
+                                {% with a=t.shares|get_item:"A" mid=t.shares|get_item:"MID" b=t.shares|get_item:"B" %}
+                                    <div class="role-metric">
+                                        <span>T роль</span>
+                                        <strong>{{ t.label }}</strong>
+                                        <div class="role-metric__meta">
+                                            A {{ a|default:0|floatformat:0 }}% · MID {{ mid|default:0|floatformat:0 }}% · B {{ b|default:0|floatformat:0 }}%
+                                        </div>
+                                        {% if t.approx %}
+                                            <span class="role-chip role-chip--approx">approx</span>
+                                        {% endif %}
+                                    </div>
+                                {% endwith %}
+                            {% endwith %}
+                        {% endif %}
                     </div>
                 </div>
                 {% endif %}
@@ -611,6 +659,11 @@
                     {% endif %}
                 </div>
 
+                <div class="analytics-block-heading" data-block="utility">
+                    <h3>Utility</h3>
+                    <p>Использование гранат, поддержка и размены.</p>
+                </div>
+
                 <div class="analytics-card utility-iq-card">
                     <div class="analytics-header">
                         <h3>Utility IQ</h3>
@@ -666,6 +719,11 @@
                     {% endif %}
                 </div>
 
+                <div class="analytics-block-heading" data-block="timing">
+                    <h3>Timing</h3>
+                    <p>Темп и осведомлённость до ключевых событий.</p>
+                </div>
+
                 <div class="analytics-card timing-control-card">
                     <div class="analytics-header">
                         <h3>Timing control</h3>
@@ -708,6 +766,9 @@
                 <div class="analytics-card awareness-card">
                     <div class="analytics-header">
                         <h3>Осведомлённость перед смертью</h3>
+                    </div>
+                    <div class="analytics-meta">
+                        Доля смертей, где была информация о врагах за несколько секунд до контакта.
                     </div>
                     {% if analytics_metrics.awareness_before_death %}
                         <div class="analytics-metrics">
@@ -1007,6 +1068,11 @@
                     {% endif %}
                 </div>
 
+                <div class="analytics-block-heading" data-block="heatmaps">
+                    <h3>Heatmaps</h3>
+                    <p>Передвижение, киллы и смерти по времени раунда.</p>
+                </div>
+
                 <div id="heatmaps-root"
                      class="heatmaps-card"
                      data-profile-id="{{ player_profile.id }}"
@@ -1085,6 +1151,7 @@
                             <span id="hm-regenerate-status" class="heatmaps-meta heatmaps-meta--inline" aria-live="polite"></span>
                         </div>
                     </div>
+                </div>
                 </div>
 
                 <!-- Информация о последнем обновлении -->
@@ -1555,6 +1622,138 @@
         margin: 2rem 0;
     }
 
+    .analytics-view {
+        margin-top: 1.5rem;
+    }
+
+    .analytics-view-toggle {
+        display: inline-flex;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0.25rem;
+        border-radius: 999px;
+        background: #e9ecef;
+    }
+
+    .analytics-view-btn {
+        border: none;
+        background: transparent;
+        padding: 0.35rem 0.85rem;
+        border-radius: 999px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        cursor: pointer;
+        color: #495057;
+    }
+
+    .analytics-view-btn.is-active {
+        background: #4361ee;
+        color: #fff;
+    }
+
+    .analytics-block-heading {
+        margin: 2rem 0 0.75rem;
+        padding: 0 0.25rem;
+    }
+
+    .analytics-block-heading h3 {
+        margin: 0;
+        font-size: 1.2rem;
+        color: #212529;
+    }
+
+    .analytics-block-heading p {
+        margin: 0.35rem 0 0;
+        color: #6c757d;
+        font-size: 0.95rem;
+    }
+
+    .analytics-view[data-view="classic"] .analytics-block-heading {
+        display: none;
+    }
+
+    .analytics-view[data-view="dashboard"] {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 1.5rem;
+    }
+
+    .analytics-view[data-view="dashboard"] .analytics-card,
+    .analytics-view[data-view="dashboard"] .heatmaps-card {
+        margin: 0;
+        height: 100%;
+        background: #fff;
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .analytics-view[data-view="dashboard"] .analytics-block-heading {
+        grid-column: 1 / -1;
+        margin: 0.5rem 0 0;
+        padding: 0.5rem 0.25rem 0;
+    }
+
+    .analytics-view[data-view="dashboard"] .analytics-block-heading[data-block="combat"] {
+        order: 10;
+    }
+
+    .analytics-view[data-view="dashboard"] .analytics-overview-card {
+        order: 11;
+    }
+
+    .analytics-view[data-view="dashboard"] .playstyle-card {
+        order: 12;
+    }
+
+    .analytics-view[data-view="dashboard"] .kill-output-card {
+        order: 13;
+    }
+
+    .analytics-view[data-view="dashboard"] .awareness-card {
+        order: 14;
+    }
+
+    .analytics-view[data-view="dashboard"] .analytics-block-heading[data-block="roles"] {
+        order: 20;
+    }
+
+    .analytics-view[data-view="dashboard"] .role-fingerprint-card {
+        order: 21;
+    }
+
+    .analytics-view[data-view="dashboard"] .side-roles-card {
+        order: 22;
+    }
+
+    .analytics-view[data-view="dashboard"] .analytics-block-heading[data-block="utility"] {
+        order: 30;
+    }
+
+    .analytics-view[data-view="dashboard"] .utility-iq-card {
+        order: 31;
+    }
+
+    .analytics-view[data-view="dashboard"] .support-card {
+        order: 32;
+    }
+
+    .analytics-view[data-view="dashboard"] .analytics-block-heading[data-block="timing"] {
+        order: 40;
+    }
+
+    .analytics-view[data-view="dashboard"] .timing-control-card {
+        order: 41;
+    }
+
+    .analytics-view[data-view="dashboard"] .analytics-block-heading[data-block="heatmaps"] {
+        order: 50;
+    }
+
+    .analytics-view[data-view="dashboard"] .heatmaps-card {
+        order: 51;
+    }
+
     .analytics-header {
         display: flex;
         align-items: center;
@@ -2022,6 +2221,9 @@
         const analyticsRoot = document.getElementById("analytics-root");
         const analyticsStatus = document.getElementById("analytics-status");
         const analyticsStart = document.getElementById("analytics-start");
+        const analyticsView = document.querySelector(".analytics-view");
+        const analyticsViewButtons = Array.from(document.querySelectorAll(".analytics-view-btn"));
+        const analyticsViewStorageKey = "profileAnalyticsView";
         const profileId = analyticsRoot?.dataset?.profileId;
         let currentJobId = analyticsRoot?.dataset?.jobId;
         let currentJobStatus = analyticsRoot?.dataset?.jobStatus;
@@ -2037,6 +2239,35 @@
             if (analyticsStatus) {
                 analyticsStatus.textContent = text;
             }
+        }
+
+        function applyAnalyticsView(view) {
+            if (!analyticsView) {
+                return;
+            }
+            const nextView = view === "dashboard" ? "dashboard" : "classic";
+            analyticsView.dataset.view = nextView;
+            analyticsViewButtons.forEach((btn) => {
+                btn.classList.toggle("is-active", btn.dataset.view === nextView);
+            });
+            try {
+                localStorage.setItem(analyticsViewStorageKey, nextView);
+            } catch (e) {
+                /* ignore storage errors */
+            }
+        }
+
+        if (analyticsViewButtons.length) {
+            let storedView = "classic";
+            try {
+                storedView = localStorage.getItem(analyticsViewStorageKey) || "classic";
+            } catch (e) {
+                storedView = "classic";
+            }
+            applyAnalyticsView(storedView);
+            analyticsViewButtons.forEach((btn) => {
+                btn.addEventListener("click", () => applyAnalyticsView(btn.dataset.view));
+            });
         }
 
         async function pollJob(jobId) {

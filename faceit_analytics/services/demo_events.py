@@ -53,6 +53,12 @@ STEAMID64_MIN_VALUE = 7_000_000_000_000_000
 SIDE_ROLE_SAMPLE_SECONDS = 30.0
 SIDE_ROLE_MIN_SAMPLES = 6
 SIDE_ROLE_APPROX_SAMPLES = 20
+SIDE_ROLE_V2_THRESHOLD = 0.35
+SIDE_ROLE_V2_EARLY_CONTACT_SEC = 12.0
+SIDE_ROLE_V2_LATE_CONTACT_SEC = 20.0
+SIDE_ROLE_V2_NEAR_TEAMMATE = 250.0
+SIDE_ROLE_V2_FLASH_ASSIST_PER_ROUND_TARGET = 0.2
+SIDE_ROLE_V2_UTILITY_DAMAGE_PER_ROUND_TARGET = 30.0
 SITE_DISTANCE_RADIUS = 650.0
 POSTPLANT_DISTANCE_RADIUS = 600.0
 R_SITE = 650.0
@@ -259,6 +265,7 @@ class ParsedDemoEvents:
     bomb_plants_by_round: dict[int, dict[str, Any]] = field(default_factory=dict)
     bomb_events_by_round: dict[int, list[dict[str, Any]]] = field(default_factory=dict)
     map_name: str | None = None
+    target_steam_id: str | None = None
     missing_time_bomb: int = 0
     approx_time_bomb: int = 0
 
@@ -1177,6 +1184,7 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
         bomb_plants_by_round=bomb_plants_by_round,
         bomb_events_by_round=bomb_events_by_round,
         map_name=map_name,
+        target_steam_id=target_steam_id,
         missing_time_bomb=missing_time_bomb,
         approx_time_bomb=approx_time_bomb,
         tick_rate=tick_rate,
@@ -2326,6 +2334,47 @@ def _zone_from_place(place: str | None, config: dict[str, Any]) -> str | None:
     return None
 
 
+def _side_role_place_map(config: dict[str, Any], group: str) -> dict[str, list[str]]:
+    if not config:
+        return {}
+    mapping = (config.get("side_role_place_map") or {}).get(group) or {}
+    return {bucket: list(tokens or []) for bucket, tokens in mapping.items()}
+
+
+def _side_role_bucket_from_place(place: str | None, config: dict[str, Any], group: str) -> str | None:
+    if not place or not config:
+        return None
+    place_norm = _normalize_place(place)
+    if not place_norm:
+        return None
+    mapping = _side_role_place_map(config, group)
+    for bucket, tokens in mapping.items():
+        if not tokens:
+            continue
+        for token in tokens:
+            if token and token in place_norm:
+                return bucket
+    return None
+
+
+def _dominant_bucket_from_places(
+    places: Iterable[str | None],
+    config: dict[str, Any],
+    group: str,
+    fallback: str = "OTHER",
+) -> tuple[str | None, Counter[str]]:
+    counts: Counter[str] = Counter()
+    for place in places:
+        if not place:
+            continue
+        bucket = _side_role_bucket_from_place(place, config, group) or fallback
+        counts[bucket] += 1
+    if not counts:
+        return None, counts
+    bucket = max(counts.items(), key=lambda item: (item[1], item[0]))[0]
+    return bucket, counts
+
+
 def _side_role_shares(counts: Counter[str]) -> dict[str, float]:
     total = sum(counts.values())
     shares = {key: 0.0 for key in ("A", "B", "MID", "OTHER")}
@@ -2419,6 +2468,342 @@ def _compute_side_roles(parsed_demos: list[ParsedDemoEvents]) -> dict[str, Any]:
             "samples": samples["T"],
             "rounds": len(rounds_seen["T"]),
             "approx": t_approx,
+        },
+    }
+
+
+def _bucket_shares_from_rounds(
+    round_buckets: dict[tuple[int, int], str],
+    bucket_names: Iterable[str],
+) -> tuple[dict[str, float], int]:
+    counts = Counter(round_buckets.values())
+    total_rounds = len(round_buckets)
+    shares = {bucket: 0.0 for bucket in bucket_names}
+    if not total_rounds:
+        return shares, 0
+    for bucket in bucket_names:
+        shares[bucket] = counts.get(bucket, 0) / total_rounds
+    return shares, total_rounds
+
+
+def _min_teammate_distance(positions: list[dict[str, Any]]) -> float | None:
+    early_positions = [pos for pos in positions if pos.get("time") is not None and pos.get("time") <= SIDE_ROLE_SAMPLE_SECONDS]
+    targets = [pos for pos in early_positions if pos.get("is_target")]
+    teammates = [pos for pos in early_positions if not pos.get("is_target")]
+    if not targets or not teammates:
+        return None
+    targets_sorted = sorted(targets, key=lambda pos: pos.get("time") or 0)
+    for target in targets_sorted:
+        target_time = target.get("time")
+        if target_time is None:
+            continue
+        min_dist = None
+        for mate in teammates:
+            mate_time = mate.get("time")
+            if mate_time is None:
+                continue
+            if abs(float(mate_time) - float(target_time)) > 0.2:
+                continue
+            dist = math.hypot(float(target.get("x", 0.0)) - float(mate.get("x", 0.0)), float(target.get("y", 0.0)) - float(mate.get("y", 0.0)))
+            min_dist = dist if min_dist is None else min(min_dist, dist)
+        if min_dist is not None:
+            return min_dist
+    earliest = targets_sorted[0]
+    min_dist = None
+    for mate in teammates:
+        dist = math.hypot(float(earliest.get("x", 0.0)) - float(mate.get("x", 0.0)), float(earliest.get("y", 0.0)) - float(mate.get("y", 0.0)))
+        min_dist = dist if min_dist is None else min(min_dist, dist)
+    return min_dist
+
+
+def _compute_side_roles_v2(
+    parsed_demos: list[ParsedDemoEvents],
+    target_steam_id: str | None = None,
+) -> dict[str, Any]:
+    if not parsed_demos:
+        return {
+            "ct": {
+                "label": "Unknown",
+                "confidence": 0.0,
+                "approx": True,
+                "macro": {"A": 0.0, "MID": 0.0, "B": 0.0},
+                "position_shares": {},
+                "confirm": {},
+            },
+            "t": {
+                "label": "Unknown",
+                "confidence": 0.0,
+                "approx": True,
+                "macro": {"A": 0.0, "MID": 0.0, "B": 0.0},
+                "role_shares": {},
+                "confirm": {},
+            },
+        }
+
+    target_id = normalize_steamid64(target_steam_id) if target_steam_id else None
+    if target_id is None:
+        for parsed in parsed_demos:
+            for positions in (parsed.tick_positions_by_round or {}).values():
+                for pos in positions:
+                    if pos.get("is_target") and pos.get("steamid"):
+                        target_id = pos.get("steamid")
+                        break
+                if target_id:
+                    break
+            if target_id:
+                break
+
+    ct_round_buckets: dict[tuple[int, int], str] = {}
+    t_lane_round_buckets: dict[tuple[int, int], str] = {}
+    macro_counts = {"CT": Counter(), "T": Counter()}
+    first_contact_by_round: dict[tuple[int, int], float] = {}
+    proximity_by_round: dict[tuple[int, int], float] = {}
+    missing_map_config = False
+
+    for demo_index, parsed in enumerate(parsed_demos, start=1):
+        map_config = _load_zone_config(parsed.map_name)
+        if not map_config:
+            missing_map_config = True
+        side_by_round = parsed.target_round_sides or {}
+
+        if target_id is not None:
+            for kill in parsed.kills:
+                round_number = kill.get("round")
+                if round_number is None:
+                    continue
+                if target_id not in {
+                    kill.get("attacker_steamid64"),
+                    kill.get("victim_steamid64"),
+                    kill.get("assister_steamid64"),
+                }:
+                    continue
+                kill_time = kill.get("time")
+                if kill_time is None:
+                    continue
+                round_key = (demo_index, int(round_number))
+                current = first_contact_by_round.get(round_key)
+                if current is None or kill_time < current:
+                    first_contact_by_round[round_key] = float(kill_time)
+
+            for dmg in parsed.utility_damage:
+                round_number = dmg.get("round")
+                if round_number is None:
+                    continue
+                if target_id not in {dmg.get("attacker"), dmg.get("victim")}:
+                    continue
+                dmg_time = dmg.get("time")
+                if dmg_time is None:
+                    continue
+                round_key = (demo_index, int(round_number))
+                current = first_contact_by_round.get(round_key)
+                if current is None or dmg_time < current:
+                    first_contact_by_round[round_key] = float(dmg_time)
+
+        for round_number, positions in (parsed.tick_positions_by_round or {}).items():
+            round_key = (demo_index, int(round_number))
+            target_positions = [
+                pos for pos in positions if pos.get("is_target") and pos.get("time") is not None and pos.get("time") <= SIDE_ROLE_SAMPLE_SECONDS
+            ]
+            if not target_positions:
+                continue
+            side = target_positions[0].get("side")
+            if side not in {"CT", "T"}:
+                side = side_by_round.get(round_number)
+            if side not in {"CT", "T"}:
+                continue
+
+            places = [pos.get("place") for pos in target_positions]
+            if side == "CT":
+                bucket, _counts = _dominant_bucket_from_places(places, map_config, "ct_positions")
+                ct_round_buckets[round_key] = bucket or "OTHER"
+            else:
+                bucket, _counts = _dominant_bucket_from_places(places, map_config, "t_lanes")
+                t_lane_round_buckets[round_key] = bucket or "OTHER"
+
+            for pos in target_positions:
+                zone = _zone_from_place(pos.get("place"), map_config)
+                macro_counts[side][zone if zone in {"A", "B", "MID"} else "OTHER"] += 1
+
+            if round_key not in proximity_by_round:
+                proximity = _min_teammate_distance(positions)
+                if proximity is not None:
+                    proximity_by_round[round_key] = float(proximity)
+
+    ct_buckets = ["CT_ANCHOR_A", "CT_ANCHOR_B", "CT_CONNECTOR", "CT_SHORT", "CT_WINDOW_MID", "OTHER"]
+    t_lane_buckets = ["T_A_LANE", "T_MID_LANE", "T_B_LANE", "OTHER"]
+
+    ct_position_shares, ct_rounds = _bucket_shares_from_rounds(ct_round_buckets, ct_buckets)
+    t_lane_shares, t_rounds = _bucket_shares_from_rounds(t_lane_round_buckets, t_lane_buckets)
+
+    ct_macro = _side_role_shares(macro_counts["CT"])
+    t_macro = _side_role_shares(macro_counts["T"])
+
+    ct_confirm_counts = {bucket: 0 for bucket in ct_buckets}
+    ct_confirm_samples = 0
+    for round_key, bucket in ct_round_buckets.items():
+        if bucket not in ct_buckets:
+            continue
+        ct_confirm_samples += 1
+        contact_time = first_contact_by_round.get(round_key)
+        early_contact = contact_time is not None and contact_time <= SIDE_ROLE_V2_EARLY_CONTACT_SEC
+        late_contact = contact_time is None or contact_time >= SIDE_ROLE_V2_LATE_CONTACT_SEC
+        if bucket in {"CT_ANCHOR_A", "CT_ANCHOR_B"} and late_contact:
+            ct_confirm_counts[bucket] += 1
+        if bucket in {"CT_CONNECTOR", "CT_SHORT", "CT_WINDOW_MID"} and early_contact:
+            ct_confirm_counts[bucket] += 1
+
+    ct_confirm_scores = {
+        bucket: (ct_confirm_counts[bucket] / ct_rounds) if ct_rounds else 0.0 for bucket in ct_buckets
+    }
+    ct_final_scores = {
+        bucket: 0.7 * ct_position_shares.get(bucket, 0.0) + 0.3 * ct_confirm_scores.get(bucket, 0.0)
+        for bucket in ct_buckets
+    }
+
+    ct_best_bucket = max(ct_final_scores.items(), key=lambda item: item[1])[0] if ct_final_scores else "OTHER"
+    ct_best_score = ct_final_scores.get(ct_best_bucket, 0.0)
+    ct_label_map = {
+        "CT_ANCHOR_A": "Anchor A",
+        "CT_ANCHOR_B": "Anchor B",
+        "CT_CONNECTOR": "Connector",
+        "CT_SHORT": "Short",
+        "CT_WINDOW_MID": "Window/Mid",
+        "OTHER": "Flex",
+    }
+    ct_confirm_data_available = any(first_contact_by_round.get(key) is not None for key in ct_round_buckets.keys())
+    ct_approx = missing_map_config or ct_rounds < SIDE_ROLE_APPROX_SAMPLES or not ct_confirm_data_available
+    if ct_rounds < SIDE_ROLE_MIN_SAMPLES:
+        ct_label = "Unknown"
+        ct_approx = True
+        ct_best_score = 0.0
+    elif ct_best_score < SIDE_ROLE_V2_THRESHOLD:
+        ct_label = "Flex"
+    else:
+        ct_label = ct_label_map.get(ct_best_bucket, "Flex")
+
+    t_first_contact_times = [first_contact_by_round.get(key) for key in t_lane_round_buckets.keys()]
+    t_first_contact_times = [val for val in t_first_contact_times if val is not None]
+    early_contact_rounds = sum(
+        1
+        for key in t_lane_round_buckets.keys()
+        if first_contact_by_round.get(key) is not None and first_contact_by_round.get(key) <= SIDE_ROLE_V2_EARLY_CONTACT_SEC
+    )
+    late_contact_rounds = sum(
+        1
+        for key in t_lane_round_buckets.keys()
+        if first_contact_by_round.get(key) is None or first_contact_by_round.get(key) >= SIDE_ROLE_V2_LATE_CONTACT_SEC
+    )
+    near_teammate_rounds = sum(
+        1 for key in t_lane_round_buckets.keys() if proximity_by_round.get(key) is not None and proximity_by_round.get(key) <= SIDE_ROLE_V2_NEAR_TEAMMATE
+    )
+    far_teammate_rounds = sum(
+        1 for key in t_lane_round_buckets.keys() if proximity_by_round.get(key) is None or proximity_by_round.get(key) > SIDE_ROLE_V2_NEAR_TEAMMATE
+    )
+    main_lane = None
+    main_lane_share = 0.0
+    for lane, share in t_lane_shares.items():
+        if lane == "OTHER":
+            continue
+        if share > main_lane_share:
+            main_lane_share = share
+            main_lane = lane
+    off_lane_rounds = sum(
+        1
+        for key, lane in t_lane_round_buckets.items()
+        if main_lane and lane != main_lane and lane != "OTHER"
+    )
+
+    flash_assists = 0
+    utility_damage_total = 0.0
+    if target_id is not None:
+        for parsed in parsed_demos:
+            for kill in parsed.kills:
+                if kill.get("assistedflash") and kill.get("assister_steamid64") == target_id:
+                    flash_assists += 1
+            for dmg in parsed.utility_damage:
+                if dmg.get("attacker") == target_id:
+                    utility_damage_total += float(dmg.get("damage") or 0.0)
+
+    flash_assists_per_round = flash_assists / t_rounds if t_rounds else 0.0
+    utility_damage_per_round = utility_damage_total / t_rounds if t_rounds else 0.0
+    flash_score = min(flash_assists_per_round / SIDE_ROLE_V2_FLASH_ASSIST_PER_ROUND_TARGET, 1.0) if t_rounds else 0.0
+    utility_score = min(utility_damage_per_round / SIDE_ROLE_V2_UTILITY_DAMAGE_PER_ROUND_TARGET, 1.0) if t_rounds else 0.0
+    utility_support_score = (flash_score + utility_score) / 2.0
+
+    t_position_entry = main_lane_share
+    t_position_support = main_lane_share
+    t_position_lurker = max(0.0, 1.0 - main_lane_share)
+
+    t_confirm_entry = (early_contact_rounds / t_rounds) if t_rounds else 0.0
+    t_confirm_support = ((near_teammate_rounds / t_rounds) if t_rounds else 0.0) * 0.6 + utility_support_score * 0.4
+    t_confirm_lurker = (
+        (
+            (off_lane_rounds / t_rounds) if t_rounds else 0.0
+        )
+        + ((far_teammate_rounds / t_rounds) if t_rounds else 0.0)
+        + ((late_contact_rounds / t_rounds) if t_rounds else 0.0)
+    ) / 3.0
+
+    t_final_scores = {
+        "Entry": 0.7 * t_position_entry + 0.3 * t_confirm_entry,
+        "Support": 0.7 * t_position_support + 0.3 * t_confirm_support,
+        "Lurker": 0.7 * t_position_lurker + 0.3 * t_confirm_lurker,
+    }
+    t_best_role = max(t_final_scores.items(), key=lambda item: item[1])[0] if t_final_scores else "Support"
+    t_best_score = t_final_scores.get(t_best_role, 0.0)
+    t_confirm_data_available = (
+        bool(t_first_contact_times)
+        or any(key in proximity_by_round for key in t_lane_round_buckets.keys())
+        or flash_assists > 0
+        or utility_damage_total > 0
+    )
+    t_approx = missing_map_config or t_rounds < SIDE_ROLE_APPROX_SAMPLES or not t_confirm_data_available
+    if t_rounds < SIDE_ROLE_MIN_SAMPLES:
+        t_label = "Unknown"
+        t_approx = True
+        t_best_score = 0.0
+    elif t_best_score < SIDE_ROLE_V2_THRESHOLD:
+        t_label = "Support"
+    else:
+        t_label = t_best_role
+
+    ct_macro_pct = {key: value for key, value in ct_macro.items() if key in {"A", "MID", "B"}}
+    t_macro_pct = {key: value for key, value in t_macro.items() if key in {"A", "MID", "B"}}
+
+    return {
+        "ct": {
+            "label": ct_label,
+            "confidence": round(ct_best_score, 2),
+            "approx": ct_approx,
+            "macro": ct_macro_pct,
+            "position_shares": ct_position_shares,
+            "confirm": {
+                "early_contact_rate": (ct_confirm_counts.get("CT_CONNECTOR", 0) + ct_confirm_counts.get("CT_SHORT", 0) + ct_confirm_counts.get("CT_WINDOW_MID", 0))
+                / ct_rounds
+                if ct_rounds
+                else 0.0,
+                "late_contact_rate": (ct_confirm_counts.get("CT_ANCHOR_A", 0) + ct_confirm_counts.get("CT_ANCHOR_B", 0)) / ct_rounds
+                if ct_rounds
+                else 0.0,
+                "samples": ct_rounds,
+            },
+        },
+        "t": {
+            "label": t_label,
+            "confidence": round(t_best_score, 2),
+            "approx": t_approx,
+            "macro": t_macro_pct,
+            "role_shares": t_final_scores,
+            "confirm": {
+                "early_contact_rate": (early_contact_rounds / t_rounds) if t_rounds else 0.0,
+                "late_contact_rate": (late_contact_rounds / t_rounds) if t_rounds else 0.0,
+                "near_teammate_rate": (near_teammate_rounds / t_rounds) if t_rounds else 0.0,
+                "off_lane_rate": (off_lane_rounds / t_rounds) if t_rounds else 0.0,
+                "flash_assists_per_round": flash_assists_per_round,
+                "utility_damage_per_round": utility_damage_per_round,
+                "lane_shares": t_lane_shares,
+                "samples": t_rounds,
+            },
         },
     }
 
@@ -3380,6 +3765,7 @@ def get_or_build_demo_features(
             "window_sec": PROXIMITY_WINDOW_SECONDS,
         }
         side_roles = _compute_side_roles([])
+        side_roles_v2 = _compute_side_roles_v2([], steam_id)
         kill_output_by_phase = compute_kill_output_by_phase([], steam_id or "", None)
         payload = {
             "role_fingerprint": role_fingerprint,
@@ -3388,6 +3774,7 @@ def get_or_build_demo_features(
             "entry_breakdown": entry_breakdown,
             "kill_support": support_breakdown,
             "side_roles": side_roles,
+            "side_roles_v2": side_roles_v2,
             "kill_output_by_phase": kill_output_by_phase,
             "debug": debug,
             "rounds_total": 0,
@@ -3528,6 +3915,7 @@ def get_or_build_demo_features(
         insufficient_rounds = False
 
     role_fingerprint["debug"] = debug
+    side_roles_v2 = _compute_side_roles_v2(parsed_demos, steam_id)
 
     payload = {
         "role_fingerprint": role_fingerprint,
@@ -3539,6 +3927,7 @@ def get_or_build_demo_features(
         "entry_breakdown": entry_breakdown,
         "kill_support": support_breakdown,
         "side_roles": side_roles,
+        "side_roles_v2": side_roles_v2,
         "kda": kda,
         "debug": debug,
         "rounds_total": rounds_total,
