@@ -105,6 +105,73 @@
       "B": [[0.05, 0.55, 0.4, 0.95]],
       "MID": [[0.35, 0.3, 0.65, 0.6]],
       "ENTRY": [[0.45, 0.15, 0.7, 0.35], [0.2, 0.5, 0.45, 0.75]]
+    },
+    "side_role_place_map": {
+      "ct_positions": {
+        "CT_ANCHOR_A": [
+          "a site",
+          "ticket",
+          "stairs",
+          "triple",
+          "default",
+          "firebox",
+          "tetris",
+          "a ramp",
+          "palace",
+          "a palace"
+        ],
+        "CT_ANCHOR_B": [
+          "b site",
+          "market",
+          "kitchen",
+          "bench",
+          "van",
+          "back hall",
+          "car"
+        ],
+        "CT_CONNECTOR": [
+          "connector",
+          "con",
+          "jungle"
+        ],
+        "CT_SHORT": [
+          "cat",
+          "catwalk",
+          "short"
+        ],
+        "CT_WINDOW_MID": [
+          "window",
+          "mid window",
+          "sniper",
+          "mid boxes",
+          "top mid",
+          "mid"
+        ],
+        "OTHER": []
+      },
+      "t_lanes": {
+        "T_A_LANE": [
+          "a ramp",
+          "ramp",
+          "palace",
+          "a palace",
+          "tetris"
+        ],
+        "T_MID_LANE": [
+          "top mid",
+          "mid",
+          "underpass"
+        ],
+        "T_B_LANE": [
+          "b apps",
+          "b apartments",
+          "market",
+          "kitchen",
+          "bench",
+          "van"
+        ],
+        "OTHER": []
+      }
     }
   }
 }

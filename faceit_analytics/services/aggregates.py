@@ -61,6 +61,7 @@ def enrich_metrics_with_role_features(
     entry_breakdown = None
     kill_support = None
     side_roles = None
+    side_roles_v2 = None
     kill_output_by_phase = None
     if demo_features:
         timing_slices = demo_features.get("timing_slices")
@@ -71,6 +72,7 @@ def enrich_metrics_with_role_features(
         entry_breakdown = demo_features.get("entry_breakdown")
         kill_support = demo_features.get("kill_support")
         side_roles = demo_features.get("side_roles")
+        side_roles_v2 = demo_features.get("side_roles_v2")
         kda = demo_features.get("kda")
         kill_output_by_phase = demo_features.get("kill_output_by_phase")
         demo_features_debug = demo_features.get("debug")
@@ -101,6 +103,7 @@ def enrich_metrics_with_role_features(
     metrics["entry_breakdown"] = entry_breakdown
     metrics["kill_support"] = kill_support
     metrics["side_roles"] = side_roles
+    metrics["side_roles_v2"] = side_roles_v2
     metrics["kda"] = kda
     metrics["demo_features_debug"] = demo_features_debug
     metrics["demo_features_approx"] = demo_features_approx
