@@ -65,6 +65,10 @@ R_SITE = 650.0
 R_PLANT = 600.0
 R_PLANT_EXIT = 900.0
 R_FAR = 1000.0
+# Two-band CT hold vs push heuristics (defaults tuned for Mirage)
+R_HOLD_CORE = float(getattr(settings, "R_HOLD_CORE", 650.0))
+R_HOLD_SOFT = float(getattr(settings, "R_HOLD_SOFT", 950.0))
+CT_PUSH_LATE_SEC = float(getattr(settings, "CT_PUSH_LATE_SEC", 40.0))
 ENTRY_WINDOW_SEC = 30.0
 EARLY_SEC = 20.0
 ENTRY_EARLY_SEC = 20.0
@@ -1148,6 +1152,34 @@ def parse_demo_events(dem_path: Path, target_steam_id: str | None = None) -> Par
         round_start_times,
         tick_rate,
     )
+    # Fill per-kill attacker place for the target player.
+    # Some awpy kill rows do not contain attacker_place; for Mirage overrides we need a callout.
+    target_id_for_place = normalize_steamid64(target_steam_id) if target_steam_id else None
+    if target_id_for_place and tick_positions_by_round:
+        for kill in kills:
+            if kill.get("attacker_steamid64") != target_id_for_place:
+                continue
+            if kill.get("place"):
+                continue
+            # Prefer awpy-provided attacker_place if present
+            awpy_place = kill.get("attacker_place")
+            if awpy_place:
+                kill["place"] = awpy_place
+                continue
+            info = _nearest_target_tick_info(
+                kill.get("round"),
+                _safe_int(kill.get("tick")),
+                _safe_float(kill.get("time")),
+                tick_positions_by_round,
+            )
+            if info.get("place"):
+                kill["place"] = info.get("place")
+            # Also backfill missing tick/time to keep downstream classifiers consistent.
+            if kill.get("tick") is None and info.get("tick") is not None:
+                kill["tick"] = info.get("tick")
+            if kill.get("time") is None and info.get("time") is not None:
+                kill["time"] = info.get("time")
+
     debug_payload["ticks_missing_t_round"] = ticks_missing_t_round
     (
         bomb_plants_by_round,
@@ -3256,36 +3288,61 @@ def _assign_kill_phase(
             return "t_execute"
         return "t_roam"
     if side == "CT":
+        # Post-plant: retake near the plant, otherwise classify exit-frags when the round is effectively lost/ended.
         if post_plant:
-            if explode_tick is not None and kill_tick is not None and kill_tick >= explode_tick:
-                return "ct_exit_frag"
-            if round_winner == "T" and dist_to_plant is not None and dist_to_plant > R_PLANT_EXIT:
-                return "ct_exit_frag"
-            if (
-                round_winner is None
-                and explode_tick is None
-                and round_end_tick is not None
-                and kill_tick is not None
-                and kill_tick >= round_end_tick
-                and dist_to_plant is not None
-                and dist_to_plant > R_PLANT_EXIT
-            ):
-                return "ct_exit_frag"
             if near_plant:
                 return "ct_retake"
+            # If T wins / bomb explodes and the kill happens far from the plant, treat as exit-frag.
+            if dist_to_plant is not None and dist_to_plant > R_PLANT_EXIT:
+                if round_winner == "T" or explode_tick is not None:
+                    return "ct_exit_frag"
+                if explode_tick is not None and kill_tick is not None and kill_tick >= explode_tick:
+                    return "ct_exit_frag"
+                if (
+                    round_winner is None
+                    and explode_tick is None
+                    and round_end_tick is not None
+                    and kill_tick is not None
+                    and kill_tick >= round_end_tick
+                ):
+                    return "ct_exit_frag"
             return "ct_roam"
-        if in_site_area:
-            aggressive_places = {
-                "Pit",
-                "Underpass",
-                "B Under",
-                "Apartments Under",
-                "Under",
-            }
-            if kill_place in aggressive_places and kill_time is not None and kill_time <= EARLY_SEC:
-                return "ct_push"
-            return "ct_hold"
-        if far_from_sites:
+
+        # Pre-plant: two-band hold heuristic + timing + place overrides.
+        min_dist = None
+        if dist_to_a is not None:
+            min_dist = dist_to_a
+        if dist_to_b is not None:
+            min_dist = dist_to_b if min_dist is None else min(min_dist, dist_to_b)
+
+        aggressive_places = {
+            # Mirage aggressive CT areas (early fights should count as pushes)
+            "Under",
+            "Underpass",
+            "B Under",
+            "Apartments Under",
+            "Top Mid",
+            "Mid",
+            "Catwalk",
+            "Short",
+            "Connector",
+            "Palace",
+            "Ramp",
+        }
+        if kill_place in aggressive_places and kill_time is not None and kill_time <= EARLY_SEC:
+            return "ct_push"
+
+        if min_dist is not None:
+            if min_dist <= R_HOLD_CORE:
+                return "ct_hold"
+            if min_dist <= R_HOLD_SOFT:
+                # Soft band: early = push, mid/late = hold
+                if kill_time is not None and kill_time <= EARLY_SEC:
+                    return "ct_push"
+                return "ct_hold"
+
+        # Outside soft band: early/mid map fights are usually pushes; very late becomes roam.
+        if kill_time is not None and kill_time <= CT_PUSH_LATE_SEC:
             return "ct_push"
         return "ct_roam"
     return "other"
